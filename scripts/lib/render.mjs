@@ -150,7 +150,18 @@ export function renderSite(index, health, cfg, root) {
   // rebuild with no source change still produces an identical file.
   let buildDate = null;
   try {
-    buildDate = execFileSync('git', ['-C', root, 'log', '-1', '--format=%cs'], { encoding: 'utf8', stdio: ['ignore','pipe','ignore'] }).trim() || null;
+    // %cI is the commit's own ISO timestamp with its offset — a date, a time and a zone, all of them read
+    // rather than generated, so the build stays byte-reproducible. `new Date()` here would put a different
+    // string in the file on every run and break that.
+    const iso = execFileSync('git', ['-C', root, 'log', '-1', '--format=%cI'], { encoding: 'utf8', stdio: ['ignore','pipe','ignore'] }).trim();
+    if (iso) {
+      const d = new Date(iso);
+      const offset = iso.slice(-6);
+      buildDate = {
+        local: `${iso.slice(0, 10)} ${iso.slice(11, 16)} ${offset === 'Z' ? 'UTC' : `UTC${offset}`}`,
+        utc: `${d.toISOString().slice(0, 10)} ${d.toISOString().slice(11, 16)} UTC`,
+      };
+    }
   } catch { buildDate = null; }
 
   // `jsonForScript`, not `JSON.stringify`: this file is inlined verbatim into a <script> tag by
@@ -506,7 +517,8 @@ function indexPage(index, health, cfg, truncated, nav, views, plan, contrib, nam
     body: `
 <section class="hero">
   <h1>${escapeHtml(index.siteTitle)}</h1>
-  ${buildDate ? `<p class="built-on">Last updated <strong>${escapeHtml(buildDate)}</strong> <span class="cap">· from the last commit, so a rebuild with no change says the same thing</span></p>` : ''}
+  ${buildDate ? `<p class="built-on">Last updated <strong>${escapeHtml(buildDate.local)}</strong>${
+    buildDate.utc === buildDate.local ? '' : ` <span class="cap">· ${escapeHtml(buildDate.utc)}</span>`} <span class="cap">· the last commit's own timestamp, so a rebuild with no change says the same thing</span></p>` : ''}
   ${lede(index)}
   <p class="hero-stats">
     <strong>${index.stats.documents}</strong> documents ·

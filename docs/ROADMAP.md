@@ -1,6 +1,6 @@
 # Roadmap — project-atlas
 
-**Last updated:** 2026-08-10 · **Version:** 0.1.14 · **Status:** pre-release, dogfooding
+**Last updated:** 2026-08-10 · **Version:** 0.1.15 · **Status:** pre-release, dogfooding
 
 Open work, with an honest completion figure against each item. A figure marked `*` is estimated rather than
 measured against the code — the same distinction the tool preserves everywhere else, applied to itself.
@@ -19,7 +19,7 @@ measured against the code — the same distinction the tool preserves everywhere
 | Q-1 | 100 | Q-2 | 30* | Q-3 | 0 |
 | D-1 | 100 | D-2 | 100 | D-3 | 100 |
 | D-4 | 0 | D-5 | 30* | D-6 | 0 |
-| D-7 | 0 | D-8 | 0 | D-9 | 100 |
+| D-7 | 0 | D-8 | 100 | D-9 | 100 |
 | D-10 | 100 | I-1 | 100 | | |
 | I-3 | 40* | D-11 | 100 | I-2 | 100 |
 
@@ -139,6 +139,7 @@ no prompt text, keeping the guarantee `tokens.mjs` rule 3 makes and its test enf
 scored: a transcript records what happened after a prompt, not whether the prompt was well judged.
 
 **D-8 · The tool audits its own output** — **P0 · Critical**
+*Shipped in 0.1.15.* `atlas build --verify`, and CI runs it.
 *`atlas health` audits your markdown. Nothing audits what the generator produces.*
 **Raised from P2. Six defects shipped in one afternoon and every single one was found by a human looking at
 the rendered page:** an export that deleted the theme toggle while keeping its script; an update row that told

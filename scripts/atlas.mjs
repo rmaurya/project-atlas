@@ -42,6 +42,7 @@ import { readChanges, formatChanges, fileDiff } from './lib/changes.mjs';
 import { formatVersion, updateNotice, isPluginCache } from './lib/version.mjs';
 import { specVerdict } from './lib/spec.mjs';
 import { checkForUpdate } from './lib/update.mjs';
+import { verifySite, formatVerify } from './lib/verify.mjs';
 
 const argv = process.argv.slice(2);
 
@@ -533,6 +534,14 @@ async function main() {
     // every markdown edit in every unrelated repository would generate a docs/_wiki nobody asked for.
     if (flag('auto') && (!cfg.__configPath || cfg.automation.buildOnWrite === false)) return;
     const r = doBuild(root, cfg, withGit, cmd === 'all');
+    // `--verify` audits what was just written. The tool checked other people's markdown and never its own
+    // HTML; six defects shipped in one afternoon and a person found every one of them.
+    if (flag('verify')) {
+      const findings = verifySite(path.resolve(root, cfg.output));
+      say('');
+      say(formatVerify(findings, color));
+      if (findings.length) process.exitCode = 1;
+    }
     if (cmd === 'all' && r.health.blockingCount) process.exitCode = 1;
     return;
   }

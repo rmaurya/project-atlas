@@ -36,6 +36,7 @@ import { versionVerdict, isRuntimePath, parseVersion, compareVersions } from '..
 import { disagreements, updateNotice, isPluginCache } from '../scripts/lib/version.mjs';
 import { specVerdict, idsIn } from '../scripts/lib/spec.mjs';
 import { risks, summarise } from '../scripts/lib/insight.mjs';
+import { verifyPage, verifySite } from '../scripts/lib/verify.mjs';
 import { manifestUrl, checkForUpdate, fetchLatest, readCache, writeCache, isFresh } from '../scripts/lib/update.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -2358,6 +2359,65 @@ test('automation · neither hook acts in a repository that never adopted the too
   eq(cli(dir, ['build', '--auto', '--quiet']).code, 0);
   ok(!fs.existsSync(path.join(dir, 'docs', '_wiki')), 'no config, no site written');
   eq(cli(dir, ['health', '--gate']).code, 0, 'no config, no gate');
+});
+
+/* ================================================================== the tool audits its own output */
+
+console.log('\nverify');
+
+const FILES = new Set(['a.html', 'atlas.css', 'pages/x.html']);
+
+test('verify · a control that is scripted but never rendered is caught', () => {
+  // The 0.1.5 defect exactly: the export deleted #themeToggle and kept the script driving it, so the page
+  // had no theme control and silently ignored a saved preference. Nothing errored.
+  const bad = '<body><script>var b=document.getElementById("themeToggle"); b.textContent="x";</script></body>';
+  ok(verifyPage('a.html', bad, FILES).some((f) => f.rule === 'unrendered-control'));
+
+  // Guarded is fine — an optional element is legitimately absent and its script bails.
+  const guarded = '<body><script>var t=document.getElementById("itbl"); if(!t) return; t.rows;</script></body>';
+  eq(verifyPage('a.html', guarded, FILES).filter((f) => f.rule === 'unrendered-control').length, 0);
+});
+
+test('verify · a duplicate id is caught, because getElementById returns only the first', () => {
+  // How one page's script came to drive another page's table when ten pages were concatenated.
+  const bad = '<div id="itbl"></div><div id="itbl"></div>';
+  const f = verifyPage('a.html', bad, FILES).filter((x) => x.rule === 'duplicate-id');
+  eq(f.length, 1);
+  includes(f[0].detail, '#itbl');
+});
+
+test('verify · a link with no file behind it is caught, and a source link is not', () => {
+  // 69 dead links shipped in the bundle and a human found them. But every page also links back to the
+  // markdown it derives from, which leaves the output tree on purpose.
+  const bad = '<a href="wiki.html">w</a><a href="atlas.css">c</a>';
+  const f = verifyPage('a.html', bad, FILES);
+  eq(f.filter((x) => x.rule === 'dead-link').length, 1, 'wiki.html is absent; atlas.css is present');
+
+  const source = '<a href="../../../README.md">source</a>';
+  eq(verifyPage('pages/x.html', source, FILES).filter((x) => x.rule === 'dead-link').length, 0);
+});
+
+test('verify · an href inside a script template is not a link', () => {
+  // The search index builds hrefs by concatenation, and `href="pages/' + f + '"` is a template.
+  const js = String.raw`<script>h += '<a href="pages/' + x.f + '">';</script>`;
+  eq(verifyPage('a.html', js, FILES).filter((x) => x.rule === 'dead-link').length, 0);
+});
+
+test('verify · a page whose stylesheet did not travel is caught', () => {
+  // The bundle carried every figure and none of its chart CSS, and read as an unstyled outline.
+  const cls = Array.from({ length: 14 }, (_, i) => `<div class="c${i}"></div>`).join('');
+  const bad = `<style>.only{color:red}</style>${cls}`;
+  ok(verifyPage('a.html', bad, FILES).some((f) => f.rule === 'stylesheet-missing'));
+});
+
+test('verify · this repository\'s own generated site is clean', () => {
+  // The point of the whole module: run it on the real output, every build.
+  const dir = fixture('verify-real', { 'docs/A.md': '# A\n\n[b](B.md)\n', 'docs/B.md': '# B\n' });
+  const cfg = resolveConfig(dir);
+  const index = buildIndex(dir, cfg);
+  renderSite(index, runHealth(index, cfg, dir), cfg, dir);
+  const findings = verifySite(path.join(dir, cfg.output));
+  eq(findings.length, 0, findings.map((f) => `${f.page}: ${f.rule} ${f.detail}`).join('\n'));
 });
 
 /* ================================================================== risk, from measured numbers */

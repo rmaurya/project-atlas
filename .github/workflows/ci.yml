@@ -24,3 +24,4 @@ jobs:
         run: |
           node scripts/atlas.mjs scan
           node scripts/atlas.mjs health
+          node scripts/atlas.mjs build --verify

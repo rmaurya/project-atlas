@@ -13,6 +13,27 @@ versions follow [Semantic Versioning](https://semver.org/).
 - `atlas plan` — propose the git route for the working tree and wait for approval, rather than only refusing a
   commit once it is attempted.
 
+## [0.1.15] — 2026-08-10
+
+### Added
+- **`atlas build --verify` — the tool audits its own output, and CI runs it.** `atlas health` checked other
+  people's markdown scrupulously and had never once looked at the HTML it writes. Six defects shipped in one
+  afternoon because of that, and a person found every one of them.
+
+  Four checks, all decidable from the file: no duplicate id, no control that is scripted but never rendered
+  in a block with no early return, no local link with nothing behind it, no page whose stylesheet failed to
+  travel. Those are the general form of four of the six. The other two — a flex paragraph and a grid leaving
+  holes — need a browser, and are declared out of scope rather than faked.
+
+  Getting it right took three passes, each a false positive worth recording: 358 "dead" links that were
+  parent-relative and fine; 15 "unrendered" controls guarded by an early `return` further up the same script;
+  and one `href` inside a JavaScript string template.
+
+### Fixed
+- **The homepage date now carries a time and both zones** — `2026-08-10 04:07 UTC+05:30 · 2026-08-09 22:37
+  UTC`. Read from the commit's own `%cI` rather than generated, so the build stays byte-reproducible; a
+  `new Date()` here would write a different string on every run.
+
 ## [0.1.14] — 2026-08-10
 
 ### Added
