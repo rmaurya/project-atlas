@@ -529,6 +529,13 @@ test('dashboard · renders charts, the item table, and declares what it omits', 
   includes(html, 'does not show', 'omissions must be stated on the page');
 });
 
+test('dashboard · both themes declare every ramp and status step', () => {
+  // A colour defined in only one theme renders as the wrong theme's ink on the other theme's ground —
+  // the classic unreadable-page bug. The two sets must have identical keys.
+  eq(Object.keys(RAMP.light).sort(), Object.keys(RAMP.dark).sort());
+  eq(Object.keys(STATUS.light).sort(), Object.keys(STATUS.dark).sort());
+});
+
 test('dashboard · uses no categorical palette — only the ordinal ramp and status colours', () => {
   const cfg = resolveConfig(planRepo);
   cfg.planning = { source: 'docs/TASKS.md' };
@@ -536,7 +543,8 @@ test('dashboard · uses no categorical palette — only the ordinal ramp and sta
   const health = runHealth(index, cfg, planRepo);
   const site = renderSite(index, health, cfg, planRepo);
   const html = fs.readFileSync(path.join(site.outDir, 'dashboard.html'), 'utf8');
-  const allowed = new Set([...Object.values(RAMP.light), ...Object.values(RAMP.dark), ...Object.values(STATUS)]);
+  const allowed = new Set([...Object.values(RAMP.light), ...Object.values(RAMP.dark),
+                           ...Object.values(STATUS.light), ...Object.values(STATUS.dark)]);
   const hexes = [...new Set((html.match(/#[0-9a-fA-F]{6}/g) || []).map((h) => h.toLowerCase()))];
   // Any hex in the dashboard's own markup must come from a validated set; theme tokens live in atlas.css.
   const stray = hexes.filter((h) => !allowed.has(h));

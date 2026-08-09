@@ -20,21 +20,36 @@ import { escapeHtml } from './markdown.mjs';
 import { SIGNALS } from './health.mjs';
 
 /**
- * Ordinal progress ramp — the project's own brand hue, not a generic chart blue.
- * Validated as an ordinal ramp in both modes: monotone lightness, ΔL ≥ 0.06 between steps, single hue
- * (spread 7° light / 6° dark), light end clearing 2:1 against the surface it sits on
- * (2.01:1 on #f7f6f4, 2.42:1 on #242528). Re-run the validator before changing any of these six values.
+ * Ordinal progress ramps — one per theme, each validated against the surface it actually sits on.
+ *
+ * Light  #b09af0 → #7c4dee → #3d2280 on #faf8f5 — light end 2.27:1, hue spread 6°
+ * Dark   #e2d0ff → #b98cff → #6d3fd1 on #101018 — light end 2.96:1, hue spread 11°
+ *
+ * Both pass monotone lightness and a ΔL ≥ 0.06 gap between steps. **Re-run the palette validator before
+ * touching any of these six values** — the light end sitting just above a 2:1 floor is exactly the thing that
+ * looks fine by eye and fails the check.
  */
 export const RAMP = {
-  light: { none: '#e2e0dc', mid: '#b9a3fa', high: '#8a5cf6', done: '#4f2ea8', unknown: '#d6d3ce' },
-  dark: { none: '#3a3c42', mid: '#d5c6ff', high: '#a984ff', done: '#6b45c9', unknown: '#2e3035' },
+  light: { none: '#e2ddd2', mid: '#b09af0', high: '#7c4dee', done: '#3d2280', unknown: '#d5cfc2' },
+  dark: { none: '#242433', mid: '#e2d0ff', high: '#b98cff', done: '#6d3fd1', unknown: '#1c1c28' },
 };
+
 /**
- * State colours, taken from the app's own `--ok` / `--warm` / `--danger` rather than a stock status palette.
- * Reserved: never used for a data series, and never the only signal — every use carries a text label.
- * The light steps are darkened from the app's dark-mode values to hold contrast on a light ground.
+ * State colours. Reserved: never a data series, and never the only signal — every use carries a text label.
+ * The light steps are darkened for a light ground; the dark steps are the neon set, which needs the
+ * saturation to read at all against near-black.
  */
-export const STATUS = { good: '#3f9e68', warning: '#b5722a', serious: '#c07338', critical: '#c0433f' };
+export const STATUS = {
+  light: { good: '#2f7d4f', warning: '#9a5f16', serious: '#b0561f', critical: '#b03530' },
+  dark: { good: '#3ef2a0', warning: '#ffc857', serious: '#ff9f5c', critical: '#ff5c7a' },
+};
+
+/**
+ * Status colours are used inline in a few places (a stat-tile dot, a health bar). Those cannot switch with
+ * the theme through a CSS variable unless the variable exists, so they are emitted as `var(--st-*)` and the
+ * two sets are declared once in the stylesheet below.
+ */
+const st = (role) => `var(--st-${role})`;
 
 export function dashboardPage(index, health, plan, cfg, shell) {
   const body = `
@@ -83,7 +98,7 @@ function tiles(index, health, plan) {
 }
 
 function tile(value, label, sub, tone) {
-  const dot = tone ? `<span class="dot" style="background:${STATUS[tone]}"></span>` : '';
+  const dot = tone ? `<span class="dot" style="background:${st(tone)}"></span>` : '';
   return `<div class="tile"><p class="tv">${dot}${escapeHtml(value)}</p><p class="tl">${escapeHtml(label)}</p><p class="ts">${escapeHtml(sub)}</p></div>`;
 }
 
@@ -126,7 +141,7 @@ function healthChart(health, cfg) {
 
   if (!rows.length) {
     return `<figure class="card"><figcaption><h2>Documentation health</h2></figcaption>
-      <p class="empty"><span class="dot" style="background:${STATUS.good}"></span> No findings. Every signal reports clean.</p></figure>`;
+      <p class="empty"><span class="dot" style="background:${st('good')}"></span> No findings. Every signal reports clean.</p></figure>`;
   }
   const max = Math.max(...rows.map((r) => r.count));
   return `
@@ -137,7 +152,7 @@ function healthChart(health, cfg) {
     ${rows.map((r) => `
     <div class="bar" title="${escapeHtml(r.why)}">
       <span class="bl"><span class="sig ${r.blocking ? 'block' : 'adv'}">${r.id}</span> ${escapeHtml(r.title)}</span>
-      <span class="bt"><span class="bf" style="width:${Math.max(2, (r.count / max) * 100)}%;background:${r.blocking ? STATUS.critical : STATUS.warning}"></span></span>
+      <span class="bt"><span class="bf" style="width:${Math.max(2, (r.count / max) * 100)}%;background:${r.blocking ? st('critical') : st('warning')}"></span></span>
       <span class="bv">${r.count}<span class="bh">${r.blocking ? 'blocking' : 'advisory'}</span></span>
     </div>`).join('')}
   </div>
@@ -332,10 +347,16 @@ figcaption { display:block; }
 .pill.t-none,.pill.t-unknown { color:var(--ink); }
 .stamp { color:var(--muted); font-size:12px; }
 abbr { text-decoration:none; cursor:help; color:var(--muted); }
-:root { --r-none:${RAMP.light.none}; --r-mid:${RAMP.light.mid}; --r-high:${RAMP.light.high}; --r-done:${RAMP.light.done}; --r-unknown:${RAMP.light.unknown}; }
+:root { --st-good:${STATUS.light.good}; --st-warning:${STATUS.light.warning};
+        --st-serious:${STATUS.light.serious}; --st-critical:${STATUS.light.critical};
+        --r-none:${RAMP.light.none}; --r-mid:${RAMP.light.mid}; --r-high:${RAMP.light.high}; --r-done:${RAMP.light.done}; --r-unknown:${RAMP.light.unknown}; }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --st-good:${STATUS.dark.good}; --st-warning:${STATUS.dark.warning};
+  --st-serious:${STATUS.dark.serious}; --st-critical:${STATUS.dark.critical};
   --r-none:${RAMP.dark.none}; --r-mid:${RAMP.dark.mid}; --r-high:${RAMP.dark.high}; --r-done:${RAMP.dark.done}; --r-unknown:${RAMP.dark.unknown}; } }
-:root[data-theme="dark"] { --r-none:${RAMP.dark.none}; --r-mid:${RAMP.dark.mid}; --r-high:${RAMP.dark.high}; --r-done:${RAMP.dark.done}; --r-unknown:${RAMP.dark.unknown}; }
+:root[data-theme="dark"] { --st-good:${STATUS.dark.good}; --st-warning:${STATUS.dark.warning};
+  --st-serious:${STATUS.dark.serious}; --st-critical:${STATUS.dark.critical};
+  --r-none:${RAMP.dark.none}; --r-mid:${RAMP.dark.mid}; --r-high:${RAMP.dark.high}; --r-done:${RAMP.dark.done}; --r-unknown:${RAMP.dark.unknown}; }
 `;
 
 const TABLE_JS = `
