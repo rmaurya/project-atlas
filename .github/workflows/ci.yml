@@ -12,8 +12,11 @@ jobs:
         run: node scripts/sync-runtimes.mjs --check
       - name: Test
         run: node tests/run.mjs
+      # No `init` here. This repository commits its own project-atlas.config.json, and init correctly refuses
+      # to overwrite one (tests/run.mjs:1495) — so under `bash -e` it aborted the step on every commit from
+      # d1c2d15 onward. `--force` would be worse than pointless: it would replace the tuned config with a
+      # generated default, and scan/health would then dogfood something this project does not actually ship.
       - name: Dogfood — run the tool on this repository
         run: |
-          node scripts/atlas.mjs init
           node scripts/atlas.mjs scan
           node scripts/atlas.mjs health
