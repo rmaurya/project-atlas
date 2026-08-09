@@ -13,6 +13,25 @@ versions follow [Semantic Versioning](https://semver.org/).
 - `atlas plan` — propose the git route for the working tree and wait for approval, rather than only refusing a
   commit once it is attempted.
 
+## [0.1.5] — 2026-08-10
+
+### Fixed
+- **The standalone export deleted the theme toggle and kept its script.** `exportSingleFile` stripped `<nav>`
+  wholesale to remove cross-page links, which are genuinely dead in a single file — but the theme toggle lives
+  in there and acts on the current page alone. The shipped script then hit `if (!btn) return;` and bailed
+  before `paint()`, so the export had no theme control *and* silently ignored a saved light preference,
+  always rendering in whatever the operating system asked for. Nothing errored; the page just quietly did
+  less. The nav now keeps everything that is not an `<a>`, and is removed only when nothing is left.
+- This shipped in the artifact the skill tells you to publish — the one surface built for other people to
+  look at.
+
+### Added
+- **A test that the export may not drop a control the built page rendered.** Asserting the toggle alone would
+  catch only the bug that already happened; this compares every `getElementById` in the exported scripts
+  against the built page and fails when the export removed something that was there. Optional elements a
+  repository never renders — `#itbl` without a planning source — are excluded, because their scripts already
+  guard for absence. Verified to fail with the fix reverted.
+
 ## [0.1.4] — 2026-08-10
 
 ### Added

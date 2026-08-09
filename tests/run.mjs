@@ -1048,6 +1048,47 @@ test('publish · export inlines the stylesheet so the file stands alone', () => 
   ok(!/<script[^>]+src="/.test(html), 'no external script may remain');
 });
 
+test('publish · every control the export scripts reach for is actually rendered', () => {
+  // The general form of a real bug: `exportSingleFile` stripped <nav> wholesale to remove cross-page links,
+  // which also removed the theme toggle — while still shipping its script. `if (!btn) return;` then bailed
+  // before `paint()`, so the export had no theme control AND silently ignored a saved light preference. It
+  // always rendered in whatever the OS asked for. Nothing failed; it just quietly did less.
+  //
+  // Asserting the specific button would only catch the bug that already happened. Asserting that every
+  // getElementById in the shipped scripts resolves to an element in the shipped markup catches the class.
+  // The invariant is NOT "every getElementById resolves" — an optional element like #itbl is legitimately
+  // absent when a repository configures no planning source, and its script guards with `if (!tbl) return;`.
+  // The invariant is that **exporting must not delete a control the built page rendered**. That is exactly
+  // what happened, and it is what an export is uniquely able to get wrong.
+  const cfg = resolveConfig(pubRepo);
+  const index = buildIndex(pubRepo, cfg);
+  renderSite(index, runHealth(index, cfg, pubRepo), cfg, pubRepo);
+
+  for (const page of ['dashboard', 'index', 'health']) {
+    const built = fs.readFileSync(path.join(pubRepo, cfg.output, `${page}.html`), 'utf8');
+    const html = exportSingleFile(pubRepo, cfg, page);
+    const reached = new Set([...html.matchAll(/getElementById\(\s*['"]([\w-]+)['"]\s*\)/g)].map((m) => m[1]));
+    for (const id of reached) {
+      if (!built.includes(`id="${id}"`)) continue;      // never rendered here; the script guards for that
+      ok(html.includes(`id="${id}"`),
+         `${page}: the built page renders #${id} and the export dropped it, while still shipping its script`);
+    }
+  }
+});
+
+test('publish · the export keeps same-page controls and drops only the dead links', () => {
+  const cfg = resolveConfig(pubRepo);
+  const index = buildIndex(pubRepo, cfg);
+  renderSite(index, runHealth(index, cfg, pubRepo), cfg, pubRepo);
+  const html = exportSingleFile(pubRepo, cfg, 'dashboard');
+
+  const nav = /<nav>([\s\S]*?)<\/nav>/.exec(html);
+  ok(nav, 'the nav must survive when it still holds a control');
+  ok(!/<a\b/.test(nav[1]), 'a cross-page link in a single file goes nowhere and must be stripped');
+  includes(nav[1], 'themeToggle', 'the toggle acts on this page alone, so it stays');
+  ok(!/href="[^"]*view-\w+\.html"/.test(html), 'no sibling page link may remain anywhere');
+});
+
 /* ================================================================== branching */
 
 console.log('\nbranching');

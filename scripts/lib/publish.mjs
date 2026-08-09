@@ -424,7 +424,16 @@ export function exportSingleFile(root, cfg, which = 'dashboard') {
   });
   // Sibling pages do not exist beside a standalone file, so every cross-page link would be dead. Strip the
   // navigation and demote the brand to plain text rather than shipping links that go nowhere.
-  html = html.replace(/<nav>[\s\S]*?<\/nav>/, '');
+  //
+  // **Keep the controls that are not links.** The theme toggle lives inside <nav> but acts on this page alone,
+  // and removing it while still shipping its script left the export with `if (!btn) return;` — no toggle, and
+  // a saved light preference silently ignored because `paint()` sits after that return. The export always
+  // rendered in whatever the OS asked for, with no way to change it. Anything in there that is not an <a> is
+  // a same-page control and survives.
+  html = html.replace(/<nav>([\s\S]*?)<\/nav>/, (_, inner) => {
+    const kept = inner.replace(/<a\b[\s\S]*?<\/a>/g, '').trim();
+    return kept ? `<nav>${kept}</nav>` : '';
+  });
   html = html.replace(/<a class="brand" href="[^"]*">([\s\S]*?)<\/a>/, '<span class="brand">$1</span>');
   // The build stamp poll has nothing to poll against outside the site directory.
   html = html.replace(/poll\(\); setInterval\(poll, \d+\);/, '/* live reload disabled in standalone export */');
