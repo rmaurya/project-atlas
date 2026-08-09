@@ -8,6 +8,8 @@ jobs:
         with: { fetch-depth: 0 }   # the tool reads git history; a shallow clone would hide it
       - uses: actions/setup-node@v4
         with: { node-version: '20' }
+      - name: Runtime packages are in sync
+        run: node scripts/sync-runtimes.mjs --check
       - name: Test
         run: node tests/run.mjs
       - name: Dogfood — run the tool on this repository

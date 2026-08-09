@@ -1,0 +1,22 @@
+{
+  "name": "atlas",
+  "version": "0.1.0",
+  "description": "A derived, auditable knowledgebase over your repository's own documentation — index, dashboard, deck and rot detection, generated from the markdown you already have.",
+  "skills": "./skills/",
+  "license": "MIT",
+  "repository": "https://github.com/rmaurya/project-atlas",
+  "keywords": [
+    "documentation",
+    "wiki",
+    "knowledgebase",
+    "docs",
+    "dashboard",
+    "documentation-health",
+    "static-site"
+  ],
+  "interface": {
+    "displayName": "Project Atlas",
+    "shortDescription": "A derived, auditable knowledgebase over your repository’s own documentation.",
+    "category": "Productivity"
+  }
+}

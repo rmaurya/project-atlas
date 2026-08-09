@@ -63,22 +63,75 @@ None of that needed judgment to find. All of it needed someone to look.
 
 ## Install
 
-**Claude Code** — one line, then the tool is on your PATH as `atlas`:
+One source of skills, three runtimes. Pick yours.
+
+**Claude Code** (native plugin) — then the tool is on your PATH as `atlas`:
 
 ```bash
 /plugin marketplace add rmaurya/project-atlas
 /plugin install atlas@project-atlas
 ```
 
-**Any other agent, or no agent at all** — clone and run it:
+Skills arrive namespaced: `/atlas:help`, `/atlas:status`, `/atlas:health`, `/atlas:ask`, `/atlas:review`,
+`/atlas:config`, `/atlas:publish`.
+
+**OpenAI Codex** (marketplace plugin):
+
+```bash
+codex plugin marketplace add rmaurya/project-atlas
+codex plugin add atlas@project-atlas
+```
+
+Or from a local checkout:
+
+```bash
+codex plugin marketplace add /absolute/path/to/project-atlas
+codex plugin add atlas@project-atlas
+```
+
+**Google Antigravity** (drop-in plugin) — Antigravity scans its plugin directories on start, so a clone into
+either location is the whole install:
+
+```bash
+# workspace-scoped
+git clone https://github.com/rmaurya/project-atlas.git .agents/plugins/project-atlas
+
+# or user-scoped, available in every project
+git clone https://github.com/rmaurya/project-atlas.git ~/.gemini/config/plugins/project-atlas
+```
+
+**Any other agent, or none at all** — clone and run it:
 
 ```bash
 git clone https://github.com/rmaurya/project-atlas.git
 ./project-atlas/bin/atlas --help
 ```
 
-Non-Claude runtimes should load [`AGENTS.md`](AGENTS.md), which carries the same instructions in a portable
-form.
+Agents without a plugin system should load [`AGENTS.md`](AGENTS.md), which carries the same instructions in a
+portable form.
+
+### How much is actually shared
+
+**One repository, one `skills/` directory, three manifests.** The `SKILL.md` format is common across all
+three runtimes, so the instructions are written once:
+
+| Runtime | Manifest | Reads `skills/` |
+|---|---|---|
+| Claude Code | `.claude-plugin/plugin.json` + `.claude-plugin/marketplace.json` | in place |
+| Antigravity | `plugin.json` at the repository root | in place |
+| Codex | `.agents/plugins/marketplace.json` → `plugins/atlas/.codex-plugin/plugin.json` | **via a generated copy** |
+
+Codex is the one exception, and for a specific reason: a Codex marketplace resolves `source.path` relative to
+the marketplace root and **requires a subdirectory** — `"./"` is rejected — so the repository cannot be its
+own Codex plugin entry the way it can be its own Claude one. `plugins/atlas/` exists only to satisfy that.
+
+A copy is a fork waiting to happen, which is precisely what this tool exists to detect, so it is **generated
+and drift-checked** rather than hand-maintained:
+
+```bash
+node scripts/sync-runtimes.mjs           # regenerate
+node scripts/sync-runtimes.mjs --check   # fail if it has drifted — runs in CI and in the test suite
+```
 
 ## Quick start
 

@@ -1,0 +1,42 @@
+---
+description: Answer a question from the project's own documentation, with citations. Use when the user asks what the docs say about something, or types /atlas:ask.
+disable-model-invocation: true
+---
+
+# Question
+
+$ARGUMENTS
+
+# Candidate documents
+
+!`test -n "$ARGUMENTS" && grep -ril --include='*.md' -- "$ARGUMENTS" . 2>/dev/null | grep -v '_wiki' | head -20 || echo "(no question given)"`
+
+# Corpus
+
+!`atlas scan 2>/dev/null | head -4`
+
+---
+
+Answer the question **from the documents**, not from memory of them.
+
+**Read before you answer.** The grep above is a starting point, not a result — filename and keyword matches
+are not relevance. Open the candidates. If none of them actually answer the question, say so.
+
+**Every claim carries its source and its age:**
+
+> According to `docs/architecture/auth.md` (last touched 2026-06-14), …
+
+The date matters as much as the citation. A confident answer from a document nobody has touched in four months
+should be read as a lead, not a fact.
+
+**When documents disagree, say so and name both.** Do not silently pick the newer one — the disagreement is
+usually the most useful thing you can tell the user, and it is often a fork worth fixing.
+
+**`UNKNOWN` is a valid answer and frequently the right one.** If the corpus does not cover it, say that
+plainly and suggest where it would belong. Do not assemble a plausible answer from adjacent documents — that
+is the exact failure this tool exists to catch, and doing it here would be indefensible.
+
+**If the question is about current behaviour**, add that documents lag code, and offer to verify against the
+source. Documentation is a lead, never a status.
+
+If the user gave no question, ask for one. Do not summarise the corpus instead.

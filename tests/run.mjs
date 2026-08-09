@@ -13,7 +13,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 import { globToRegExp, resolveConfig, DEFAULT_CLUSTERS, clusterFor } from '../scripts/lib/config.mjs';
@@ -866,6 +866,48 @@ test('community · generates only what the host supports, and says what it skipp
   const on = communityAssets(index, health, null, host, { checked: true, slug: 'acme/widget', discussions: true, issues: true, wiki: true, pages: true }, cfg);
   ok([...on.files.keys()].some((f) => f.includes('DISCUSSIONS')));
   includes(on.files.get('.github/ISSUE_TEMPLATE/config.yml'), 'discussions', 'issues route to Discussions when it exists');
+});
+
+/* ================================================================== runtimes */
+
+console.log('\nruntimes');
+
+test('runtimes · every skill declares a description, so help can be generated not typed', () => {
+  // /atlas:help lists commands by reading this directory. A skill without a description would appear in the
+  // list with nothing to say about it — and a stale help page in a documentation-rot tool is indefensible.
+  const dir = path.join(HERE, '..', 'skills');
+  const names = fs.readdirSync(dir).filter((n) => fs.existsSync(path.join(dir, n, 'SKILL.md')));
+  ok(names.length >= 6, `expected several skills, found ${names.length}`);
+  for (const n of names) {
+    const body = fs.readFileSync(path.join(dir, n, 'SKILL.md'), 'utf8');
+    // Parse the frontmatter rather than pattern-match it: the obvious regex requires a newline that
+    // `^---\n` has already consumed, so it fails on every file whose first key IS description.
+    const lines = body.split('\n');
+    eq(lines[0], '---', `skills/${n}/SKILL.md must open with frontmatter`);
+    const end = lines.indexOf('---', 1);
+    ok(end > 0, `skills/${n}/SKILL.md frontmatter is unterminated`);
+    const desc = lines.slice(1, end).find((l) => /^description:\s*\S/.test(l));
+    ok(desc, `skills/${n}/SKILL.md has no description — /atlas:help would list it with nothing to say`);
+  }
+});
+
+test('runtimes · the Codex package has not drifted from skills/', () => {
+  // The only duplicated tree in the project, and it exists solely because a Codex marketplace cannot use
+  // "./" as a source path. A copy is a fork waiting to happen, so it is generated and checked.
+  const r = spawnSync('node', [path.join(HERE, '..', 'scripts', 'sync-runtimes.mjs'), '--check'],
+    { encoding: 'utf8' });
+  eq(r.status, 0, `Codex package is out of sync:\n${r.stderr || r.stdout}`);
+});
+
+test('runtimes · each runtime manifest is where that runtime looks for it', () => {
+  const root = path.join(HERE, '..');
+  ok(fs.existsSync(path.join(root, '.claude-plugin', 'plugin.json')), 'Claude Code: .claude-plugin/plugin.json');
+  ok(fs.existsSync(path.join(root, 'plugin.json')), 'Antigravity: plugin.json at the plugin root');
+  ok(fs.existsSync(path.join(root, 'plugins', 'atlas', '.codex-plugin', 'plugin.json')), 'Codex: .codex-plugin/plugin.json');
+  // Codex marketplace paths must be a subdirectory — "./" is rejected by the runtime.
+  const mk = JSON.parse(fs.readFileSync(path.join(root, '.agents', 'plugins', 'marketplace.json'), 'utf8'));
+  ok(mk.plugins[0].source.path.startsWith('./') && mk.plugins[0].source.path !== './',
+     'Codex source.path must be a subdirectory, not the marketplace root');
 });
 
 /* ================================================================== cli */
