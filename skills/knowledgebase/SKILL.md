@@ -1,6 +1,6 @@
 ---
 name: project-atlas
-description: Build and maintain an extensive, source-grounded project knowledgebase — a generated wiki over a repository's markdown, with a cluster taxonomy, backlinks, client-side search, and mechanical rot detection. Use when asked to create, update, audit, index, or reorganise project documentation; to write a developer manual, onboarding guide, architecture overview, or engineering wiki; or when documentation drift is suspected — stale docs, dead links, forked or duplicate documents, unresolvable code citations, missing indexes. Triggers on "wiki", "knowledgebase", "knowledge base", "docs index", "documentation health", "doc rot", "developer manual", "onboarding docs", "document the project", "audit the docs".
+description: Index, audit and generate a knowledgebase from a repository's own markdown — taxonomy, backlinks, search, dashboard, and mechanical rot detection. Use when asked to create, audit, index or reorganise documentation, write a developer manual or architecture overview, or when doc drift is suspected: stale docs, dead links, duplicate or forked documents, broken code citations, or no index at all.
 ---
 
 # project-atlas — skill instructions

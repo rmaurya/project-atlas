@@ -65,7 +65,7 @@ None of that needed judgment to find. All of it needed someone to look.
 
 One source of skills, three runtimes. Pick yours.
 
-**Claude Code** (native plugin) — then the tool is on your PATH as `atlas`:
+**Claude Code** (native plugin) — the CLI lands on your PATH as `atlas` in sessions started after the install:
 
 ```bash
 /plugin marketplace add rmaurya/project-atlas
