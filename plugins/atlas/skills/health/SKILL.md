@@ -7,8 +7,7 @@ disable-model-invocation: true
 
 # Report
 
-!`atlas health --no-color $ARGUMENTS 2>/dev/null || echo "NOT_CONFIGURED — run atlas init first"`
-
+!`atlas health --no-color $ARGUMENTS || echo "(atlas is not on PATH — the plugin is not installed where this is running)"`
 ---
 
 Interpret the report above. **Do not paste it back**; the user can already see it.

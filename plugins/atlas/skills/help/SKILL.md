@@ -7,12 +7,10 @@ disable-model-invocation: true
 
 # Commands
 
-!`if out=$(ls -1 "${CLAUDE_PLUGIN_ROOT:-.}/skills" 2>/dev/null) && [ -n "$out" ]; then printf '%s\n' "$out" | sed 's/^/  atlas:/'; else echo "(no skills directory found at ${CLAUDE_PLUGIN_ROOT:-.}/skills — the plugin is not installed where this is running)"; fi`
-
+!`atlas help || echo "(atlas is not on PATH — the plugin is not installed where this is running)"`
 ## This repository right now
 
-!`out=$(atlas caps --offline 2>/dev/null); if [ -n "$out" ]; then printf '%s\n' "$out" | head -3; else echo "(atlas caps produced nothing — no atlas on PATH, or no git remote)"; fi; echo "---"; out=$(atlas scan 2>/dev/null); if [ -n "$out" ]; then printf '%s\n' "$out" | head -3; else echo "not indexed yet — no config, not a git repository, or no atlas on PATH"; fi`
-
+!`atlas caps --offline || echo "(atlas is not on PATH — the plugin is not installed where this is running)"`
 ---
 
 Present the command list above with **one line each**, written from what each skill's `description` frontmatter

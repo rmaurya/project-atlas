@@ -9,12 +9,10 @@ $ARGUMENTS
 
 # Candidate documents
 
-!`if [ -z "$ARGUMENTS" ]; then echo "(no question given)"; else out=$(grep -ril --include='*.md' -- "$ARGUMENTS" . 2>/dev/null | grep -v '_wiki'); if [ -n "$out" ]; then printf '%s\n' "$out" | head -20; else echo "(no document contains that literal text — the corpus may still answer it in other words)"; fi; fi`
-
+!`atlas ask $ARGUMENTS || echo "(atlas is not on PATH — the plugin is not installed where this is running)"`
 # Corpus
 
-!`out=$(atlas scan 2>/dev/null); if [ -n "$out" ]; then printf '%s\n' "$out" | head -4; else echo "(atlas scan produced nothing — no config, not a git repository, or no atlas on PATH)"; fi`
-
+!`atlas scan || echo "(atlas is not on PATH — the plugin is not installed where this is running)"`
 ---
 
 Answer the question **from the documents**, not from memory of them.

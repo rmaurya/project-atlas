@@ -5,20 +5,16 @@ disable-model-invocation: true
 
 # Corpus
 
-!`atlas scan 2>/dev/null || echo "NOT_CONFIGURED"`
-
+!`atlas scan || echo "(atlas is not on PATH — the plugin is not installed where this is running)"`
 # Health
 
-!`out=$(atlas health --no-color 2>/dev/null); if [ -n "$out" ]; then printf '%s\n' "$out" | head -20; else echo "(atlas health produced nothing — NOT_CONFIGURED. Nothing here has been checked.)"; fi`
-
+!`atlas health --no-color || echo "(atlas is not on PATH — the plugin is not installed where this is running)"`
 # Plan
 
-!`out=$(atlas tasks 2>/dev/null); if [ -n "$out" ]; then printf '%s\n' "$out" | tail -6; else echo "no planning source configured"; fi`
-
+!`atlas tasks || echo "(atlas is not on PATH — the plugin is not installed where this is running)"`
 # Branch
 
-!`out=$(atlas branch --json 2>/dev/null); if [ -n "$out" ]; then printf '%s\n' "$out" | head -20; else echo "(atlas branch produced nothing — no atlas on PATH, or not a git repository)"; fi`
-
+!`atlas branch || echo "(atlas is not on PATH — the plugin is not installed where this is running)"`
 ---
 
 Give the user **one screen**, in this order:

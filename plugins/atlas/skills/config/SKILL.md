@@ -7,16 +7,13 @@ disable-model-invocation: true
 
 # Current configuration
 
-!`cat project-atlas.config.json 2>/dev/null || cat docs-atlas.config.json 2>/dev/null || cat llm-wiki.config.json 2>/dev/null || echo "NONE — run atlas init first"`
-
+!`atlas config || echo "(atlas is not on PATH — the plugin is not installed where this is running)"`
 # What it produces
 
-!`out=$(atlas scan 2>/dev/null); if [ -n "$out" ]; then printf '%s\n' "$out" | head -16; else echo "(atlas scan produced nothing — no config, not a git repository, or no atlas on PATH)"; fi`
-
+!`atlas scan || echo "(atlas is not on PATH — the plugin is not installed where this is running)"`
 # What is unchecked
 
-!`out=$(atlas health --no-color 2>/dev/null); if [ -z "$out" ]; then echo "(atlas health produced nothing — so NOTHING here is known to have been checked)"; else section=$(printf '%s\n' "$out" | sed -n '/Not checked/,$p' | head -8); if [ -n "$section" ]; then printf '%s\n' "$section"; else echo "(the report declared nothing unchecked)"; fi; fi`
-
+!`atlas health --no-color || echo "(atlas is not on PATH — the plugin is not installed where this is running)"`
 ---
 
 Help the user tune the configuration. **Explain why a default exists before changing it** — most of them

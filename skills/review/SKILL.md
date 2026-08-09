@@ -5,16 +5,13 @@ disable-model-invocation: true
 
 # Changed documents
 
-!`out=$(git diff --stat HEAD -- '*.md' 2>/dev/null); st=$?; if [ -n "$out" ]; then printf '%s\n' "$out" | tail -20; elif [ $st -ne 0 ]; then echo "(git diff did not run — not a git repository, or no commits yet)"; else echo "(no unstaged markdown changes)"; fi; echo "--- staged ---"; out=$(git diff --cached --stat -- '*.md' 2>/dev/null); st=$?; if [ -n "$out" ]; then printf '%s\n' "$out" | tail -20; elif [ $st -ne 0 ]; then echo "(git diff --cached did not run)"; else echo "(nothing staged)"; fi`
-
+!`atlas changes --no-color || echo "(atlas is not on PATH — the plugin is not installed where this is running)"`
 # Health now
 
-!`out=$(atlas health --no-color 2>/dev/null); if [ -n "$out" ]; then printf '%s\n' "$out" | head -16; else echo "(atlas health produced nothing — no config, not a git repository, or no atlas on PATH. Nothing below has been checked.)"; fi`
-
+!`atlas health --no-color || echo "(atlas is not on PATH — the plugin is not installed where this is running)"`
 # Branch
 
-!`out=$(atlas branch 2>/dev/null); if [ -n "$out" ]; then printf '%s\n' "$out" | head -4; else echo "(atlas branch produced nothing — no atlas on PATH, or not a git repository)"; fi`
-
+!`atlas branch || echo "(atlas is not on PATH — the plugin is not installed where this is running)"`
 ---
 
 Review the documentation changes in this working tree.

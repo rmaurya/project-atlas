@@ -7,8 +7,7 @@ disable-model-invocation: true
 
 # Changes
 
-!`atlas changes --no-color 2>/dev/null || echo "NOT_A_REPO"`
-
+!`atlas changes --no-color || echo "(atlas is not on PATH — the plugin is not installed where this is running)"`
 ---
 
 Tell the user what changed, in this order:

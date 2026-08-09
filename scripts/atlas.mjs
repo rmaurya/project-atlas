@@ -347,6 +347,54 @@ async function main() {
     return;
   }
 
+  // The resolved configuration — defaults merged with the file, which is what the tool actually acts on. The
+  // skill used to `cat` the file through three fallback filenames, which the permission checker could not
+  // analyse; and the raw file was the wrong thing to show anyway, since every unset key is a default the
+  // reader could not see.
+  if (cmd === 'config') {
+    const { __configPath, ...shown } = cfg;
+    if (flag('json')) { console.log(JSON.stringify(shown, null, 2)); return; }
+    say(__configPath ? `${path.relative(root, __configPath)} — merged with the defaults below`
+                     : `No config file. These are the defaults; \`atlas init\` writes them out so you can tune them.`);
+    say('');
+    say(JSON.stringify(shown, null, 2));
+    return;
+  }
+
+  // Candidate documents for a question. Lives here rather than in a shell block because `grep -ril -- "$Q"`
+  // inside a skill cannot be statically analysed by the permission checker, so /atlas:ask refused to run at
+  // all. A literal search is also all this ever was — the answering is the model's job, not grep's.
+  if (cmd === 'ask') {
+    const q = positionals.join(' ').trim();
+    const index = buildIndex(root, cfg, { withGit: false });
+    if (!q) {
+      say(`No question given. ${index.stats.documents} document(s) are indexed; ask about any of them.`);
+      return;
+    }
+    const needle = q.toLowerCase();
+    const hits = index.documents
+      .map((d) => {
+        const inTitle = (d.title || '').toLowerCase().includes(needle);
+        const inHeading = d.headings.some((h) => h.text.toLowerCase().includes(needle));
+        const inBody = d.body.toLowerCase().includes(needle);
+        return { d, score: (inTitle ? 4 : 0) + (inHeading ? 2 : 0) + (inBody ? 1 : 0) };
+      })
+      .filter((h) => h.score > 0)
+      .sort((a, b) => b.score - a.score || a.d.path.localeCompare(b.d.path));
+
+    if (!hits.length) {
+      say(`No document contains "${q}" literally. The corpus may still answer it in other words — ` +
+          `${index.stats.documents} document(s) across ${index.stats.clusters} clusters.`);
+      return;
+    }
+    say(`${hits.length} document(s) mention "${q}", most relevant first:\n`);
+    for (const h of hits.slice(0, 20)) {
+      say(`  ${h.d.path}${h.d.title ? `  — ${h.d.title}` : ''}`);
+    }
+    if (hits.length > 20) say(`  … and ${hits.length - 20} more`);
+    return;
+  }
+
   if (cmd === 'diff') {
     const file = positionals[0];
     // No path? List what there is to ask about, rather than printing usage and making the caller run a

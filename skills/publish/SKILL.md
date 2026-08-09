@@ -5,12 +5,10 @@ disable-model-invocation: true
 
 # Host capabilities
 
-!`atlas caps 2>/dev/null || echo "could not probe — offline, rate limited, or no remote"`
-
+!`atlas caps || echo "(atlas is not on PATH — the plugin is not installed where this is running)"`
 # What would be published
 
-!`out=$(atlas scan 2>/dev/null); if [ -n "$out" ]; then printf '%s\n' "$out" | head -4; else echo "(atlas scan produced nothing — no config, not a git repository, or no atlas on PATH)"; fi`
-
+!`atlas scan || echo "(atlas is not on PATH — the plugin is not installed where this is running)"`
 ---
 
 Help the user publish. **Every target stages by default and pushes only with `--push`.**

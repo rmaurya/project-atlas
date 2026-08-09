@@ -114,6 +114,11 @@
     },
     {
       "signal": "H8",
+      "path": "docs/ANALYSIS.md",
+      "reason": "A fragment, not a standalone document: the homepage renders it beneath its own <h1>, so a heading here would be a second top-level title on that page. It is the one file in the corpus written to be included rather than read on its own."
+    },
+    {
+      "signal": "H8",
       "path": "README.md",
       "reason": "The README opens with a block-art banner spelling the project name, which is the title. GitHub renders the repository name above it, so an H1 would be a third copy of the same word."
     },

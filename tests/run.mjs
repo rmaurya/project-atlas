@@ -1606,12 +1606,29 @@ test('skills · /atlas:diff is one command, because the permission checker split
   // A trailing `|| echo` fallback is fine and is required elsewhere: the checker is asked to approve exactly
   // the command that will run. What is not fine is a *guard* that constructs a second, different invocation —
   // there must be one `atlas` call in the block, and it must be the one the user asked for.
-  const cmd = [...fs.readFileSync(path.join(HERE, '..', 'skills', 'diff', 'SKILL.md'), 'utf8')
-    .matchAll(/^!`([\s\S]*?)`\s*$/gm)][0][1];
-  eq((cmd.match(/\batlas\s+diff\b/g) || []).length, 1,
-     `exactly one atlas invocation, or the checker prompts for a call that will never run: ${cmd}`);
-  ok(!/\btest\s+-[nz]\b|\bif\s+\[/.test(cmd),
-     `no guard around the invocation — atlas already handles an empty path: ${cmd}`);
+  // Generalised after /atlas:ask failed the same way a release later — "Contains shell syntax (string) that
+  // cannot be statically analyzed". Fixing one skill and leaving six with the same shape is not a fix.
+  const skillsDir = path.join(HERE, '..', 'skills');
+  let checked = 0;
+  for (const name of fs.readdirSync(skillsDir)) {
+    const f = path.join(skillsDir, name, 'SKILL.md');
+    if (!fs.existsSync(f)) continue;
+    for (const m of fs.readFileSync(f, 'utf8').matchAll(/^!`([\s\S]*?)`\s*$/gm)) {
+      const cmd = m[1];
+      checked++;
+      // A trailing `|| echo` is required — a block that renders blank when atlas is missing reads as
+      // "nothing to report". Everything else that a checker splits or refuses to parse is not.
+      ok(!/\$\(/.test(cmd), `skills/${name}: command substitution cannot be statically analysed: ${cmd}`);
+      ok(!/\bif\s|\bthen\b|\bfi\b|\btest\s+-[nz]\b|;/.test(cmd), `skills/${name}: shell control flow: ${cmd}`);
+      ok(!/&&/.test(cmd), `skills/${name}: a guard that builds a second invocation: ${cmd}`);
+      ok(!/\|\s*(head|tail|sed|grep)\b/.test(cmd), `skills/${name}: a pipe swallows the exit status: ${cmd}`);
+      // Only the command, not the fallback message — which mentions atlas by name, and should.
+      const invocation = cmd.split('||')[0].trim();
+      ok(invocation.startsWith('atlas '), `skills/${name}: must begin with the invocation: ${cmd}`);
+      eq((invocation.match(/\batlas\s/g) || []).length, 1, `skills/${name}: exactly one invocation: ${cmd}`);
+    }
+  }
+  ok(checked >= 10, `expected every skill's blocks to be checked, saw ${checked}`);
 });
 
 test('cli · an installed plugin that does nothing in a repository says why', () => {
