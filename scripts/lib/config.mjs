@@ -218,6 +218,7 @@ export const DEFAULT_CONFIG = {
   exclude: [
     'node_modules/**', '.git/**', 'dist/**', 'build/**', 'out/**', 'vendor/**', 'target/**',
     '.claude/worktrees/**', '**/_wiki/**', '**/CHANGELOG.md', '**/LICENSE.md', '**/node_modules/**',
+    'worklog/**',
   ],
   output: 'docs/_wiki',
   trackedOnly: true,            // discover via `git ls-files`; untracked scratch never enters the wiki
@@ -240,6 +241,9 @@ export const DEFAULT_CONFIG = {
   // Weights for the homepage scorecard. Declared here so the organisation owns the judgement and the tool
   // owns only the arithmetic — a score whose weighting is hidden can be resented but not disagreed with.
   score: {},
+  // The daily record. Excluded from the corpus below, because a log of what happened is not documentation
+  // of how the thing works, and indexing it would drown the taxonomy in one file per day.
+  worklog: {},
   analysis: {},          // { source: "docs/ANALYSIS.md" } — rendered on the homepage, never generated
   // Both on by default. A derived surface that only refreshes when someone remembers is a stale surface, and
   // the reason hand-maintained documentation rots is that keeping it current was always a separate decision.
@@ -340,6 +344,7 @@ const SCHEMA = {
   branching: [T.object, 'an object'],
   automation: [T.object, 'an object'],
   score: [T.object, 'an object'],
+  worklog: [T.object, 'an object'],
   analysis: [T.object, 'an object'],
 };
 

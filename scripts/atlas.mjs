@@ -44,6 +44,7 @@ import { specVerdict } from './lib/spec.mjs';
 import { checkForUpdate } from './lib/update.mjs';
 import { verifySite, formatVerify } from './lib/verify.mjs';
 import { route, formatRoute } from './lib/plan.mjs';
+import { dayKey, commitsOn, renderDay, writeDay } from './lib/worklog.mjs';
 
 const argv = process.argv.slice(2);
 
@@ -430,6 +431,24 @@ async function main() {
     // The branch, and only the branch. Committing and pushing stay explicit: this proposes a route, it does
     // not drive one, and pushing is outward-facing besides.
     say(`\nSwitched to ${made.name}. Nothing else was run.`);
+    return;
+  }
+
+  if (cmd === 'worklog') {
+    const contrib = readContrib(root, cfg);
+    const index = buildIndex(root, cfg, { withGit });
+    const day = typeof flag('day') === 'string' ? flag('day') : dayKey(new Date().getTime());
+    const identity = gitLines(root, ['config', 'user.name'])[0] || null;
+    const entry = renderDay({
+      day, identity, contrib,
+      health: runHealth(index, cfg, root),
+      plan: readPlanning(root, cfg),
+      commits: commitsOn(contrib, day),
+    });
+    if (flag('stdout')) { console.log(entry); return; }
+    const file = writeDay(root, cfg, entry, day);
+    if (!file) { say('worklog.enabled is false — nothing was written.'); return; }
+    say(`Wrote ${path.relative(root, file)}`);
     return;
   }
 

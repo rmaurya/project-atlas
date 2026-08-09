@@ -250,7 +250,11 @@ function itemTable(plan) {
   <h2>All items <span class="count">${plan.items.length}</span></h2>
   <p class="cap">Click a column heading to sort. Type to filter across id, title, track, priority and status.
   A hatched bar means the figure is <strong>estimated in the source</strong>, not measured against the code.</p>
-  <input id="tq" type="search" placeholder="Filter every column…" autocomplete="off">
+  <div class="tbar">
+    <input id="tq" type="search" placeholder="Filter every column…" autocomplete="off">
+    <label class="tdone"><input type="checkbox" id="tdone" checked> Show completed
+      <span class="count">${plan.items.filter((i) => (i.percent ?? 0) >= 100).length}</span></label>
+  </div>
   <div class="table-wrap">
     <table id="itbl">
       <!-- Progress and status lead, before the descriptive columns. In a side-by-side layout the table
@@ -581,6 +585,9 @@ figcaption { display:block; }
  * split into three boxes laid side by side, and the paragraph rendered as narrow vertical strips of shredded
  * text. Six of the seven .empty messages are ordinary sentences with inline code; only one opens with a
  * status dot, and an inline-block dot aligns on its own without turning the sentence into a layout. */
+.tbar { display:flex; gap:12px; align-items:center; flex-wrap:wrap; margin:0 0 10px; }
+.tbar #tq { flex:1 1 220px; margin:0; }
+.tdone { display:inline-flex; align-items:center; gap:6px; font-size:13px; color:var(--muted); white-space:nowrap; cursor:pointer; }
 .empty { color:var(--muted); font-size:14px; margin:0; }
 .empty > .dot { margin-right:8px; }
 #tq { width:100%; padding:9px 12px; margin:0 0 12px; font-size:14px; color:var(--ink); background:var(--bg); border:1px solid var(--line); border-radius:8px; }
@@ -772,17 +779,29 @@ const TABLE_JS = `
     return true;
   }
 
+  // Completed work is in the table and always was, mixed in and indistinguishable from a filter that had
+  // hidden it. A control says which: on by default, because "what landed" is the first thing anyone asks of
+  // a plan, and hiding it silently would answer that question wrongly.
+  var doneBox = document.getElementById('tdone');
+  var isDone = function (r) {
+    var cell = r.querySelector('td:nth-child(3)');
+    return !!cell && /done/i.test(cell.textContent) && !/nearly/i.test(cell.textContent);
+  };
+
   function filter() {
     var shown = 0, active = (q.value || '').trim() !== '';
+    var hideDone = doneBox && !doneBox.checked;
+    if (hideDone) active = true;
     controls.forEach(function (c) { if ((c.value || '').trim()) active = true; });
     rows.forEach(function (r) {
-      var hit = matches(r);
+      var hit = matches(r) && !(hideDone && isDone(r));
       r.style.display = hit ? '' : 'none';
       if (hit) shown++;
     });
     cnt.textContent = active ? shown + ' of ' + rows.length + ' items shown' : rows.length + ' items';
   }
   q.addEventListener('input', filter);
+  if (doneBox) doneBox.addEventListener('change', filter);
   filter();
 
   var stamp = document.getElementById('stamp');

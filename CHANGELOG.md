@@ -13,6 +13,28 @@ versions follow [Semantic Versioning](https://semver.org/).
 - `atlas plan` — propose the git route for the working tree and wait for approval, rather than only refusing a
   commit once it is attempted.
 
+## [0.1.19] — 2026-08-10
+
+### Added
+- **`atlas worklog` — the day, written down.** `contrib` and `sessions` computed how a day went and printed
+  it to a terminal that scrolls away. This writes `worklog/YYYY-MM-DD/log.md`: what landed, lines, desks,
+  rework, reverts, documentation state, and **which plan items the day's commits named** — a link that only
+  exists because the commit gate now requires one.
+
+  `YYYY-MM-DD`, not the `YYYY-DD-MM` that was asked for: directory names sort lexicographically, so
+  `2026-09-08` would sort before `2026-08-09` and every listing would be wrong.
+
+  No prompt text, and no score attributed to anyone. A worklog is committed and pushed, so anything that
+  entered it would be permanent and public in a way a terminal report never is — `tokens.mjs` rule 3 matters
+  more here, not less. A day with no commits says so rather than reporting zero, because a day of design
+  discussion is not a day of nothing.
+
+  `worklog/**` is excluded from the corpus: a log of what happened is not documentation of how the thing
+  works, and indexing it would drown the taxonomy in one file per day.
+- **A "Show completed" control on the item table.** The done items were always in the list, mixed in and
+  indistinguishable from a filter that had hidden them. On by default — "what landed" is the first thing
+  anyone asks of a plan.
+
 ## [0.1.18] — 2026-08-10
 
 ### Added

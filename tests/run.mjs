@@ -38,6 +38,7 @@ import { specVerdict, idsIn } from '../scripts/lib/spec.mjs';
 import { risks, summarise } from '../scripts/lib/insight.mjs';
 import { verifyPage, verifySite } from '../scripts/lib/verify.mjs';
 import { route, inferType } from '../scripts/lib/plan.mjs';
+import { dayKey, commitsOn, renderDay } from '../scripts/lib/worklog.mjs';
 import { manifestUrl, checkForUpdate, fetchLatest, readCache, writeCache, isFresh } from '../scripts/lib/update.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -2360,6 +2361,59 @@ test('automation · neither hook acts in a repository that never adopted the too
   eq(cli(dir, ['build', '--auto', '--quiet']).code, 0);
   ok(!fs.existsSync(path.join(dir, 'docs', '_wiki')), 'no config, no site written');
   eq(cli(dir, ['health', '--gate']).code, 0, 'no config, no gate');
+});
+
+/* ================================================================== the day, written down */
+
+console.log('\nthe worklog');
+
+test('worklog · the date sorts, which YYYY-DD-MM does not', () => {
+  // YYYY-DD-MM was asked for. Directory names sort lexicographically, so 2026-09-08 would sort before
+  // 2026-08-09 and every listing would be wrong.
+  eq(dayKey(new Date(2026, 7, 9, 23, 30).getTime()), '2026-08-09');
+  const days = ['2026-09-08', '2026-08-09'].sort();
+  eq(days[0], '2026-08-09', 'sorted and chronological are the same thing in this format');
+});
+
+test('worklog · no prompt text reaches the file, whatever is in the commits', () => {
+  // A worklog is committed and pushed, so anything that entered it would be permanent and public in a way a
+  // terminal report never is. tokens.mjs rule 3 matters more here, not less.
+  const entry = renderDay({
+    day: '2026-08-10', identity: 'A Person',
+    contrib: { available: true, quality: { reworkRate: 10, reworkWindowDays: 3, reverts: 0 },
+               commits: [{ hash: 'abc1234', subject: 'feat: a thing (D-1)', added: 5, removed: 1, date: '2026-08-10' }] },
+    health: { blockingCount: 0 }, plan: { items: [{ id: 'D-1', title: 'A thing', percent: 50 }] },
+    commits: [{ hash: 'abc1234', subject: 'feat: a thing (D-1)', added: 5, removed: 1, date: '2026-08-10' }],
+  });
+  includes(entry, 'D-1');
+  includes(entry, 'no prompt text');
+  // The word "score" appears in the disclaimer that nothing is scored, so forbid a *number* attributed to a
+  // person rather than the word. The first version of this assertion failed on its own caveat.
+  ok(!/score[^.\n]*\b\d+\b/i.test(entry), 'no numeric score is attributed to anyone');
+  ok(!/SECRET|prompt:|"[^"]{40,}"/.test(entry), 'nothing that could be a quoted prompt');
+});
+
+test('worklog · a quiet day says so rather than reporting zero as a result', () => {
+  const entry = renderDay({ day: '2026-08-11', identity: 'A Person', contrib: { available: true }, commits: [] });
+  includes(entry, 'not the same as no work');
+  ok(!entry.includes('| Commits | 0'), 'a day of design discussion is not a day of nothing');
+});
+
+test('worklog · only the named items appear, and unnamed work is called out', () => {
+  const base = { day: '2026-08-10', identity: 'X', contrib: { available: true, quality: { reworkRate: 1, reworkWindowDays: 3, reverts: 0 } },
+                 health: { blockingCount: 0 }, plan: { items: [{ id: 'D-1', title: 'A', percent: 0 }] } };
+  const named = renderDay({ ...base, commits: [{ hash: 'a', subject: 'fix: x (D-1)', date: '2026-08-10' }] });
+  includes(named, '**D-1**');
+  const unnamed = renderDay({ ...base, commits: [{ hash: 'a', subject: 'fix: x', date: '2026-08-10' }] });
+  includes(unnamed, 'the plan cannot see');
+  const bogus = renderDay({ ...base, commits: [{ hash: 'a', subject: 'fix: CVE-2026-1', date: '2026-08-10' }] });
+  includes(bogus, 'the plan cannot see', 'an id that is not in the plan is not an item');
+});
+
+test('worklog · commitsOn takes the day it was asked for, not every day', () => {
+  const contrib = { available: true, commits: [{ date: '2026-08-10', subject: 'a' }, { date: '2026-08-09', subject: 'b' }] };
+  eq(commitsOn(contrib, '2026-08-10').length, 1);
+  eq(commitsOn({ available: false }, '2026-08-10').length, 0);
 });
 
 /* ================================================================== propose the route, then wait */

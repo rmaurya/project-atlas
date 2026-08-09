@@ -1,6 +1,6 @@
 # Roadmap — project-atlas
 
-**Last updated:** 2026-08-10 · **Version:** 0.1.18 · **Status:** pre-release, dogfooding
+**Last updated:** 2026-08-10 · **Version:** 0.1.19 · **Status:** pre-release, dogfooding
 
 Open work, with an honest completion figure against each item. A figure marked `*` is estimated rather than
 measured against the code — the same distinction the tool preserves everywhere else, applied to itself.
@@ -19,7 +19,7 @@ measured against the code — the same distinction the tool preserves everywhere
 | Q-1 | 100 | Q-2 | 30* | Q-3 | 0 |
 | D-1 | 100 | D-2 | 100 | D-3 | 100 |
 | D-4 | 100 | D-5 | 100 | D-6 | 100 |
-| D-7 | 0 | D-8 | 100 | D-9 | 100 |
+| D-7 | 100 | D-8 | 100 | D-9 | 100 |
 | D-10 | 100 | I-1 | 100 | | |
 | I-3 | 40* | D-11 | 100 | I-2 | 100 |
 
@@ -135,6 +135,7 @@ executing nothing without `--apply`. The PR rule is prose in CONTRIBUTING.md:88 
 in one session with nothing objecting.
 
 **D-7 · Daily work log** — **P2 · Medium**
+*Shipped in 0.1.19.*
 *`atlas sessions` computes friction and outcomes; nothing writes them down.*
 `worklog/YYYY-MM-DD/` with git identity, tracked and excluded from the corpus. Aggregates and outcomes only —
 no prompt text, keeping the guarantee `tokens.mjs` rule 3 makes and its test enforces. Prompt quality is not
@@ -206,6 +207,7 @@ scorer marks that as the user's failure. Interaction *outcomes* — rework after
 corrections by hand — measure whether the collaboration worked, which is the question actually being asked.
 
 **I-3 · Completed work visible on its own terms** — **P2 · Medium**
+*Shipped in 0.1.19.*
 *Done items are in the table and indistinguishable from a filter that hid them.*
 All 20 items are listed and the Status column filters to `Done`, so the data is there; what is missing is a
 deliberate control and a count, so "show me what landed" is one click rather than a filter someone has to
