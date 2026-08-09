@@ -431,25 +431,43 @@ function inlineScript(js) {
  */
 export function exportBundle(root, cfg, pages = null, about = {}) {
   const outDir = path.resolve(root, cfg.output);
-  const all = pages || BUNDLE_PAGES.filter((p) => fs.existsSync(path.join(outDir, `${p.file}.html`)));
-  if (!all.length) throw new Error(`No generated pages found in ${cfg.output}. Run \`atlas build\` first.`);
+  const nav = pages || BUNDLE_PAGES.filter((p) => fs.existsSync(path.join(outDir, `${p.file}.html`)));
+  if (!nav.length) throw new Error(`No generated pages found in ${cfg.output}. Run \`atlas build\` first.`);
+
+  // The document pages too, though not in the menu. The Wiki page is a list of 27 documents and every entry
+  // pointed at `pages/<name>.html` — a path that does not exist once the file travels alone, so every one of
+  // them was a dead link. A bundle that carries the index of a corpus and not the corpus is a table of
+  // contents for a book you did not bring.
+  const docsDir = path.join(outDir, 'pages');
+  const docs = fs.existsSync(docsDir)
+    ? fs.readdirSync(docsDir).filter((f) => f.endsWith('.html')).sort()
+        .map((f) => ({ file: `doc--${f.slice(0, -5)}`, label: null, from: path.join('pages', f) }))
+    : [];
+  const all = [...nav.map((p) => ({ ...p, from: `${p.file}.html` })), ...docs];
 
   // Ids carried by more than one page. Chrome is deduplicated; the rest are prefixed.
   const seen = new Map();
   for (const p of all) {
-    const html = fs.readFileSync(path.join(outDir, `${p.file}.html`), 'utf8');
+    const html = fs.readFileSync(path.join(outDir, p.from), 'utf8');
     for (const id of new Set([...html.matchAll(/id="([\w-]+)"/g)].map((m) => m[1]))) {
       seen.set(id, (seen.get(id) || 0) + 1);
     }
   }
   const collides = new Set([...seen].filter(([id, n]) => n > 1 && !CHROME_IDS.has(id)).map(([id]) => id));
 
+  const known = new Set(all.map((p) => p.file));
+
   const sections = all.map((p, i) => {
-    let html = fs.readFileSync(path.join(outDir, `${p.file}.html`), 'utf8');
+    let html = fs.readFileSync(path.join(outDir, p.from), 'utf8');
     const body = /<main>([\s\S]*?)<\/main>/.exec(html);
     const scripts = [...html.matchAll(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/g)].map((m) => m[1]);
     let inner = body ? body[1] : '';
     let js = scripts.join('\n');
+    // **A page's own <style> is not optional decoration.** `atlas.css` is the base; the dashboard and every
+    // role view add ~130 lines on top of it — the cards, the tiles, the bar charts. Collecting only <main>
+    // and <script> shipped the markup and the behaviour with none of the presentation, and the result read as
+    // an unstyled outline: every number present, every chart gone.
+    let pageCss = [...html.matchAll(/<style>([\s\S]*?)<\/style>/g)].map((m) => m[1]).join('\n');
 
     for (const id of collides) {
       const to = `${p.file}--${id}`;
@@ -458,10 +476,27 @@ export function exportBundle(root, cfg, pages = null, about = {}) {
       js = js.split(`'${id}'`).join(`'${to}'`).split(`"${id}"`).join(`"${to}"`)
              .split(`#${id}`).join(`#${to}`);
       inner = inner.split(`#${id}`).join(`#${to}`);
+      pageCss = pageCss.split(`#${id}`).join(`#${to}`);      // `#itbl thead tr:first-child th { … }`
     }
+    // **Links inside the pages, not just the menu.** Rewriting the nav and stopping there left every
+    // in-body cross-page link pointing at a file that does not exist beside a single document — "Open the
+    // wiki →" on the home page, and all 61 document links on the Wiki page. They resolved to nothing.
+    // A sub-anchor is dropped rather than faked: the router addresses pages, and inventing `#page#heading`
+    // would produce a link that looks precise and lands nowhere.
+    // **The target depends on which page the link sits in.** A document page lives in `pages/`, so its link
+    // to a sibling document is a bare `README.html` while the same link from the Wiki index is
+    // `pages/README.html`, and `../wiki.html` climbs back out. Resolving all three the same way left a third
+    // of the links dead — the ones that only appear once you click into a document.
+    const fromDoc = p.from.startsWith('pages/');
+    inner = inner.replace(/href="(\.\.\/)?(?:\.\/)?(pages\/)?([\w.-]+)\.html(?:#[\w-]*)?"/g,
+      (whole, up, inPages, name) => {
+        const target = inPages ? `doc--${name}` : (up ? name : (fromDoc ? `doc--${name}` : name));
+        return known.has(target) ? `href="#${target}" data-go="${target}"` : whole;
+      });
+
     // The build-stamp poll has nothing to poll against, and only one stamp is rendered.
     js = js.replace(/poll\(\); setInterval\(poll, \d+\);/, '/* live reload disabled in bundle */');
-    return { ...p, inner, js, first: i === 0 };
+    return { ...p, inner, js, pageCss, first: i === 0 };
   });
 
   const css = fs.readFileSync(path.join(outDir, 'atlas.css'), 'utf8');
@@ -478,6 +513,7 @@ export function exportBundle(root, cfg, pages = null, about = {}) {
 <title>${title}</title>
 <style>
 ${css}
+${[...new Set(sections.map((s) => (s.pageCss || '').trim()).filter(Boolean))].join('\n')}
 [data-page] { display:none; }
 [data-page].on { display:block; }
 .topbar nav a.on { color:var(--ink); font-weight:620; }
@@ -500,7 +536,7 @@ ${updateBar(about)}
   <span class="built-by">${escapeHtml(about.tool || 'project-atlas')} ${escapeHtml(about.version || '')}${
     about.model ? ` <span class="sep">·</span> ${escapeHtml(about.model)}` : ''}</span>
   <nav>
-${sections.map((s) => `    <a href="#${s.file}" data-go="${s.file}"${s.first ? ' class="on" aria-current="page"' : ''}>${escapeHtml(s.label)}</a>`).join('\n')}
+${sections.filter((s) => s.label).map((s) => `    <a href="#${s.file}" data-go="${s.file}"${s.first ? ' class="on" aria-current="page"' : ''}>${escapeHtml(s.label)}</a>`).join('\n')}
   </nav>
   <button type="button" class="theme-toggle" id="themeToggle" aria-label="Theme: system"></button>
 </header>

@@ -13,6 +13,26 @@ versions follow [Semantic Versioning](https://semver.org/).
 - `atlas plan` — propose the git route for the working tree and wait for approval, rather than only refusing a
   commit once it is attempted.
 
+## [0.1.7] — 2026-08-10
+
+### Fixed
+- **The bundle shipped every number with none of the presentation.** `atlas.css` is only the base; the
+  dashboard and each role view add ~130 lines on top — the cards, the tiles, the bar charts. Collecting a
+  page's `<main>` and `<script>` and not its `<style>` produced an unstyled outline: every figure present,
+  every chart gone.
+- **Rewriting the menu was not rewriting the links.** "Open the wiki →" on the home page, and all 61 document
+  links on the Wiki page, still pointed at `.html` files that do not exist beside a single document. Then a
+  third of them survived the first fix, because a link *inside* a document page addresses its sibling as
+  `README.html` while the Wiki index addresses the same document as `pages/README.html` — the target depends
+  on where the link sits, not only on what it names.
+
+### Added
+- **The 27 document pages travel with the bundle** (595 KB total), reachable by link but deliberately absent
+  from the menu. A bundle carrying the index of a corpus and not the corpus is a table of contents for a book
+  you did not bring.
+- Two tests: no `href` may point at a file, every `data-go` must have a section answering to it, and every
+  class the built page styles must exist in the bundle's stylesheet.
+
 ## [0.1.6] — 2026-08-10
 
 ### Added

@@ -1146,6 +1146,43 @@ test('bundle · the update row appears only when the published version is genuin
   includes(unknown, 'not checked', 'and the About page must say so rather than imply currency');
 });
 
+test('bundle · no link points at a file, because there are no files beside it', () => {
+  // Rewriting the menu and stopping there left every in-body link dead: "Open the wiki →" on the home page,
+  // and all 61 document links on the Wiki page. Then a third survived a second pass, because a link inside a
+  // document page addresses its sibling as `README.html` while the Wiki index addresses the same document as
+  // `pages/README.html` — the target depends on where the link sits, not only on what it names.
+  const cfg = resolveConfig(pubRepo);
+  const index = buildIndex(pubRepo, cfg);
+  renderSite(index, runHealth(index, cfg, pubRepo), cfg, pubRepo);
+  const html = exportBundle(pubRepo, cfg);
+
+  const dead = [...html.matchAll(/href="([^"#][^"]*\.html[^"]*)"/g)].map((m) => m[1]);
+  eq(dead.length, 0, `link(s) to a file that does not travel with the bundle: ${[...new Set(dead)].slice(0, 5).join(', ')}`);
+
+  // And every in-document target must exist, or the click lands on a blank page.
+  for (const m of html.matchAll(/data-go="([\w.-]+)"/g)) {
+    ok(html.includes(`data-page="${m[1]}"`), `nothing in the bundle answers to #${m[1]}`);
+  }
+});
+
+test('bundle · a page\'s own stylesheet travels with it', () => {
+  // atlas.css is the base; the dashboard and every role view add ~130 lines on top — the cards, tiles and bar
+  // charts. Collecting only <main> and <script> shipped every number with none of the presentation, and the
+  // result read as an unstyled outline.
+  const cfg = resolveConfig(pubRepo);
+  const index = buildIndex(pubRepo, cfg);
+  renderSite(index, runHealth(index, cfg, pubRepo), cfg, pubRepo);
+  const html = exportBundle(pubRepo, cfg);
+  const styles = [...html.matchAll(/<style>([\s\S]*?)<\/style>/g)].map((m) => m[1]).join('\n');
+
+  const built = fs.readFileSync(path.join(pubRepo, cfg.output, 'dashboard.html'), 'utf8');
+  for (const m of built.matchAll(/<style>([\s\S]*?)<\/style>/g)) {
+    for (const rule of [...m[1].matchAll(/^\.([\w-]+)\s*\{/gm)].map((r) => r[1]).slice(0, 12)) {
+      ok(styles.includes(`.${rule}`), `the built page styles .${rule} and the bundle does not`);
+    }
+  }
+});
+
 test('bundle · About states unknowns instead of inventing plausible defaults', () => {
   const cfg = resolveConfig(pubRepo);
   const index = buildIndex(pubRepo, cfg);
