@@ -10,7 +10,7 @@ node tests/run.mjs               # the whole suite
 node tests/run.mjs --filter H6   # a subset, matched against test names
 ```
 
-66 integration tests. They build real git repositories in a temp directory and run the real pipeline — there
+76 integration tests. They build real git repositories in a temp directory and run the real pipeline — there
 are **no mocks**, because the bugs this tool has actually shipped were all in the seams between the code and
 git, and a mock would have hidden every one of them.
 
@@ -82,6 +82,12 @@ they say so.
 
 Name tests for the behaviour, not the function: `H2 does NOT fire for ambiguous citations` beats
 `test extractCitations`.
+
+## Branching
+
+`main` is always releasable. Every change reaches it through a branch named `type/short-slug` and a pull
+request — including small ones, especially small ones. Run `node scripts/atlas.mjs branch` to check where you
+are. Full rules, and the honest reason they exist, in [`references/branching.md`](references/branching.md).
 
 ## Commits
 

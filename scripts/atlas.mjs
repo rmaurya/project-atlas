@@ -5,6 +5,7 @@
  *   atlas init     write a config, detecting the repository's layout
  *   atlas scan     build the index            (--json)
  *   atlas tasks    the planning document, with progress bars   (--json, or a filter word)
+ *   atlas branch   where you are, and whether it is safe to commit there
  *   atlas caps     which host features are on: wiki, pages, issues, discussions (the one network call)
  *   atlas community  generate issue/PR/discussion scaffolding for whatever the host supports
  *   atlas contrib  who did what, from git: people, agents, desks, hours, outcomes
@@ -29,6 +30,7 @@ import { buildWikiPages, stageWiki, stagePages, exportSingleFile } from './lib/p
 import { readContrib, formatContrib } from './lib/contrib.mjs';
 import { detectHost, probeCapabilities, gateTarget, formatCapabilities } from './lib/host.mjs';
 import { communityAssets, writeCommunity } from './lib/community.mjs';
+import { branchStatus, createBranch, formatBranch, TYPES } from './lib/branch.mjs';
 
 const argv = process.argv.slice(2);
 
@@ -106,6 +108,23 @@ async function main() {
     if (plan.missing) { console.error(`${plan.source} not found.`); process.exitCode = 1; return; }
     if (flag('json')) { console.log(JSON.stringify(plan, null, 2)); return; }
     say(formatTasks(plan, positionals[0], color));
+    return;
+  }
+
+  if (cmd === 'branch') {
+    const [type, ...rest] = positionals;
+    if (!type) {
+      const st = branchStatus(root, cfg);
+      if (flag('json')) { console.log(JSON.stringify(st, null, 2)); return; }
+      say(formatBranch(st, color));
+      // Exit non-zero when it is not safe to commit, so a hook or a script can gate on it.
+      if (st.ok && st.problems.some((p) => p.level === 'block')) process.exitCode = 1;
+      return;
+    }
+    const r = createBranch(root, type, rest.join('-'));
+    if (!r.ok) { console.error(r.reason); process.exitCode = 1; return; }
+    say(`Switched to ${r.name}`);
+    say(`  Uncommitted work came with you. One logical change per branch — if it needs an "and", split it.`);
     return;
   }
 
@@ -413,6 +432,7 @@ function usage() {
 
   atlas init                 write ${CONFIG_NAME}, detecting this repository's layout
   atlas scan  [--json]       build and summarise the index
+  atlas branch [type slug]   branch state, or create type/short-slug carrying your changes
   atlas caps                 which host features are on (wiki/pages/issues/discussions)
   atlas community [--write]  scaffolding for the features this host actually supports
   atlas contrib [--json]     who did what, from git history alone

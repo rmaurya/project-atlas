@@ -26,6 +26,9 @@ import { readDeck } from '../scripts/lib/deck.mjs';
 import { RAMP, STATUS } from '../scripts/lib/dashboard.mjs';
 import { buildWikiPages, wikiPageName, exportSingleFile, RESERVED } from '../scripts/lib/publish.mjs';
 import { readContrib, estimateHours } from '../scripts/lib/contrib.mjs';
+import { branchStatus, createBranch, TYPES } from '../scripts/lib/branch.mjs';
+import { detectHost, gateTarget } from '../scripts/lib/host.mjs';
+import { communityAssets } from '../scripts/lib/community.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const CLI = path.join(HERE, '..', 'scripts', 'atlas.mjs');
@@ -765,6 +768,104 @@ test('publish · export inlines the stylesheet so the file stands alone', () => 
   ok(!/<link rel="stylesheet"/.test(html), 'no external stylesheet may remain');
   includes(html, '<style>');
   ok(!/<script[^>]+src="/.test(html), 'no external script may remain');
+});
+
+/* ================================================================== branching */
+
+console.log('\nbranching');
+
+test('branch · a protected branch blocks committing and offers the fix', () => {
+  const dir = fixture('branch-main', { 'docs/A.md': '# A\n' });
+  execFileSync('git', ['branch', '-M', 'main'], { cwd: dir, stdio: 'ignore' });
+  const st = branchStatus(dir, {});
+  eq([st.onProtected, st.safeToCommit], [true, false]);
+  ok(st.problems.some((p) => p.level === 'block'), 'being on main must block, not merely warn');
+  includes(st.problems[0].fix, 'atlas branch');
+});
+
+test('branch · a conventional branch is safe and recognised', () => {
+  const dir = fixture('branch-ok', { 'docs/A.md': '# A\n' });
+  execFileSync('git', ['switch', '-c', 'fix/citation-resolver'], { cwd: dir, stdio: 'ignore' });
+  const st = branchStatus(dir, {});
+  eq([st.onProtected, st.followsConvention, st.safeToCommit], [false, true, true]);
+  eq(st.problems, []);
+});
+
+test('branch · an off-convention name warns but does not block', () => {
+  const dir = fixture('branch-odd', { 'docs/A.md': '# A\n' });
+  execFileSync('git', ['switch', '-c', 'my-stuff'], { cwd: dir, stdio: 'ignore' });
+  const st = branchStatus(dir, {});
+  eq(st.safeToCommit, true, 'an unconventional name is a warning, not a barrier to work');
+  eq(st.problems.map((p) => p.level), ['warn']);
+});
+
+test('branch · creation validates the type and the slug', () => {
+  const dir = fixture('branch-create', { 'docs/A.md': '# A\n' });
+  includes(createBranch(dir, 'nonsense', 'thing').reason, 'Unknown type');
+  includes(createBranch(dir, 'fix', '').reason, 'slug is required');
+  includes(createBranch(dir, 'fix', 'a b c d e f g h').reason, 'too long');
+  const r = createBranch(dir, 'fix', 'Citation Resolver False Positives');
+  eq([r.ok, r.name], [true, 'fix/citation-resolver-false-positives'], 'a slug is normalised, not rejected');
+});
+
+test('branch · creating an existing branch refuses rather than switching silently', () => {
+  const dir = fixture('branch-dupe', { 'docs/A.md': '# A\n' });
+  eq(createBranch(dir, 'feat', 'thing').ok, true);
+  execFileSync('git', ['switch', '-'], { cwd: dir, stdio: 'ignore' });
+  includes(createBranch(dir, 'feat', 'thing').reason, 'already exists');
+});
+
+/* ================================================================== host capabilities */
+
+console.log('\nhost capabilities');
+
+test('host · the wiki URL matches the protocol origin uses', () => {
+  // Regression: an https:// wiki URL on an SSH-cloned repo fails as "Repository not found", which reads as
+  // the wiki not existing rather than as missing credentials.
+  const ssh = fixture('host-ssh', { 'docs/A.md': '# A\n' }, { remote: 'git@github.com:acme/widget.git' });
+  eq(detectHost(ssh, {}).wikiGit, 'git@github.com:acme/widget.wiki.git');
+  const https = fixture('host-https', { 'docs/A.md': '# A\n' }, { remote: 'https://github.com/acme/widget.git' });
+  eq(detectHost(https, {}).wikiGit, 'https://github.com/acme/widget.wiki.git');
+});
+
+test('host · gitlab is recognised, and its missing features read as N/A not off', () => {
+  const dir = fixture('host-gitlab', { 'docs/A.md': '# A\n' }, { remote: 'git@gitlab.com:group/proj.git' });
+  const h = detectHost(dir, {});
+  eq([h.kind, h.slug], ['gitlab', 'group/proj']);
+  eq(h.discussionsUrl, null, 'GitLab has no Discussions; null means not applicable');
+});
+
+test('host · no remote is reported, not guessed', () => {
+  const dir = path.join(tmpRoot, 'host-noremote');
+  fs.mkdirSync(dir, { recursive: true });
+  execFileSync('git', ['init', '-q'], { cwd: dir, stdio: 'ignore' });
+  const h = detectHost(dir, {});
+  eq(h.kind, 'none');
+  eq(gateTarget('wiki', h, { checked: false }).ok, false);
+});
+
+test('host · an unchecked capability does NOT block a publish target', () => {
+  // Refusing to work because a network call failed would be worse than the error it prevents.
+  const dir = fixture('host-unchecked', { 'docs/A.md': '# A\n' }, { remote: 'git@github.com:acme/widget.git' });
+  const g = gateTarget('pages', detectHost(dir, {}), { checked: false, reason: 'offline' });
+  eq(g.ok, true);
+  includes(g.warn, 'unchecked');
+});
+
+test('community · generates only what the host supports, and says what it skipped', () => {
+  const dir = fixture('community', { 'docs/A.md': '# A\n' }, { remote: 'git@github.com:acme/widget.git' });
+  const cfg = resolveConfig(dir);
+  const index = buildIndex(dir, cfg);
+  const health = runHealth(index, cfg, dir);
+  const host = detectHost(dir, {});
+
+  const off = communityAssets(index, health, null, host, { checked: true, slug: 'acme/widget', discussions: false, issues: true, wiki: true, pages: true }, cfg);
+  ok(![...off.files.keys()].some((f) => f.includes('DISCUSSIONS')), 'no welcome post when Discussions is off');
+  includes(off.skipped.join(' '), 'Discussions');
+
+  const on = communityAssets(index, health, null, host, { checked: true, slug: 'acme/widget', discussions: true, issues: true, wiki: true, pages: true }, cfg);
+  ok([...on.files.keys()].some((f) => f.includes('DISCUSSIONS')));
+  includes(on.files.get('.github/ISSUE_TEMPLATE/config.yml'), 'discussions', 'issues route to Discussions when it exists');
 });
 
 /* ================================================================== cli */

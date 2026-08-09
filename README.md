@@ -223,13 +223,14 @@ Loaded on demand, one topic each.
 | [authoring](references/authoring.md) | The evidence rules and page shapes — **read before writing documentation** |
 | [taxonomy](references/taxonomy.md) | The cluster model, and why filename rules must precede directory rules |
 | [health-signals](references/health-signals.md) | Every signal, its detection, and its legitimate exceptions |
+| [branching](references/branching.md) | How work reaches `main`, and what an assistant must check first |
 | [maintenance](references/maintenance.md) | The loop, the trigger, and the abandonment criterion |
 | [configuration](references/configuration.md) | Every config key |
 
 ## Contributing
 
 ```bash
-node tests/run.mjs               # 66 integration tests against throwaway git repositories
+node tests/run.mjs               # 76 integration tests against throwaway git repositories
 node tests/run.mjs --filter H6   # or a subset
 ```
 

@@ -75,6 +75,24 @@ Report the **delta**, not absolute counts. Read the "Not checked" section aloud.
 
 ---
 
+## Branching — check before you write
+
+**Run `atlas branch` before making changes.** It reports where you are and exits non-zero when it is not safe
+to commit there.
+
+If you are on `main`, branch first — `atlas branch <type> <slug>` carries your uncommitted work across. Do not
+stage, do not commit, and do not decide the change is small enough to skip it. This project's own first five
+commits went straight to `main` while its guide preached discipline; that is the failure this rule exists to
+prevent.
+
+- `type` is one of `feat fix docs refactor test chore`.
+- The slug names **the change, not the file**: `fix/citation-resolver-false-positives`, not `fix/scan-mjs`.
+- **One branch, one sentence.** If describing it needs an "and", it is two branches.
+- **Never `git push` without being asked.** Branching is local and reversible; pushing is neither.
+- **Say which branch you are on** when reporting work — the user cannot see your shell.
+
+Full rules: `references/branching.md`.
+
 ## Honesty rules — enforced in output, and in any change you make
 
 - **A check that could not run is never reported as passing.**
