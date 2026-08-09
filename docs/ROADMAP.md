@@ -1,6 +1,6 @@
 # Roadmap — project-atlas
 
-**Last updated:** 2026-08-10 · **Version:** 0.1.23 · **Status:** pre-release, dogfooding
+**Last updated:** 2026-08-10 · **Version:** 0.1.24 · **Status:** pre-release, dogfooding
 
 Open work, with an honest completion figure against each item. A figure marked `*` is estimated rather than
 measured against the code — the same distinction the tool preserves everywhere else, applied to itself.
@@ -15,7 +15,7 @@ measured against the code — the same distinction the tool preserves everywhere
 |---|---|---|---|---|---|
 | C-1 | 100 | C-2 | 100 | C-3 | 100 |
 | C-4 | 100 | C-5 | 100 | C-6 | 100 |
-| P-1 | 100 | P-2 | 90 | P-3 | 70* |
+| P-1 | 100 | P-2 | 90 | P-3 | 100 |
 | Q-1 | 100 | Q-2 | 100 | Q-3 | 100 |
 | D-1 | 100 | D-2 | 100 | D-3 | 100 |
 | D-4 | 100 | D-5 | 100 | D-6 | 100 |
@@ -78,10 +78,19 @@ media queries but have not been checked in a real viewport.
 
 **P-3 · Publishing** — **P1 · High**
 *GitHub Wiki with drift detection, a pages branch, and a single-file export.*
-All three stage correctly and refuse to push without `--push`. `--page all` now carries every page in one file
-with the navigation working, which is what makes the Artifact path useful. Remaining: the drift **import**
-path has still never run against a real edited wiki, and GitHub Pages has never served this site — the
-workflow builds and uploads, but the repository's Pages source is not set to GitHub Actions.
+*Complete in 0.1.24, on the tool's side.* All three targets stage correctly and refuse to push without
+`--push`. `--page all` carries every page in one file with the navigation working, which is what makes the
+Artifact path useful.
+
+**The drift path has now actually run.** It was "written but never exercised against a real edited wiki" for
+nineteen releases — the only thing standing between a colleague's typo fix in the web UI and a force
+overwrite. Three tests build a bare repository, publish into it, edit a page the way a person would, and
+assert: the publish refuses, `--import` rescues the human text with a `MAPPING.json` back to the source, and
+`--force` is the only way past.
+
+**One thing remains and it is not code.** GitHub Pages has never served this site: the workflow builds and
+uploads on every push, and the repository's Pages source is not set to *GitHub Actions*. That is a setting in
+this repository, the same class as branch protection, and no amount of tool work reaches it.
 
 ## Track 3 — Quality
 

@@ -13,6 +13,18 @@ versions follow [Semantic Versioning](https://semver.org/).
 - `atlas plan` — propose the git route for the working tree and wait for approval, rather than only refusing a
   commit once it is attempted.
 
+## [0.1.24] — 2026-08-10
+
+### Added
+- **The wiki drift path has actually run.** It was written nineteen releases ago and never exercised against
+  a real edited wiki — while being the only thing standing between a colleague's typo fix in the web UI and
+  a force overwrite. Three tests now build a bare repository, publish into it, edit a page the way a person
+  would, and assert the behaviour end to end: the second publish **refuses**, `--import` copies the human
+  text out with a `MAPPING.json` pointing back to its source file, and `--force` is the only way past.
+
+  The mapping is an index, not a second copy of the text — asserted, because a rescue that duplicates the
+  content into two files creates the fork it was meant to prevent.
+
 ## [0.1.23] — 2026-08-10
 
 ### Changed

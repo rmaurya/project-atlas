@@ -2376,6 +2376,88 @@ test('automation · neither hook acts in a repository that never adopted the too
   eq(cli(dir, ['health', '--gate']).code, 0, 'no config, no gate');
 });
 
+/* ================================================================== the drift path, actually run */
+
+console.log('\nwiki drift');
+
+test('publish · a hand-edited wiki page is detected and refuses the publish', () => {
+  // The roadmap said this path was "written but has never run against a real edited wiki" for nineteen
+  // releases. It is the only thing standing between a colleague's typo fix in the web UI and a force
+  // overwrite, and it had never been exercised end to end. A bare repo on disk is a real enough wiki.
+  const dir = fixture('wiki-src', { 'docs/A.md': '# Alpha\n\nbody\n', 'docs/B.md': '# Beta\n' });
+  const wiki = path.join(tmpRoot, 'wiki-remote.git');
+  execFileSync('git', ['init', '-q', '--bare', wiki], { stdio: 'ignore' });
+
+  const cfg = { ...resolveConfig(dir), publish: { wiki: { slug: 'someone/thing' } } };
+  const index = buildIndex(dir, cfg);
+  const health = runHealth(index, cfg, dir);
+  const built = buildWikiPages(index, health, readPlanning(dir, cfg), cfg, dir);
+  const host = { kind: 'github', wikiGit: wiki };
+
+  const first = stageWiki(dir, cfg, built, { push: true, host });
+  eq(first.staged, true, 'the first publish has nothing to drift from');
+
+  // A human edits a page in the web UI. Here: clone, change, push.
+  const human = path.join(tmpRoot, 'wiki-human');
+  execFileSync('git', ['clone', '-q', wiki, human], { stdio: 'ignore' });
+  const page = fs.readdirSync(human).find((f) => f.endsWith('.md') && f !== '_Footer.md');
+  fs.appendFileSync(path.join(human, page), '\n\nA typo fix someone made by hand.\n', 'utf8');
+  execFileSync('git', ['-c', 'user.email=h@x', '-c', 'user.name=H', 'commit', '-qam', 'typo'], { cwd: human, stdio: 'ignore' });
+  execFileSync('git', ['push', '-q'], { cwd: human, stdio: 'ignore' });
+
+  const second = stageWiki(dir, cfg, built, { push: false, host });
+  eq(second.staged, false, 'an edited page must stop the publish, not be overwritten');
+  eq(second.driftChecked, true);
+  ok(second.drift.some((d) => d.kind === 'edited'), JSON.stringify(second.drift.map((d) => d.kind)));
+});
+
+test('publish · --import copies the edited pages out with a mapping back to their sources', () => {
+  const dir = fixture('wiki-src2', { 'docs/A.md': '# Alpha\n\nbody\n' });
+  const wiki = path.join(tmpRoot, 'wiki-remote2.git');
+  execFileSync('git', ['init', '-q', '--bare', wiki], { stdio: 'ignore' });
+
+  const cfg = { ...resolveConfig(dir), publish: { wiki: { slug: 'someone/thing' } } };
+  const index = buildIndex(dir, cfg);
+  const built = buildWikiPages(index, runHealth(index, cfg, dir), readPlanning(dir, cfg), cfg, dir);
+  const host = { kind: 'github', wikiGit: wiki };
+  stageWiki(dir, cfg, built, { push: true, host });
+
+  const human = path.join(tmpRoot, 'wiki-human2');
+  execFileSync('git', ['clone', '-q', wiki, human], { stdio: 'ignore' });
+  fs.appendFileSync(path.join(human, 'A.md'), '\n\nEdited by hand.\n', 'utf8');
+  execFileSync('git', ['-c', 'user.email=h@x', '-c', 'user.name=H', 'commit', '-qam', 'edit'], { cwd: human, stdio: 'ignore' });
+  execFileSync('git', ['push', '-q'], { cwd: human, stdio: 'ignore' });
+
+  const r = stageWiki(dir, cfg, built, { push: false, importDrift: true, host });
+  eq(r.staged, false);
+  ok(r.importDir && fs.existsSync(r.importDir), 'the import directory must exist');
+  const copied = fs.readFileSync(path.join(r.importDir, 'A.md'), 'utf8');
+  includes(copied, 'Edited by hand.', 'the human text is what is rescued');
+  const mapping = JSON.parse(fs.readFileSync(path.join(r.importDir, 'MAPPING.json'), 'utf8'));
+  ok(mapping.some((m) => m.page === 'A' && m.source === 'docs/A.md'), JSON.stringify(mapping));
+  ok(!JSON.stringify(mapping).includes('Edited by hand'), 'the mapping is an index, not a second copy');
+});
+
+test('publish · --force overwrites, and only then', () => {
+  const dir = fixture('wiki-src3', { 'docs/A.md': '# Alpha\n' });
+  const wiki = path.join(tmpRoot, 'wiki-remote3.git');
+  execFileSync('git', ['init', '-q', '--bare', wiki], { stdio: 'ignore' });
+  const cfg = { ...resolveConfig(dir), publish: { wiki: { slug: 'someone/thing' } } };
+  const index = buildIndex(dir, cfg);
+  const built = buildWikiPages(index, runHealth(index, cfg, dir), readPlanning(dir, cfg), cfg, dir);
+  const host = { kind: 'github', wikiGit: wiki };
+  stageWiki(dir, cfg, built, { push: true, host });
+
+  const human = path.join(tmpRoot, 'wiki-human3');
+  execFileSync('git', ['clone', '-q', wiki, human], { stdio: 'ignore' });
+  fs.appendFileSync(path.join(human, 'A.md'), '\nmine\n', 'utf8');
+  execFileSync('git', ['-c', 'user.email=h@x', '-c', 'user.name=H', 'commit', '-qam', 'e'], { cwd: human, stdio: 'ignore' });
+  execFileSync('git', ['push', '-q'], { cwd: human, stdio: 'ignore' });
+
+  eq(stageWiki(dir, cfg, built, { push: false, host }).staged, false, 'refused by default');
+  eq(stageWiki(dir, cfg, built, { push: false, force: true, host }).staged, true, 'force is the only way past');
+});
+
 /* ================================================================== defaults that fit real repositories */
 
 console.log('\ndefault taxonomy');
