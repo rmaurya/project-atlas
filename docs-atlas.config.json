@@ -85,6 +85,11 @@
       "signal": "H2",
       "path": "references/**",
       "reason": "The reference guides use src/ai/brain.ts:301 as an illustrative citation example. It is deliberately not a real path in this repository, and resolving it would be meaningless."
+    },
+    {
+      "signal": "H8",
+      "path": "README.md",
+      "reason": "The README opens with a block-art banner spelling the project name, which is the title. GitHub renders the repository name above it, so an H1 would be a third copy of the same word."
     }
   ],
   "$schema": "https://github.com/rmaurya/docs-atlas/schema/v1"

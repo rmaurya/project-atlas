@@ -1,0 +1,28 @@
+name: Feature request
+description: Something the tool should do
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please read the **non-negotiables** in [CONTRIBUTING.md](../blob/main/CONTRIBUTING.md) first.
+        Several plausible features are deliberately out of scope, and the reasons are written down.
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What went wrong in a real repository. Not the feature — the problem behind it.
+    validations: { required: true }
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you would like it to do
+    validations: { required: true }
+  - type: textarea
+    id: against
+    attributes:
+      label: The case against
+      description: >
+        Honestly written. Every specification in this project carries one, and a proposal without one
+        usually has not been thought through yet.
+    validations: { required: true }
