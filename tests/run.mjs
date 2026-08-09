@@ -1974,6 +1974,90 @@ test('publish · a manifest page name that is a path is refused, not read', () =
   fs.rmSync(victim, { force: true });
 });
 
+/* ================================================================== automation, and its off switch */
+
+console.log('\nautomation');
+
+test('automation · both switches are on by default', () => {
+  // The point of the feature: a derived surface that only refreshes when someone remembers is a stale surface.
+  const dir = fixture('auto-default', { 'docs/A.md': '# A\n' });
+  const cfg = resolveConfig(dir);
+  eq(cfg.automation.buildOnWrite, true);
+  eq(cfg.automation.healthOnCommit, true);
+});
+
+test('automation · turning one switch off leaves the other alone', () => {
+  // Every other object key in this config is a shallow spread, which would have made
+  // {"automation":{"buildOnWrite":false}} silently disable the commit gate too — a safety check the user
+  // never mentioned, turned off by a setting about something else.
+  const dir = fixture('auto-partial', { 'docs/A.md': '# A\n' });
+  fs.writeFileSync(path.join(dir, 'project-atlas.config.json'),
+    JSON.stringify({ automation: { buildOnWrite: false } }), 'utf8');
+  const cfg = resolveConfig(dir);
+  eq(cfg.automation.buildOnWrite, false);
+  eq(cfg.automation.healthOnCommit, true, 'the gate must survive a setting about the build');
+});
+
+test('automation · a misspelled switch is refused, not ignored', () => {
+  // Failing open here is the worst outcome: the user believes they turned it off and it is still running.
+  const dir = fixture('auto-typo', { 'docs/A.md': '# A\n' });
+  fs.writeFileSync(path.join(dir, 'project-atlas.config.json'),
+    JSON.stringify({ automation: { buildOnWrit: false } }), 'utf8');
+  let threw = null;
+  try { resolveConfig(dir); } catch (e) { threw = e; }
+  ok(threw, 'an unknown automation key must be refused');
+  includes(threw.message, 'automation.buildOnWrit');
+});
+
+test('automation · a string switch is refused, because "false" is truthy', () => {
+  const dir = fixture('auto-string', { 'docs/A.md': '# A\n' });
+  fs.writeFileSync(path.join(dir, 'project-atlas.config.json'),
+    JSON.stringify({ automation: { buildOnWrite: 'false' } }), 'utf8');
+  let threw = null;
+  try { resolveConfig(dir); } catch (e) { threw = e; }
+  ok(threw, 'a non-boolean switch must be refused');
+  includes(threw.message, 'true or false');
+});
+
+test('cli · health --gate exits 1 on a blocking signal and says which', () => {
+  const dir = fixture('gate-blocking', { 'docs/A.md': '# A\n\n[gone](docs/NOPE.md)\n' });
+  fs.writeFileSync(path.join(dir, 'project-atlas.config.json'), JSON.stringify({ blocking: ['H1'] }), 'utf8');
+  execFileSync('git', ['add', '-A'], { cwd: dir, stdio: 'ignore' });
+  const r = cli(dir, ['health', '--gate']);
+  eq(r.code, 1);
+  includes(r.stdout, 'H1');
+  includes(r.stdout, 'healthOnCommit', 'the refusal names the switch that turns it off');
+});
+
+test('cli · health --gate is silent when the corpus is clean', () => {
+  // A hook that prints on every commit is a hook people disable.
+  const dir = fixture('gate-clean', { 'docs/A.md': '# A\n' });
+  fs.writeFileSync(path.join(dir, 'project-atlas.config.json'), JSON.stringify({ blocking: ['H1'] }), 'utf8');
+  execFileSync('git', ['add', '-A'], { cwd: dir, stdio: 'ignore' });
+  const r = cli(dir, ['health', '--gate']);
+  eq(r.code, 0);
+  eq(r.stdout.trim(), '', 'a clean gate says nothing at all');
+});
+
+test('cli · health --gate allows the commit when the switch is off', () => {
+  const dir = fixture('gate-off', { 'docs/A.md': '# A\n\n[gone](docs/NOPE.md)\n' });
+  fs.writeFileSync(path.join(dir, 'project-atlas.config.json'),
+    JSON.stringify({ blocking: ['H1'], automation: { healthOnCommit: false } }), 'utf8');
+  execFileSync('git', ['add', '-A'], { cwd: dir, stdio: 'ignore' });
+  eq(cli(dir, ['health', '--gate']).code, 0, 'the user turned it off; the commit is theirs to make');
+  eq(cli(dir, ['health']).code, 1, 'but plain health still reports the truth');
+});
+
+test('automation · neither hook acts in a repository that never adopted the tool', () => {
+  // The plugin is installed user-wide. Without this, editing any markdown anywhere would generate a
+  // docs/_wiki nobody asked for, and a dead link in a stranger's repo would block their commit.
+  const dir = fixture('auto-no-config', { 'docs/A.md': '# A\n\n[gone](docs/NOPE.md)\n' });
+  execFileSync('git', ['add', '-A'], { cwd: dir, stdio: 'ignore' });
+  eq(cli(dir, ['build', '--auto', '--quiet']).code, 0);
+  ok(!fs.existsSync(path.join(dir, 'docs', '_wiki')), 'no config, no site written');
+  eq(cli(dir, ['health', '--gate']).code, 0, 'no config, no gate');
+});
+
 /* ================================================================== the release marker */
 
 console.log('\nthe release marker');

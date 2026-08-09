@@ -13,6 +13,32 @@ versions follow [Semantic Versioning](https://semver.org/).
 - `atlas plan` — propose the git route for the working tree and wait for approval, rather than only refusing a
   commit once it is attempted.
 
+## [0.1.3] — 2026-08-10
+
+### Added
+- **The site regenerates itself.** A `PostToolUse` hook rebuilds after any session writes a `.md` file —
+  index, dashboard, health page and all six role views, 14 files in 0.47s on a 27-document corpus. The
+  dashboard is no longer something anyone remembers to refresh.
+- **A blocking signal now refuses the commit.** The existing commit hook runs `atlas health --gate` after the
+  branch guard passes. Dead internal links, duplicate titles and missing `# ` headings stop the commit with
+  exit 2; advisory signals say nothing, because a gate that fires on findings with legitimate causes is a gate
+  switched off within a week. Silent when the corpus is clean.
+- `automation.buildOnWrite` and `automation.healthOnCommit`, both `true`. This is the only config object
+  merged one level deep — a shallow merge would let a setting about the build silently disable the commit
+  gate. An unknown switch is refused rather than ignored, and so is a non-boolean: `"false"` is truthy, and a
+  switch that fails open leaves you believing you turned something off that is still running.
+- Both hooks are inert in a repository with no `project-atlas.config.json`. The plugin is installed per user,
+  not per project; without that rule, editing any markdown anywhere would generate a `docs/_wiki` nobody asked
+  for, and a dead link in a stranger's repository would block their commit.
+
+### Changed
+- The hooks moved out of `hooks.json` into `hooks/on-commit.sh` and `hooks/on-write.sh`. A guard whose
+  reasoning cannot fit next to it is a guard nobody audits. The inline wrapper still refuses a commit when the
+  script is unreadable — a half-installed plugin must not wave commits through.
+- `hooks/README.md` argued there should never be a second hook. That reasoning applied to running *health* on
+  every edit, and still holds; the build is a regeneration rather than a check, and was measured before being
+  added. The reversal is recorded rather than quietly overwritten.
+
 ## [0.1.2] — 2026-08-10
 
 ### Changed

@@ -216,3 +216,34 @@ would go where.
 
 The index is one file the browser loads up front, so this is a real budget: at 20,000 a 400-document corpus
 produced 3.3 MB. Documents past the limit are **counted and reported**, never silently truncated.
+
+---
+
+## Automation
+
+| Key | Default | What it does |
+|---|---|---|
+| `automation.buildOnWrite` | `true` | Rebuild the site after a session writes a `.md` file |
+| `automation.healthOnCommit` | `true` | Refuse a commit that would land a **blocking** signal |
+
+Both are on because a derived surface that refreshes only when someone remembers is a stale surface, and
+"remember to regenerate it" is the reason hand-maintained documentation rots in the first place. The build
+covers everything `atlas build` produces — index, dashboard, health page, and the role views — so the
+dashboard is never older than the markdown behind it.
+
+```json
+{ "automation": { "buildOnWrite": false } }
+```
+
+Turning one off leaves the other alone. This is the only object in this file merged one level deep, and
+deliberately: a shallow merge would let a setting about the build silently disable the commit gate, which is a
+safety check you never mentioned.
+
+**A misspelled switch is refused, not ignored**, and so is a non-boolean. `"false"` is a truthy string, and a
+switch that fails open is worse than no switch — you believe you turned it off and it is still running.
+
+Both are inert in a repository with no config file at all. The plugin is installed for your user, not for one
+project; without that rule, editing any markdown anywhere would generate a `docs/_wiki` nobody asked for, and
+a dead link in someone else's repository would block their commit.
+
+The hooks that call these are described in [hooks/README.md](../../hooks/README.md).

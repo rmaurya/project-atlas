@@ -4,7 +4,17 @@
 and any session can drift from it. A hook is executed by the harness, so it cannot be forgotten, reasoned
 around, or skipped because a change "seemed small".
 
-There is deliberately **one** hook.
+There are **two**, and they answer different questions: *is the derived site current?* and *is this commit
+about to land known rot?*
+
+| When | Hook | What it does | Blocks? |
+|---|---|---|---|
+| after a `.md` write | `on-write.sh` | `atlas build` — index, dashboard, health page, six role views | never |
+| before `git commit` | `on-commit.sh` | `atlas branch`, then `atlas health --gate` | yes, exit 2 |
+
+Both are inert in a repository with no `project-atlas.config.json`. The plugin is installed user-wide, and a
+plugin that starts writing `docs/_wiki` into unrelated repositories — or refusing their commits — has decided
+someone else's policy for them.
 
 ## The branch guard
 
@@ -24,11 +34,45 @@ preached discipline. A rule nobody notices being broken is not a rule.
 **It only fires on `git commit`.** Every other Bash call exits 0 immediately, so the cost is one `jq` and one
 `grep` per Bash invocation.
 
-## Why there is not a second one
+## The health gate
 
-A `PostToolUse` hook running `atlas health` after every markdown edit was written and removed. On a corpus of
-any size it costs seconds per edit, and a check that makes every edit slower is a check people disable. Health
-belongs at the point of commit — where a person is already pausing — not after every keystroke.
+`atlas health --gate` runs after the branch guard passes and refuses the commit if a **blocking** signal fires
+— a dead internal link, a duplicate title, a missing `# ` heading. Advisory signals say nothing: they have
+legitimate causes, and a gate that fires on them is a gate that gets switched off within a week.
+
+It is silent when the corpus is clean. A hook that prints on every commit is a hook people disable.
+
+## The rebuild, and a reversal
+
+An earlier version of this file argued there should never be a second hook, on the grounds that running
+`atlas health` after every markdown edit costs seconds and *"a check that makes every edit slower is a check
+people disable"*. That reasoning still holds, and health is still not run on write — it runs at the commit,
+where a person is already pausing.
+
+What changed is that **the build is not a check**. It is a regeneration of a derived artifact, it is measured
+rather than assumed, and it is cheap:
+
+```
+atlas build    0.47s     27 documents, 14 generated files
+atlas health   0.10s
+```
+
+A derived surface that refreshes only when someone remembers is a stale surface — which is the entire failure
+this project exists to detect. So the write hook rebuilds, always exits 0, and never blocks the edit that
+triggered it: a build failing is a problem with the generator, not with what the author just wrote. It still
+says so on stderr, because nothing here degrades silently.
+
+## Turning them off
+
+Both switches live in `project-atlas.config.json`, both default to `true`:
+
+```json
+{ "automation": { "buildOnWrite": true, "healthOnCommit": true } }
+```
+
+An unknown key under `automation` is refused rather than ignored, and so is a non-boolean — `"false"` is a
+truthy string, and a switch that fails open leaves you believing you turned something off that is still
+running.
 
 ## Requirements
 
@@ -41,6 +85,4 @@ having passed.
 For the same reason, an `atlas branch` that cannot run at all — a half-installed plugin, a missing `bin/atlas`
 — exits 2 and names the exit code rather than waving the commit through unchecked.
 
-## Turning it off
-
-`/plugin` → disable the plugin, or remove this file from your copy. It is a guard, not a lock.
+To remove them entirely: `/plugin` → disable the plugin. They are guards, not locks.

@@ -239,6 +239,26 @@ async function main() {
     return;
   }
 
+  // `--gate` is the commit hook's entry point. It reports only when it has something to refuse, because a hook
+  // that prints on every commit is a hook people disable. Exit 1 means blocking findings; the hook maps that
+  // to its own exit 2, which is the only code that stops a tool call.
+  if (cmd === 'health' && flag('gate')) {
+    // Same opt-in rule as `build --auto`: no config, no gate. Refusing commits in a repository that never
+    // adopted the tool would be a plugin deciding someone else's policy for them.
+    if (!cfg.__configPath || cfg.automation.healthOnCommit === false) return;
+    const index = buildIndex(root, cfg, { withGit });
+    const health = runHealth(index, cfg, root);
+    if (!health.blockingCount) return;
+    const blocking = health.findings.filter((f) => f.blocking);
+    console.error(`project-atlas: ${health.blockingCount} blocking documentation signal(s) — this commit would land known rot.\n`);
+    for (const f of blocking.slice(0, 10)) console.error(`  ${f.signal}  ${f.doc}${f.detail ? `  ${f.detail}` : ''}`);
+    if (blocking.length > 10) console.error(`  … and ${blocking.length - 10} more`);
+    console.error(`\n  atlas health --verbose        see all of them`);
+    console.error(`  automation.healthOnCommit     set false in project-atlas.config.json to stop gating commits`);
+    process.exitCode = 1;
+    return;
+  }
+
   if (cmd === 'health') {
     const index = buildIndex(root, cfg, { withGit });
     const health = runHealth(index, cfg, root);
@@ -250,6 +270,11 @@ async function main() {
   }
 
   if (cmd === 'build' || cmd === 'all') {
+    // `--auto` is the write hook's entry point: build only if the user has left the switch on, and exit 0
+    // either way. A hook that fails because a feature is disabled would block the edit that triggered it.
+    // No config file means this repository never opted in. The plugin is installed user-wide, so without this
+    // every markdown edit in every unrelated repository would generate a docs/_wiki nobody asked for.
+    if (flag('auto') && (!cfg.__configPath || cfg.automation.buildOnWrite === false)) return;
     const r = doBuild(root, cfg, withGit, cmd === 'all');
     if (cmd === 'all' && r.health.blockingCount) process.exitCode = 1;
     return;

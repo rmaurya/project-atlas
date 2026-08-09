@@ -237,6 +237,13 @@ export const DEFAULT_CONFIG = {
   // loads up front, so this is a real budget, not a formality: at 20k a 400-document corpus produced 3.3 MB.
   // Documents past the limit are counted and reported — never silently truncated.
   searchBodyLimit: 6000,
+  // Both on by default. A derived surface that only refreshes when someone remembers is a stale surface, and
+  // the reason hand-maintained documentation rots is that keeping it current was always a separate decision.
+  // Set either to false to go back to running `atlas build` and `atlas health` yourself.
+  automation: {
+    buildOnWrite: true,      // rebuild the site when a session writes markdown
+    healthOnCommit: true,    // refuse a commit that introduces a blocking signal
+  },
 };
 
 export function resolveConfig(root, explicitPath) {
@@ -259,6 +266,10 @@ export function resolveConfig(root, explicitPath) {
   }
   const cfg = { ...DEFAULT_CONFIG, ...user };
   cfg.clusters = user.clusters || DEFAULT_CLUSTERS;
+  // Merged one level deep, unlike every other object key. `automation` carries two independent switches with
+  // real defaults, so a shallow spread would make `{"automation":{"buildOnWrite":false}}` silently turn the
+  // commit gate off as well — disabling a safety check the user never mentioned.
+  cfg.automation = { ...DEFAULT_CONFIG.automation, ...(user.automation || {}) };
   cfg.siteTitle = cfg.siteTitle || path.basename(root);
   cfg.__configPath = found ? file : null;
   validate(cfg, found ? file : null);
@@ -322,6 +333,13 @@ const SCHEMA = {
   contrib: [T.object, 'an object'],
   tokens: [T.object, 'an object'],
   branching: [T.object, 'an object'],
+  automation: [T.object, 'an object'],
+};
+
+/** Every switch under `automation`, and what it turns off. Anything else there is refused as a typo. */
+export const AUTOMATION_KEYS = {
+  buildOnWrite: 'rebuild the site when a session writes markdown',
+  healthOnCommit: 'refuse a commit that introduces a blocking signal',
 };
 
 const KNOWN_TONES = new Set(['none', 'mid', 'high', 'done', 'unknown']);
@@ -382,6 +400,18 @@ function validate(cfg, configPath = null) {
       if (!T.nonEmptyString(b.label)) problems.push(`a planning.statusBands entry has no label${at} — colour is never the only signal, so every band needs one`);
       if (!KNOWN_TONES.has(b.tone)) {
         problems.push(`planning.statusBands entry ${JSON.stringify(b.label)} has tone ${show(b.tone)}${at} — known tones: ${[...KNOWN_TONES].join(', ')}`);
+      }
+    }
+  }
+
+  // A misspelled switch here fails open — the automation stays on and the user believes they turned it off.
+  // So an unknown key is refused, and a non-boolean is refused rather than coerced: `"false"` is truthy.
+  if (T.object(cfg.automation)) {
+    for (const [k, v] of Object.entries(cfg.automation)) {
+      if (!(k in AUTOMATION_KEYS)) {
+        problems.push(`unknown key ${JSON.stringify(`automation.${k}`)}${at} — known switches: ${Object.keys(AUTOMATION_KEYS).join(', ')}`);
+      } else if (typeof v !== 'boolean') {
+        problems.push(`automation.${k} is ${show(v)}${at} — it must be true or false. A string is always truthy, so "false" would leave it on.`);
       }
     }
   }
