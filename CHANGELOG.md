@@ -5,6 +5,28 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Planned
+- Selectable light/dark themes with a one-click toggle, defaulting to the system setting.
+- Role-scoped views (QC, product, delivery, architecture, developer, executive).
+- Contribution analytics surfaced on the dashboard, not just the CLI.
+- GitLab support alongside GitHub for the wiki and pages targets.
+- `atlas plan` — propose the git route for the working tree and wait for approval, rather than only refusing a
+  commit once it is attempted.
+
+## [0.1.1] — 2026-08-10
+
+Everything below the Security heading was written for 0.1.0 and never reached anyone. `/plugin` compares
+version strings alone, so shipping those fixes without moving the version meant every installed copy answered
+"already at the latest version" and fetched none of them. This release is that release, plus the gate that
+stops it recurring.
+
+### Added
+- **CI refuses a runtime change that does not bump the version.** If anything under `scripts/`, `bin/`,
+  `skills/`, `hooks/`, `plugins/` or `.claude-plugin/` changed, `.claude-plugin/plugin.json` must declare a
+  higher version — checked on pushes as well as pull requests, because the commit that motivated this went
+  straight to `main`. The verdict is pure and unit-tested (`scripts/lib/release.mjs`); only the git plumbing
+  lives in the CI entry point.
+
 ### Security
 - **A configured `output` was passed unvalidated to a recursive delete.** `{"output":"../PRECIOUS"}` removed a
   directory outside the repository; `{"output":"."}` removed the repository including `.git` — and both
@@ -93,12 +115,6 @@ versions follow [Semantic Versioning](https://semver.org/).
 ### Changed
 - `.claude-plugin/plugin.json` no longer declares `"skills": ["."]` — it failed manifest validation before
   Claude Code 2.1.221 and was redundant, since `skills/` is always scanned.
-
-### Planned
-- Selectable light/dark themes with a one-click toggle, defaulting to the system setting.
-- Role-scoped views (QC, product, delivery, architecture, developer, executive).
-- Contribution analytics surfaced on the dashboard, not just the CLI.
-- GitLab support alongside GitHub for the wiki and pages targets.
 
 ## [0.1.0] — 2026-08-09
 

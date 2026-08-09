@@ -32,6 +32,7 @@ import { branchStatus, createBranch, TYPES } from '../scripts/lib/branch.mjs';
 import { detectHost, gateTarget } from '../scripts/lib/host.mjs';
 import { resolveViews, navItems, PANELS } from '../scripts/lib/views.mjs';
 import { communityAssets } from '../scripts/lib/community.mjs';
+import { versionVerdict, isRuntimePath, parseVersion, compareVersions } from '../scripts/lib/release.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const CLI = path.join(HERE, '..', 'scripts', 'atlas.mjs');
@@ -1971,6 +1972,83 @@ test('publish · a manifest page name that is a path is refused, not read', () =
   ok(!r.drift.some((d) => (d.content || '').includes('PRIVATE-NOTES-MARKER')),
     'nothing outside the staging directory may be read into the drift report');
   fs.rmSync(victim, { force: true });
+});
+
+/* ================================================================== the release marker */
+
+console.log('\nthe release marker');
+
+test('release · a shipped file changed and the version did not is refused', () => {
+  // The bug this whole gate exists for. 7573809 changed every file in scripts/lib and left the version at
+  // 0.1.0, so /plugin answered "already at the latest version" and fetched none of the fixes.
+  const v = versionVerdict({ changed: ['scripts/lib/render.mjs'], before: '0.1.0', after: '0.1.0' });
+  eq(v.ok, false);
+  includes(v.message, 'still 0.1.0');
+  includes(v.message, 'scripts/lib/render.mjs', 'the failure names the file, so the CI log is actionable');
+});
+
+test('release · documentation-only changes do not require a bump', () => {
+  // If a CONTRIBUTING typo demanded a version bump, every bump would become reflex rather than meaning —
+  // which costs the signal the whole of its value.
+  const v = versionVerdict({
+    changed: ['CONTRIBUTING.md', 'references/adoption.md', 'tests/run.mjs', '.github/workflows/ci.yml'],
+    before: '0.1.0', after: '0.1.0',
+  });
+  eq(v.ok, true);
+  eq(v.runtime.length, 0);
+});
+
+test('release · every installed surface counts as shipped, including the generated Codex copy', () => {
+  // plugins/** is derived from skills/**, but it is committed and installed from, so a change there reaches
+  // users exactly like a change to the original.
+  for (const p of ['scripts/atlas.mjs', 'bin/atlas', 'skills/help/SKILL.md', 'hooks/hooks.json',
+                   'plugins/atlas/skills/help/SKILL.md', '.claude-plugin/plugin.json']) {
+    ok(isRuntimePath(p), `${p} ships and must count`);
+  }
+  for (const p of ['README.md', 'tests/run.mjs', 'references/taxonomy.md', '.github/workflows/ci.yml',
+                   'docs/_wiki/index.html']) {
+    ok(!isRuntimePath(p), `${p} is not installed and must not count`);
+  }
+});
+
+test('release · a version that moves backwards is refused, not treated as a change', () => {
+  // 0.1.2 -> 0.1.1 is not a release: an installed 0.1.2 compares strings and never sees it as an update.
+  const v = versionVerdict({ changed: ['bin/atlas'], before: '0.1.2', after: '0.1.1' });
+  eq(v.ok, false);
+  includes(v.message, 'backwards');
+});
+
+test('release · an unparseable version is refused rather than coerced', () => {
+  // Coercing garbage to 0.0.0 would pass a bump from one piece of nonsense to another.
+  const v = versionVerdict({ changed: ['scripts/atlas.mjs'], before: '0.1.0', after: 'v0.2' });
+  eq(v.ok, false);
+  eq(parseVersion('v0.2'), null);
+  eq(compareVersions('0.1.0', 'garbage'), null);
+});
+
+test('release · a manifest absent at the base commit is a new plugin, not a stale one', () => {
+  // Introducing the plugin has nothing installed to be stale against, so any parseable version is a bump.
+  const v = versionVerdict({ changed: ['scripts/atlas.mjs'], before: null, after: '0.1.0' });
+  eq(v.ok, true);
+});
+
+test('release · a real bump passes and reports the move', () => {
+  const v = versionVerdict({ changed: ['scripts/lib/release.mjs'], before: '0.1.0', after: '0.1.1' });
+  eq(v.ok, true);
+  includes(v.message, '0.1.0 → 0.1.1');
+});
+
+test('release · prerelease and build suffixes order by their numeric core', () => {
+  eq(compareVersions('0.1.0', '0.1.1-beta.1'), -1);
+  eq(compareVersions('0.1.1+build.7', '0.1.1'), 0);
+});
+
+test('release · this repository satisfies its own gate', () => {
+  // The gate is itself a change under scripts/**, so 0.1.1 is the bump its own rule demands. If this fails,
+  // the commit introducing the check would not have passed the check.
+  const manifest = JSON.parse(fs.readFileSync(path.join(HERE, '..', '.claude-plugin', 'plugin.json'), 'utf8'));
+  const v = versionVerdict({ changed: ['scripts/lib/release.mjs'], before: '0.1.0', after: manifest.version });
+  eq(v.ok, true, `version is ${manifest.version}; a change under scripts/ requires it above 0.1.0`);
 });
 
 /* ================================================================== done */

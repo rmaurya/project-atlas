@@ -10,6 +10,10 @@ jobs:
         with: { node-version: '20' }
       - name: Runtime packages are in sync
         run: node scripts/sync-runtimes.mjs --check
+      # Runs on push as well as on pull_request: the commit that motivated this gate went straight to main,
+      # so a check that only saw pull requests would have missed the one case it is named after.
+      - name: A runtime change bumps the version
+        run: node scripts/check-version-bump.mjs
       - name: Test
         run: node tests/run.mjs
       # No `init` here. This repository commits its own project-atlas.config.json, and init correctly refuses
