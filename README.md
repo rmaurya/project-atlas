@@ -63,57 +63,65 @@ None of that needed judgment to find. All of it needed someone to look.
 
 ## Install
 
-One source of skills, three runtimes. Pick yours.
-
-**Claude Code** (native plugin) — the CLI lands on your PATH as `atlas` in sessions started after the install:
+**One line, any runtime:**
 
 ```bash
-/plugin marketplace add rmaurya/project-atlas
-/plugin install atlas@project-atlas
+curl -fsSL https://raw.githubusercontent.com/rmaurya/project-atlas/main/install.sh | sh
 ```
 
-Skills arrive namespaced: `/atlas:help`, `/atlas:status`, `/atlas:health`, `/atlas:ask`, `/atlas:review`,
-`/atlas:config`, `/atlas:publish`.
+It detects Claude Code, Codex or Antigravity and installs accordingly; with none of them it installs the
+standalone CLI. Read it first if you would rather not pipe a script — it is 40 lines and does nothing but
+clone this repository and call your agent's own plugin command.
 
-**OpenAI Codex** (marketplace plugin):
+<details>
+<summary><b>Or install by hand</b></summary>
+
+**Claude Code** — `atlas` lands on your PATH in sessions started after the install:
 
 ```bash
-codex plugin marketplace add rmaurya/project-atlas
-codex plugin add atlas@project-atlas
+claude plugin marketplace add rmaurya/project-atlas && claude plugin install atlas@project-atlas
 ```
 
-Or from a local checkout:
+Skills arrive namespaced: `/atlas:help` `/atlas:status` `/atlas:health` `/atlas:changes` `/atlas:diff`
+`/atlas:ask` `/atlas:review` `/atlas:config` `/atlas:publish`.
+
+**OpenAI Codex:**
 
 ```bash
-codex plugin marketplace add /absolute/path/to/project-atlas
-codex plugin add atlas@project-atlas
+codex plugin marketplace add rmaurya/project-atlas && codex plugin add atlas@project-atlas
 ```
 
-**Google Antigravity** (drop-in plugin) — Antigravity scans its plugin directories on start, so a clone into
-either location is the whole install:
+**Google Antigravity** — it scans its plugin directories on start, so a clone is the whole install:
 
 ```bash
-# workspace-scoped
-git clone https://github.com/rmaurya/project-atlas.git .agents/plugins/project-atlas
-
-# or user-scoped, available in every project
 git clone https://github.com/rmaurya/project-atlas.git ~/.gemini/config/plugins/project-atlas
 ```
 
-**Any other agent, or none at all** — clone and run it:
+**No agent at all:**
 
 ```bash
-git clone https://github.com/rmaurya/project-atlas.git
-./project-atlas/bin/atlas --help
+git clone https://github.com/rmaurya/project-atlas.git && ./project-atlas/bin/atlas --help
 ```
 
-Agents without a plugin system should load [`AGENTS.md`](AGENTS.md), which carries the same instructions in a
-portable form.
+</details>
+
+<details>
+<summary><b>Why two commands and not one</b></summary>
+
+Adding a marketplace is **local to your machine** — it writes `~/.claude/plugins/known_marketplaces.json` and
+caches a clone. Nothing about it is published, so every user runs it themselves. A single
+`claude plugin install atlas@project-atlas` only works once that marketplace is already registered, which is
+why the two are chained above.
+
+For a **team**, add it with `--scope project`: the marketplace is then declared in `.claude/settings.json`,
+which you commit, and anyone cloning the repository gets it without running anything.
+
+</details>
 
 ### How much is actually shared
 
-**One repository, one `skills/` directory, three manifests.** The `SKILL.md` format is common across all
-three runtimes, so the instructions are written once:
+**One repository, one `skills/` directory, three manifests.** The `SKILL.md` format is common to all three
+runtimes, so the instructions are written once:
 
 | Runtime | Manifest | Reads `skills/` |
 |---|---|---|
@@ -121,16 +129,13 @@ three runtimes, so the instructions are written once:
 | Antigravity | `plugin.json` at the repository root | in place |
 | Codex | `.agents/plugins/marketplace.json` → `plugins/atlas/.codex-plugin/plugin.json` | **via a generated copy** |
 
-Codex is the one exception, and for a specific reason: a Codex marketplace resolves `source.path` relative to
-the marketplace root and **requires a subdirectory** — `"./"` is rejected — so the repository cannot be its
-own Codex plugin entry the way it can be its own Claude one. `plugins/atlas/` exists only to satisfy that.
-
-A copy is a fork waiting to happen, which is precisely what this tool exists to detect, so it is **generated
-and drift-checked** rather than hand-maintained:
+Codex is the one exception: its marketplace resolves `source.path` relative to the marketplace root and
+**requires a subdirectory** — `"./"` is rejected — so the repository cannot be its own Codex plugin entry the
+way it can be its own Claude one. `plugins/atlas/` exists only to satisfy that, and because a copy is a fork
+waiting to happen it is **generated and drift-checked** rather than hand-maintained:
 
 ```bash
-node scripts/sync-runtimes.mjs           # regenerate
-node scripts/sync-runtimes.mjs --check   # fail if it has drifted — runs in CI and in the test suite
+node scripts/sync-runtimes.mjs --check   # runs in CI and in the test suite
 ```
 
 ## Quick start
