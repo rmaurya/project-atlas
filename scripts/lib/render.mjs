@@ -16,6 +16,7 @@ import { viewPage } from './dashboard.mjs';
 import { readDeck, deckPage } from './deck.mjs';
 import { readContrib } from './contrib.mjs';
 import { resolveViews, navItems, viewFile } from './views.mjs';
+import { risks, summarise } from './insight.mjs';
 import { PANELS } from './views.mjs';
 
 export { flatName } from './render-shared.mjs';
@@ -116,11 +117,23 @@ export function renderSite(index, health, cfg, root) {
   const deck = deck0;
   const contrib = readContrib(root, cfg);
 
+  // The narrative half of the homepage, and the only prose on it. **The build never writes this** — it renders
+  // a markdown file a person or a session authored, which landed in a diff someone reviewed. Absent is the
+  // normal state and produces no section at all, rather than a placeholder implying analysis that nobody did.
+  const analysisPath = cfg.analysis?.source || 'docs/ANALYSIS.md';
+  let analysisHtml = null;
+  try {
+    const abs = confine(root, analysisPath, 'analysis.source', cfg.__configPath);
+    if (fs.existsSync(abs)) {
+      analysisHtml = renderMarkdown(fs.readFileSync(abs, 'utf8'), { resolveLink: resolveFrom(analysisPath) });
+    }
+  } catch { analysisHtml = null; }             // a path outside the repository is refused, not read
+
   // `jsonForScript`, not `JSON.stringify`: this file is inlined verbatim into a <script> tag by
   // `exportSingleFile`, and it carries document body text. See render-shared.mjs for what that cost.
   fs.writeFileSync(path.join(outDir, 'search-index.js'),
     'window.ATLAS = ' + jsonForScript({ docs: searchRows, truncated }) + ';\n', 'utf8');
-  fs.writeFileSync(path.join(outDir, 'index.html'), indexPage(index, health, cfg, truncated, docNav.map((n) => ({ ...n, current: n.href === 'index.html' })), views0, plan, contrib, nameFor), 'utf8');
+  fs.writeFileSync(path.join(outDir, 'index.html'), indexPage(index, health, cfg, truncated, docNav.map((n) => ({ ...n, current: n.href === 'index.html' })), views0, plan, contrib, nameFor, analysisHtml), 'utf8');
   fs.writeFileSync(path.join(outDir, 'wiki.html'), wikiPage(index, cfg, truncated,
     docNav.map((n) => ({ ...n, current: n.href === 'wiki.html' })), nameFor), 'utf8');
   fs.writeFileSync(path.join(outDir, 'health.html'), healthPage(index, health, cfg, docNav.map((n) => ({ ...n, current: n.href === 'health.html' })), nameFor), 'utf8');
@@ -371,7 +384,41 @@ ${backlinks}
   });
 }
 
-function indexPage(index, health, cfg, truncated, nav, views, plan, contrib, nameFor) {
+/**
+ * The risk panel, and the narrative beneath it if a human wrote one.
+ *
+ * Every line states its number, the band it is judged against and what it implies — because a figure with no
+ * threshold beside it needs a maintainer standing next to the screen, which is what this page was before.
+ */
+function riskSection(list, analysisHtml) {
+  if (!list.length && !analysisHtml) return '';
+  const dot = { risk: 'bad', watch: 'warn', ok: 'ok' };
+  const label = { risk: 'Outside its band', watch: 'Approaching its band', ok: 'Clear' };
+
+  return `
+<section class="risks">
+  <h2>Where this stands</h2>
+  <p class="cap">${escapeHtml(summarise(list))}</p>
+  <ul class="risklist">
+    ${list.map((s) => `
+    <li class="r-${s.level}">
+      <p class="rh"><span class="rfig ${dot[s.level]}">${escapeHtml(s.figure)}</span>
+        <span class="rt">${escapeHtml(s.headline)}</span>
+        <span class="rl">${label[s.level]}</span></p>
+      <p class="cap">${escapeHtml(s.means)}</p>
+      <p class="cap rband">Threshold: ${escapeHtml(s.threshold)}.${
+        s.notMeans ? ` <em>What it does not mean:</em> ${escapeHtml(s.notMeans)}` : ''}</p>
+    </li>`).join('')}
+  </ul>
+</section>
+${analysisHtml ? `
+<section class="analysis prose">
+  ${analysisHtml}
+  <p class="cap">Written by hand and rendered from its markdown source. Nothing on this page is generated prose.</p>
+</section>` : ''}`;
+}
+
+function indexPage(index, health, cfg, truncated, nav, views, plan, contrib, nameFor, analysisHtml) {
   const clusters = index.clusters.map((c) => {
     const docs = c.documents.map((p) => index.documents.find((d) => d.path === p)).filter(Boolean)
       .sort((a, b) => (a.title || a.path).localeCompare(b.title || b.path));
@@ -413,6 +460,8 @@ function indexPage(index, health, cfg, truncated, nav, views, plan, contrib, nam
       : `<a href="health.html"><span class="ok">No blocking findings</span></a> — every mechanical check is clean`}
   </p>
 </section>
+
+${riskSection(risks({ index, health, plan, contrib }), analysisHtml)}
 
 <section class="viewgrid">
   ${views.filter((v) => v.nav !== false).map((v) => `
@@ -656,6 +705,18 @@ a.src { color:var(--muted); }
 .hero-health { margin:0 0 8px; font-size:14px; }
 @media (max-width:600px) { .hero h1 { font-size:30px; } .hero .lede { font-size:15.5px; } }
 
+.risks { margin:28px 0 8px; }
+.risklist { list-style:none; margin:14px 0 0; padding:0; display:grid; gap:10px; }
+.risklist li { border:1px solid var(--line); border-left:3px solid var(--line); border-radius:8px; padding:11px 14px; background:var(--panel); }
+.risklist li.r-risk { border-left-color:var(--bad); }
+.risklist li.r-watch { border-left-color:var(--warn); }
+.risklist li.r-ok { border-left-color:var(--ok); }
+.rh { margin:0 0 4px; display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; }
+.rfig { font-weight:680; font-variant-numeric:tabular-nums; }
+.rt { font-weight:560; }
+.rl { margin-left:auto; font-size:12px; color:var(--muted); text-transform:uppercase; letter-spacing:.06em; }
+.rband { opacity:.85; }
+.analysis { margin:22px 0 8px; padding:16px 18px; border:1px solid var(--line); border-radius:10px; background:var(--panel); }
 .viewgrid { display:grid; grid-template-columns:repeat(auto-fit,minmax(230px,1fr)); gap:12px; margin:22px 0 34px; }
 .viewcard {
   display:flex; flex-direction:column; gap:5px; padding:14px 16px;

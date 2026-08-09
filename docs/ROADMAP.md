@@ -1,6 +1,6 @@
 # Roadmap — project-atlas
 
-**Last updated:** 2026-08-10 · **Version:** 0.1.11 · **Status:** pre-release, dogfooding
+**Last updated:** 2026-08-10 · **Version:** 0.1.12 · **Status:** pre-release, dogfooding
 
 Open work, with an honest completion figure against each item. A figure marked `*` is estimated rather than
 measured against the code — the same distinction the tool preserves everywhere else, applied to itself.
@@ -20,7 +20,7 @@ measured against the code — the same distinction the tool preserves everywhere
 | D-1 | 100 | D-2 | 100 | D-3 | 100 |
 | D-4 | 0 | D-5 | 30* | D-6 | 0 |
 | D-7 | 0 | D-8 | 0 | D-9 | 100 |
-| D-10 | 100 | I-1 | 0 | I-2 | 0 |
+| D-10 | 100 | I-1 | 100 | I-2 | 0 |
 | I-3 | 40* | D-11 | 100 | | |
 
 ---
@@ -77,7 +77,7 @@ workflow builds and uploads, but the repository's Pages source is not set to Git
 ## Track 3 — Quality
 
 **Q-1 · Test suite** — **P0 · Critical**
-*186 integration tests against throwaway git repositories, no mocks.*
+*189 integration tests against throwaway git repositories, no mocks.*
 Every bug the tool has shipped is pinned by a test that fails without its fix.
 
 **Q-2 · Defaults that fit real repositories** — **P1 · High**
@@ -117,7 +117,7 @@ sat five releases behind while every command reported success. **Nothing else in
 until this is fixed.**
 
 **D-5 · Tag the release when the version moves** — **P1 · High**
-*Eleven tags now exist, `v0.1.0` through `v0.1.10`, and every one was typed by hand.*
+*Twelve tags now exist, `v0.1.0` through `v0.1.11`, and every one was typed by hand.*
 The first five were created retroactively; the rest were remembered, one release at a time, which is the
 definition of a step that will eventually be forgotten. A CI job on push to `main`: if
 `.claude-plugin/plugin.json` declares a version with no matching tag, create the annotated tag. The version
@@ -177,12 +177,16 @@ stdin, where a hook cannot see it — is refused rather than skipped.
 reader what any of it means, which is the first thing anyone asks of it.*
 
 **I-1 · An analysed homepage** — **P1 · High**
-*The front page states figures and draws no conclusion from them.*
-Two halves, deliberately separate. A **mechanical** risk panel computed from measured numbers with stated
-thresholds — rework 63.8% against a 30% band, bus factor 1, 0 of 20 items named by a commit, 15 orphan
-documents — where each line is a number, a threshold and the action it implies. And a **narrative** rendered
-from `docs/ANALYSIS.md`, written in a session and landing in a reviewable diff. The build never generates
-prose: that rule is what keeps the site regenerable and keeps unreviewed claims off it.
+*Shipped in 0.1.12.* Two halves, deliberately separate.
+
+A **mechanical** risk panel: six signals computed from the corpus and from `git log`, each carrying its
+number, the band it is judged against, what it implies, and — where the figure is commonly over-read — what
+it does not mean. Every threshold is a stated default, so a reader who disagrees can change it and the page
+changes with it. A signal whose input is unavailable is omitted rather than shown as zero.
+
+And a **narrative** rendered from `docs/ANALYSIS.md` when a repository has written one, absent otherwise. The
+build never generates prose. That rule is what keeps the site byte-reproducible and keeps claims nobody
+reviewed off a page people will quote.
 
 **I-2 · Contributor and resource scorecard** — **P1 · High**
 *Throughput, rework, revert rate, spec coverage, bus factor and review latency, per contributor and per desk.*

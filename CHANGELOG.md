@@ -13,6 +13,21 @@ versions follow [Semantic Versioning](https://semver.org/).
 - `atlas plan` — propose the git route for the working tree and wait for approval, rather than only refusing a
   commit once it is attempted.
 
+## [0.1.12] — 2026-08-10
+
+### Added
+- **The homepage draws a conclusion.** It stated figures and left every reader to already know whether 68.8%
+  rework is normal, what a three-day window counts, or how many orphans a 27-document corpus should have.
+  Six signals now carry a number, the band it is judged against, what it implies, and — where a figure is
+  commonly over-read — what it does not mean. Thresholds are stated on the page, so a reader who disagrees
+  can change them and the page changes with them.
+
+  A signal whose input is unavailable is **omitted, not shown as zero**. A green line for a check that never
+  ran is the worst output this tool could produce.
+- **`docs/ANALYSIS.md` renders beneath it** when a repository writes one. The build never generates prose —
+  that rule keeps the site byte-reproducible and keeps unreviewed claims off a page people quote. This
+  repository now has one, and it argues with three of its own four red signals.
+
 ## [0.1.11] — 2026-08-10
 
 ### Added

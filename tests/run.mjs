@@ -35,6 +35,7 @@ import { communityAssets } from '../scripts/lib/community.mjs';
 import { versionVerdict, isRuntimePath, parseVersion, compareVersions } from '../scripts/lib/release.mjs';
 import { disagreements, updateNotice, isPluginCache } from '../scripts/lib/version.mjs';
 import { specVerdict, idsIn } from '../scripts/lib/spec.mjs';
+import { risks, summarise } from '../scripts/lib/insight.mjs';
 import { manifestUrl, checkForUpdate, fetchLatest, readCache, writeCache, isFresh } from '../scripts/lib/update.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -2340,6 +2341,49 @@ test('automation · neither hook acts in a repository that never adopted the too
   eq(cli(dir, ['build', '--auto', '--quiet']).code, 0);
   ok(!fs.existsSync(path.join(dir, 'docs', '_wiki')), 'no config, no site written');
   eq(cli(dir, ['health', '--gate']).code, 0, 'no config, no gate');
+});
+
+/* ================================================================== risk, from measured numbers */
+
+console.log('\nrisk signals');
+
+test('insight · every signal carries its number, its threshold and what it does not mean', () => {
+  // A figure with no band beside it needs a maintainer standing next to the screen, which is what the
+  // homepage was: "rework rate 68.8%" and no way to know whether that is normal.
+  const list = risks({
+    index: { stats: { documents: 27 } },
+    health: { blockingCount: 0, counts: { H4: 14 } },
+    plan: { missing: false, items: Array.from({ length: 26 }, (_, i) => ({ id: `X-${i}` })) },
+    contrib: { available: true, quality: { reworkRate: 68.8, reworkWindowDays: 3, withTaskRef: 1 },
+               people: [{ name: 'a' }], commits: [{ desk: 'x' }, {}] },
+  });
+  ok(list.length >= 5);
+  for (const s of list) {
+    ok(s.figure, `${s.id} has no figure`);
+    ok(s.threshold, `${s.id} states no threshold, so the reader cannot disagree with it`);
+    ok(s.means, `${s.id} says nothing about what it implies`);
+  }
+});
+
+test('insight · a signal whose input is missing is omitted, never shown as zero', () => {
+  // The rule the health report follows: a green line for a check that never ran is the worst possible output.
+  const list = risks({ index: null, health: null, plan: null, contrib: { available: false } });
+  eq(list.length, 0, 'no inputs, no claims');
+
+  const partial = risks({ index: { stats: { documents: 10 } }, health: { blockingCount: 0, counts: { H4: 1 } } });
+  eq(partial.filter((s) => s.id === 'rework').length, 0, 'no contrib data means no rework verdict');
+  ok(partial.some((s) => s.id === 'orphans'), 'but what can be measured still is');
+});
+
+test('insight · risks sort worst first, and the summary counts the bands', () => {
+  const list = risks({
+    index: { stats: { documents: 10 } },
+    health: { blockingCount: 3, counts: { H4: 0 } },
+    contrib: { available: true, quality: { reworkRate: 5, reworkWindowDays: 3 }, people: [{}, {}, {}], commits: [] },
+  });
+  eq(list[0].level, 'risk', 'a blocking finding outranks a healthy rework rate');
+  includes(summarise(list), 'outside their band');
+  eq(summarise([]), 'Nothing measurable yet — this repository has no history to read.');
 });
 
 /* ================================================================== the plan gate */
