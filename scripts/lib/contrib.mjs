@@ -360,7 +360,11 @@ export function formatContrib(k, plan, useColor) {
     L.push(c.bold('Spec → build coverage'));
     L.push(`  ${cov.withCommits} of ${cov.rows.length} tracked item(s) are named by at least one commit.`);
     if (cov.claimedButUnreferenced) {
-      L.push(c.dim(`  ${cov.claimedButUnreferenced} item(s) report progress but no commit names them — worth a look, not an accusation.`));
+      const named = cov.rows.filter((r) => r.commits === 0 && (r.percent || 0) > 0).slice(0, 6);
+      L.push(c.dim(`  ${cov.claimedButUnreferenced} item(s) report progress but no commit names them — worth a look, not an accusation:`));
+      // An id alone is a reference the reader has to look up; the title is what lets them recognise it.
+      for (const r of named) L.push(c.dim(`    ${r.id} · ${r.title} (${r.percent}%)`));
+      if (cov.claimedButUnreferenced > named.length) L.push(c.dim(`    … and ${cov.claimedButUnreferenced - named.length} more`));
     }
   }
 

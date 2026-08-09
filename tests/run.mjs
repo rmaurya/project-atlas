@@ -25,7 +25,7 @@ import { readPlanning } from '../scripts/lib/planning.mjs';
 import { readDeck } from '../scripts/lib/deck.mjs';
 import { RAMP, STATUS } from '../scripts/lib/dashboard.mjs';
 import { buildWikiPages, wikiPageName, exportSingleFile, RESERVED } from '../scripts/lib/publish.mjs';
-import { readContrib, estimateHours } from '../scripts/lib/contrib.mjs';
+import { readContrib, estimateHours, taskCoverage } from '../scripts/lib/contrib.mjs';
 import { readTokens, formatTokens, formatSessions, assertNotPublishable, transcriptDir } from '../scripts/lib/tokens.mjs';
 import { branchStatus, createBranch, TYPES } from '../scripts/lib/branch.mjs';
 import { detectHost, gateTarget } from '../scripts/lib/host.mjs';
@@ -1058,6 +1058,23 @@ test('views · the landing page quotes the corpus, never a bare link', () => {
   const doc = index.documents.find((d) => d.path === 'docs/README.md');
   includes(doc.excerpt, 'A real description');
   ok(!doc.excerpt.includes('github.com'), 'a bare link must not become the description');
+});
+
+test('ids · an item id is never reported without its title', () => {
+  // A bare "#2" or "S-1" is a reference the reader has to go look up. Wherever an id appears in output, the
+  // title travels with it.
+  const dir = fixture('ids', {
+    'docs/TASKS.md': '# Tasks\n\n| Item | % |\n|---|---|\n| A-1 | 40 |\n\n## Track 1 — Alpha\n\n**A-1 · A recognisable title** — **P1 · High**\n*Summary.*\n',
+    'docs/A.md': '# A\n',
+  });
+  const cfg = resolveConfig(dir);
+  cfg.planning = { source: 'docs/TASKS.md' };
+  const plan = readPlanning(dir, cfg);
+  const contrib = { available: true, commits: [], quality: {}, totals: {}, people: [], agents: [], desks: { configured: false }, weeks: [], caveats: [] };
+  const cov = taskCoverage(contrib, plan);
+  const row = cov.rows.find((r) => r.id === 'A-1');
+  ok(row.title, 'coverage rows must carry the title, not just the id');
+  eq(row.title, 'A recognisable title');
 });
 
 /* ================================================================== runtimes */

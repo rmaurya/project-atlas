@@ -111,7 +111,7 @@ function panel(id, { index, health, plan, cfg, contrib, view }) {
     case 'desks': return hasContrib ? desksChart(contrib) : null;
     case 'coverage': return hasContrib && hasPlan ? coverageChart(contrib, plan) : null;
     case 'documents': return documentsPanel(index, health, view);
-    case 'recent': return hasContrib ? recentPanel(contrib) : null;
+    case 'recent': return hasContrib ? recentPanel(contrib, plan) : null;
     case 'caveats': return caveats(plan, health, contrib);
     default: return null;
   }
@@ -441,9 +441,11 @@ function documentsPanel(index, health, view) {
 }
 
 /** What has just landed. Newest first, because "what changed" is almost always the question. */
-function recentPanel(contrib) {
+function recentPanel(contrib, plan) {
   const recent = contrib.commits.slice(-15).reverse();
   if (!recent.length) return null;
+  // An id with no title is a reference the reader has to go look up. Resolve it where the plan knows it.
+  const titles = new Map((plan && !plan.missing ? plan.items : []).map((i) => [i.id, i.title]));
   return `
 <section class="card">
   <h2>Recently pushed <span class="count">${recent.length}</span></h2>
@@ -453,7 +455,10 @@ function recentPanel(contrib) {
     ${recent.map((c) => `<li>
       <span class="rsub">${escapeHtml(c.subject)}</span>
       <span class="dm">${c.date.slice(0, 10)} · <code>${escapeHtml(c.hash)}</code> · +${c.added} / −${c.removed}${c.agents.length ? ` · ${escapeHtml(c.agents[0])}` : ''}</span>
-      ${c.taskRefs.length ? `<span class="dflags">${c.taskRefs.map((r) => `<span class="sig adv">${escapeHtml(r)}</span>`).join('')}</span>` : ''}
+      ${c.taskRefs.length ? `<span class="reftags">${c.taskRefs.map((r) => {
+        const t = titles.get(r);
+        return `<span class="ref" title="${escapeHtml(t || 'not found in the planning document')}">${escapeHtml(r)}${t ? ` · ${escapeHtml(t)}` : ''}</span>`;
+      }).join('')}</span>` : ''}
     </li>`).join('')}
   </ul>
 </section>`;
@@ -573,6 +578,8 @@ figcaption { display:block; }
 .doclist .dflags { display:inline-flex; gap:4px; margin-top:5px; }
 .doclist .dp { display:block; color:var(--muted); font-size:11.5px; margin-top:4px; opacity:.8; }
 .rsub { font-weight:600; }
+.reftags { display:flex; flex-wrap:wrap; gap:5px; margin-top:6px; }
+.ref { font-size:11.5px; padding:2px 8px; border-radius:999px; background:var(--code-bg); color:var(--muted); }
 .stamp { color:var(--muted); font-size:12px; }
 abbr { text-decoration:none; cursor:help; color:var(--muted); }
 :root { --st-good:${STATUS.light.good}; --st-warning:${STATUS.light.warning};
