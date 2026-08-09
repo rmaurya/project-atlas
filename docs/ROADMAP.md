@@ -1,6 +1,6 @@
 # Roadmap — project-atlas
 
-**Last updated:** 2026-08-10 · **Version:** 0.1.10 · **Status:** pre-release, dogfooding
+**Last updated:** 2026-08-10 · **Version:** 0.1.11 · **Status:** pre-release, dogfooding
 
 Open work, with an honest completion figure against each item. A figure marked `*` is estimated rather than
 measured against the code — the same distinction the tool preserves everywhere else, applied to itself.
@@ -21,7 +21,7 @@ measured against the code — the same distinction the tool preserves everywhere
 | D-4 | 0 | D-5 | 30* | D-6 | 0 |
 | D-7 | 0 | D-8 | 0 | D-9 | 100 |
 | D-10 | 100 | I-1 | 0 | I-2 | 0 |
-| I-3 | 40* | | | | |
+| I-3 | 40* | D-11 | 100 | | |
 
 ---
 
@@ -77,7 +77,7 @@ workflow builds and uploads, but the repository's Pages source is not set to Git
 ## Track 3 — Quality
 
 **Q-1 · Test suite** — **P0 · Critical**
-*173 integration tests against throwaway git repositories, no mocks.*
+*186 integration tests against throwaway git repositories, no mocks.*
 Every bug the tool has shipped is pinned by a test that fails without its fix.
 
 **Q-2 · Defaults that fit real repositories** — **P1 · High**
@@ -160,6 +160,16 @@ page and a build-time update row. Panels pack Pinterest-style rather than leavin
 *Shipped in 0.1.10.* The hooks are inert without a config, deliberately — but inert and silent is
 indistinguishable from broken, and read as broken in a repository holding 349 indexable markdown files. One
 line at session start, narrow enough to stay quiet where it would be noise.
+
+**D-11 · A shipped change names the item it advances** — **P0 · Critical**
+*Shipped in 0.1.11.* The plan went stale twice because keeping it current was something to remember. The
+commit hook now refuses a change under `scripts/ bin/ skills/ hooks/` whose message names no roadmap item, and
+lists the open ones so the refusal is actionable from the message.
+
+Deliberately the weakest useful rule: it enforces that the plan was **opened**, not that a percentage moved. A
+machine cannot know whether `D-6` went from 0% to 40%, and a gate that guessed would either be wrong or train
+people to type a number to get past it. A message it cannot read — `git commit -F -` hands the text to git on
+stdin, where a hook cannot see it — is refused rather than skipped.
 
 ## Track 5 — Insight
 

@@ -40,6 +40,7 @@ import { branchStatus, createBranch, formatBranch, TYPES } from './lib/branch.mj
 import { readTokens, formatTokens, formatSessions, transcriptDir, assertNotPublishable } from './lib/tokens.mjs';
 import { readChanges, formatChanges, fileDiff } from './lib/changes.mjs';
 import { formatVersion, updateNotice, isPluginCache } from './lib/version.mjs';
+import { specVerdict } from './lib/spec.mjs';
 import { checkForUpdate } from './lib/update.mjs';
 
 const argv = process.argv.slice(2);
@@ -171,6 +172,31 @@ async function aboutFacts(root, cfg) {
  * in a repository with almost no markdown — a Swift app with one README does not want a documentation
  * knowledgebase, and a plugin that suggests one in every directory is a plugin people disable.
  */
+/** Lines from a git command, or `[]`. Never throws — every caller is a gate that must decide, not crash. */
+function gitLines(root, args) {
+  try {
+    return execFileSync('git', ['-C', root, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })
+      .split('\n').filter(Boolean);
+  } catch { return []; }
+}
+
+/**
+ * The whole of stdin, or `null` when there is none.
+ *
+ * `null` is not "empty" — it means the message was never handed over, and the caller refuses on it rather
+ * than treating an unreadable message as an acceptable one.
+ */
+function readStdin() {
+  if (process.stdin.isTTY) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    let data = '';
+    process.stdin.setEncoding('utf8');
+    process.stdin.on('data', (c) => { data += c; });
+    process.stdin.on('end', () => resolve(data.trim() === '' ? null : data));
+    process.stdin.on('error', () => resolve(null));
+  });
+}
+
 function adoptionNotice() {
   const MIN_DOCS = 3;
   let root;
@@ -410,6 +436,21 @@ async function main() {
   // `--gate` is the commit hook's entry point. It reports only when it has something to refuse, because a hook
   // that prints on every commit is a hook people disable. Exit 1 means blocking findings; the hook maps that
   // to its own exit 2, which is the only code that stops a tool call.
+  // The plan gate. Reads the commit message from stdin so the hook never has to quote it back into a shell.
+  if (cmd === 'spec' && flag('gate')) {
+    if (!cfg.__configPath || cfg.automation.specOnCommit === false) return;
+    const plan = readPlanning(root, cfg);
+    if (plan.missing || !plan.items.length) return;      // no plan to hold anyone to
+    const staged = gitLines(root, ['diff', '--cached', '--name-only']);
+    if (!staged.length) return;                          // nothing staged; git will refuse this commit anyway
+    const message = await readStdin();
+    const v = specVerdict({ changed: staged, message, items: plan.items, roadmapPath: plan.source });
+    if (v.ok) return;
+    console.error(`project-atlas: ${v.message}\n`);
+    process.exitCode = 1;
+    return;
+  }
+
   if (cmd === 'health' && flag('gate')) {
     // Same opt-in rule as `build --auto`: no config, no gate. Refusing commits in a repository that never
     // adopted the tool would be a plugin deciding someone else's policy for them.

@@ -34,6 +34,7 @@ import { resolveViews, navItems, PANELS } from '../scripts/lib/views.mjs';
 import { communityAssets } from '../scripts/lib/community.mjs';
 import { versionVerdict, isRuntimePath, parseVersion, compareVersions } from '../scripts/lib/release.mjs';
 import { disagreements, updateNotice, isPluginCache } from '../scripts/lib/version.mjs';
+import { specVerdict, idsIn } from '../scripts/lib/spec.mjs';
 import { manifestUrl, checkForUpdate, fetchLatest, readCache, writeCache, isFresh } from '../scripts/lib/update.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -2339,6 +2340,69 @@ test('automation · neither hook acts in a repository that never adopted the too
   eq(cli(dir, ['build', '--auto', '--quiet']).code, 0);
   ok(!fs.existsSync(path.join(dir, 'docs', '_wiki')), 'no config, no site written');
   eq(cli(dir, ['health', '--gate']).code, 0, 'no config, no gate');
+});
+
+/* ================================================================== the plan gate */
+
+console.log('\nthe plan gate');
+
+const PLAN_ITEMS = [
+  { id: 'D-6', title: 'atlas plan', percent: 0 },
+  { id: 'D-8', title: 'The tool audits its own output', percent: 0 },
+  { id: 'P-1', title: 'Core generation', percent: 100 },
+];
+
+test('spec · a shipped change that names no item is refused, and the open items are listed', () => {
+  // The failure this exists for: 35 commits, then six more releases, none naming an item, while the
+  // dashboard printed "named by a commit: 0" on its front page the entire time.
+  const v = specVerdict({ changed: ['scripts/lib/render.mjs'], message: 'fix(render): something', items: PLAN_ITEMS });
+  eq(v.ok, false);
+  includes(v.message, 'names no roadmap item');
+  includes(v.message, 'D-6', 'the refusal lists what could be named, so it is actionable from the message');
+  ok(!v.message.includes('P-1'), 'a finished item is not something new work advances');
+});
+
+test('spec · naming a known item passes', () => {
+  const v = specVerdict({ changed: ['scripts/lib/render.mjs'], message: 'feat(verify): audit output (D-8)', items: PLAN_ITEMS });
+  eq(v.ok, true);
+  eq(v.named.join(), 'D-8');
+});
+
+test('spec · an id that is not in the plan does not count as naming one', () => {
+  // Otherwise "fixes CVE-2026-1" or a date would satisfy the gate and it would enforce nothing.
+  const v = specVerdict({ changed: ['bin/atlas'], message: 'chore: bump X-9 and 2026-08', items: PLAN_ITEMS });
+  eq(v.ok, false);
+});
+
+test('spec · a documentation-only change needs no item', () => {
+  // Same boundary as the release gate. Demanding an item for a typo fix makes naming a reflex, and a reflex
+  // carries no signal.
+  const v = specVerdict({ changed: ['README.md', 'docs/references/adoption.md'], message: 'docs: typo', items: PLAN_ITEMS });
+  eq(v.ok, true);
+});
+
+test('spec · a message that could not be read is refused, never waved through', () => {
+  // `git commit -F -` hands the message to git on stdin, where a PreToolUse hook cannot see it. A gate that
+  // skips the cases it cannot parse is a gate that is off.
+  const v = specVerdict({ changed: ['scripts/atlas.mjs'], message: null, items: PLAN_ITEMS });
+  eq(v.ok, false);
+  includes(v.message, 'could not be read');
+});
+
+test('spec · naming an item without editing the plan passes, and says the figures did not move', () => {
+  // The gate enforces that the plan was opened. It cannot know whether D-8 went from 0% to 40%, and guessing
+  // would either be wrong or train people to type a number to get past it.
+  const v = specVerdict({
+    changed: ['scripts/lib/render.mjs'], message: 'feat: (D-8)', items: PLAN_ITEMS, roadmapPath: 'docs/ROADMAP.md',
+  });
+  eq(v.ok, true);
+  includes(v.message, 'the plan itself was not edited');
+});
+
+test('spec · with no plan there is nothing to hold anyone to', () => {
+  eq(specVerdict({ changed: ['scripts/atlas.mjs'], message: 'anything', items: [] }).ok, false,
+     'an empty item list still refuses at the verdict layer; the CLI is what skips when no plan exists');
+  eq(idsIn('advances D-8 and I-2, not 2026-08-10').join(), 'D-8,I-2');
 });
 
 /* ================================================================== the release marker */

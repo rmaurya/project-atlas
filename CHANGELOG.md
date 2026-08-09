@@ -13,6 +13,28 @@ versions follow [Semantic Versioning](https://semver.org/).
 - `atlas plan` — propose the git route for the working tree and wait for approval, rather than only refusing a
   commit once it is attempted.
 
+## [0.1.11] — 2026-08-10
+
+### Added
+- **A shipped change must name the roadmap item it advances.** The plan in this repository went stale for 35
+  commits, was rewritten with a paragraph explaining how it had gone stale, and then went stale again across
+  the next six releases — while the dashboard printed *"Spec to build — named by a commit: 0 of 20"* on its
+  front page throughout. Keeping it current was something to remember, and remembering does not work.
+
+  The commit hook now refuses a change under `scripts/ bin/ skills/ hooks/ plugins/ .claude-plugin/` whose
+  message names no item, and lists the open ones so the refusal is actionable without opening another file.
+  `automation.specOnCommit`, default `true`.
+
+  Deliberately the weakest useful rule: it enforces that the plan was **opened**, not that a percentage moved.
+  A machine cannot know whether `D-6` went from 0% to 40%, and a gate that guessed would either be wrong or
+  train people to type a number to get past it. Finished items are not offered — new work does not advance
+  something already at 100%.
+
+  A message the hook cannot read is **refused, not skipped**: `git commit -F -` hands the text to git on
+  stdin, out of the hook's sight, and a gate that waves through the cases it cannot parse is a gate that is
+  off. The message is piped to the gate rather than passed as an argument, so a quote in a commit message can
+  never rewrite the command checking it.
+
 ## [0.1.10] — 2026-08-10
 
 ### Added

@@ -43,6 +43,26 @@ fi
 
 "$ATLAS" health --gate >&2
 st=$?
+if [ $st -ne 0 ]; then
+  [ $st -ne 1 ] && echo "project-atlas: the health gate could not run (exit $st). This commit was NOT checked." >&2
+  exit 2
+fi
+
+# The plan gate needs the commit message. It is piped rather than passed as an argument so nothing has to be
+# quoted back into a shell — a message containing a quote would otherwise rewrite the command running it.
+#
+# `git commit -F -` takes the message on stdin, where this hook cannot see it. That is reported as unreadable
+# and refused by the gate rather than waved through: a check that silently skips the cases it cannot parse is
+# a check that is off.
+msg=$(printf '%s' "$cmd" | sed -n 's/.*-m[[:space:]][[:space:]]*"\([^"]*\)".*/\1/p')
+[ -z "$msg" ] && msg=$(printf '%s' "$cmd" | sed -n "s/.*-m[[:space:]][[:space:]]*'\([^']*\)'.*/\1/p")
+if [ -z "$msg" ]; then
+  f=$(printf '%s' "$cmd" | sed -n 's/.*-F[[:space:]][[:space:]]*\([^[:space:]]*\).*/\1/p')
+  [ -n "$f" ] && [ "$f" != "-" ] && [ -r "$f" ] && msg=$(cat "$f")
+fi
+
+printf '%s' "$msg" | "$ATLAS" spec --gate >&2
+st=$?
 [ $st -eq 0 ] && exit 0
-[ $st -ne 1 ] && echo "project-atlas: the health gate could not run (exit $st). This commit was NOT checked." >&2
+[ $st -ne 1 ] && echo "project-atlas: the plan gate could not run (exit $st). This commit was NOT checked." >&2
 exit 2

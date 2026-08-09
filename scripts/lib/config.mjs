@@ -243,6 +243,7 @@ export const DEFAULT_CONFIG = {
   automation: {
     buildOnWrite: true,      // rebuild the site when a session writes markdown
     healthOnCommit: true,    // refuse a commit that introduces a blocking signal
+    specOnCommit: true,      // refuse a shipped change that names no roadmap item
   },
 };
 
@@ -340,6 +341,7 @@ const SCHEMA = {
 export const AUTOMATION_KEYS = {
   buildOnWrite: 'rebuild the site when a session writes markdown',
   healthOnCommit: 'refuse a commit that introduces a blocking signal',
+  specOnCommit: 'refuse a shipped change that names no roadmap item',
 };
 
 const KNOWN_TONES = new Set(['none', 'mid', 'high', 'done', 'unknown']);
