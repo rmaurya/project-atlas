@@ -1,0 +1,17 @@
+name: CI
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }   # the tool reads git history; a shallow clone would hide it
+      - uses: actions/setup-node@v4
+        with: { node-version: '20' }
+      - name: Test
+        run: node tests/run.mjs
+      - name: Dogfood — run the tool on this repository
+        run: |
+          node scripts/atlas.mjs init
+          node scripts/atlas.mjs scan
+          node scripts/atlas.mjs health

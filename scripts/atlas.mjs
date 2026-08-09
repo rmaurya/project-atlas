@@ -1,0 +1,391 @@
+#!/usr/bin/env node
+/**
+ * docs-atlas — a derived, auditable knowledgebase over a repository's own documentation.
+ *
+ *   atlas init     write a config, detecting the repository's layout
+ *   atlas scan     build the index            (--json)
+ *   atlas tasks    the planning document, with progress bars   (--json, or a filter word)
+ *   atlas contrib  who did what, from git: people, agents, desks, hours, outcomes
+ *   atlas health   report rot signals         (--verbose | --verbose=all)  exit 1 on blocking
+ *   atlas build    generate the static site (index, dashboard, deck, health)
+ *   atlas watch    build, then rebuild on change; the open page reloads itself
+ *   atlas all      scan + health + build
+ *
+ * Zero dependencies. Node >= 18. No network. Reads the repository; writes only the output directory
+ * and, for `init`, the config file.
+ */
+
+import fs from 'node:fs';
+import path from 'node:path';
+import { execFileSync } from 'node:child_process';
+import { resolveConfig, DEFAULT_CONFIG, DEFAULT_CLUSTERS, CONFIG_NAME } from './lib/config.mjs';
+import { buildIndex, discover } from './lib/scan.mjs';
+import { readPlanning } from './lib/planning.mjs';
+import { runHealth, formatReport } from './lib/health.mjs';
+import { renderSite, writeBuildStamp } from './lib/render.mjs';
+import { buildWikiPages, stageWiki, stagePages, exportSingleFile } from './lib/publish.mjs';
+import { readContrib, formatContrib } from './lib/contrib.mjs';
+
+const argv = process.argv.slice(2);
+
+/**
+ * Flags that consume the next argument when written with a space (`--target wiki`). Everything else is a
+ * boolean, so a positional after a boolean flag stays positional — `atlas tasks --json safety` keeps `safety`
+ * as the filter rather than swallowing it as `--json`'s value.
+ */
+const VALUE_FLAGS = new Set(['target', 'page', 'out', 'root', 'config', 'interval']);
+
+const { cmd, positionals, flags } = parseArgs(argv);
+
+function parseArgs(args) {
+  const flags = new Map();
+  const positionals = [];
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (!a.startsWith('--')) { positionals.push(a); continue; }
+    const eq = a.indexOf('=');
+    if (eq !== -1) { flags.set(a.slice(2, eq), a.slice(eq + 1)); continue; }
+    const name = a.slice(2);
+    if (VALUE_FLAGS.has(name) && i + 1 < args.length && !args[i + 1].startsWith('--')) {
+      flags.set(name, args[++i]);
+    } else {
+      flags.set(name, true);
+    }
+  }
+  return { cmd: positionals[0] || 'help', positionals: positionals.slice(1), flags };
+}
+
+const flag = (name, fallback = undefined) => (flags.has(name) ? flags.get(name) : fallback);
+
+const quiet = !!flag('quiet');
+const say = (...a) => { if (!quiet) console.log(...a); };
+const color = process.stdout.isTTY && !flag('no-color');
+
+function repoRoot() {
+  const explicit = flag('root');
+  if (typeof explicit === 'string') return path.resolve(explicit);
+  try {
+    return execFileSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+  } catch {
+    return process.cwd();
+  }
+}
+
+async function main() {
+  if (cmd === 'help' || flag('help')) return usage();
+
+  const root = repoRoot();
+  const configPath = typeof flag('config') === 'string' ? flag('config') : undefined;
+
+  if (cmd === 'init') return init(root, configPath);
+
+  const cfg = resolveConfig(root, configPath);
+  const withGit = !flag('no-git');
+
+  if (cmd === 'scan') {
+    const index = buildIndex(root, cfg, { withGit });
+    if (flag('json')) {
+      const { documents, ...rest } = index;
+      console.log(JSON.stringify({
+        ...rest,
+        documents: documents.map(({ body, ...d }) => d),   // body is large and rarely wanted as JSON
+      }, null, 2));
+    } else {
+      say(summarise(index, cfg));
+    }
+    return;
+  }
+
+  if (cmd === 'tasks') {
+    const plan = readPlanning(root, cfg);
+    if (!plan) { console.error('No planning source configured. Set planning.source in llm-wiki.config.json.'); process.exitCode = 1; return; }
+    if (plan.missing) { console.error(`${plan.source} not found.`); process.exitCode = 1; return; }
+    if (flag('json')) { console.log(JSON.stringify(plan, null, 2)); return; }
+    say(formatTasks(plan, positionals[0], color));
+    return;
+  }
+
+  if (cmd === 'contrib') {
+    const k = readContrib(root, cfg);
+    if (flag('json')) { console.log(JSON.stringify(k, null, 2)); return; }
+    say(formatContrib(k, readPlanning(root, cfg), color));
+    if (!k.available) process.exitCode = 1;
+    return;
+  }
+
+  if (cmd === 'health') {
+    const index = buildIndex(root, cfg, { withGit });
+    const health = runHealth(index, cfg, root);
+    const verbose = flag('verbose');
+    say(formatReport(health, index, { verbose: verbose === 'all' ? 'all' : !!verbose, color }));
+    if (flag('json')) console.log(JSON.stringify({ counts: health.counts, blockingCount: health.blockingCount, findings: health.findings.map(({ ...f }) => f) }, null, 2));
+    process.exitCode = health.blockingCount ? 1 : 0;
+    return;
+  }
+
+  if (cmd === 'build' || cmd === 'all') {
+    const r = doBuild(root, cfg, withGit, cmd === 'all');
+    if (cmd === 'all' && r.health.blockingCount) process.exitCode = 1;
+    return;
+  }
+
+  if (cmd === 'publish') {
+    const target = String(flag('target', 'wiki'));
+    const push = !!flag('push');
+    const index = buildIndex(root, cfg, { withGit });
+    const health = runHealth(index, cfg, root);
+    const plan = readPlanning(root, cfg);
+
+    if (target === 'wiki') {
+      const built = buildWikiPages(index, health, plan, cfg, root);
+      const r = stageWiki(root, cfg, built, { push, force: !!flag('force'), importDrift: !!flag('import') });
+
+      if (!r.staged) {
+        console.error(`\nRefusing to publish — the wiki at ${r.url} has ${r.drift.length} change(s) not written by docs-atlas.\n`);
+        for (const d of r.drift.slice(0, 20)) {
+          console.error(`  ${d.kind.padEnd(9)} ${d.page}${d.source ? `   (from ${d.source})` : ''}${d.detail ? `\n    ${d.detail}` : ''}`);
+        }
+        if (r.drift.length > 20) console.error(`  … and ${r.drift.length - 20} more`);
+        console.error(r.importDir
+          ? `\nThe edited pages were copied to:\n  ${r.importDir}\n  MAPPING.json gives each page's source file. Fold the changes into the source markdown, then publish again.`
+          : `\nRe-run with --import to copy the edited pages out for review, or --force to overwrite them.`);
+        process.exitCode = 1;
+        return;
+      }
+
+      say(`Staged ${r.count} wiki page(s) → ${r.work}`);
+      if (r.collisions?.length) {
+        say(`  ${r.collisions.length} page-name collision(s) resolved by suffixing; both documents are published:`);
+        for (const c of r.collisions.slice(0, 5)) say(`    ${c.renamed} → ${c.to}`);
+      }
+      say(r.pushed ? `  Pushed to ${r.url}` : `  Not pushed. Review the staged files, then re-run with --push.`);
+      return;
+    }
+
+    if (target === 'pages') {
+      const r = stagePages(root, cfg, { push });
+      say(`Staged the site → ${r.work}`);
+      say(r.pushed
+        ? `  Pushed to branch ${r.branch}${r.url ? `\n  Will serve at ${r.url} once Pages is enabled for that branch.` : ''}`
+        : `  Not pushed. Review it, then re-run with --push to force-push branch ${r.branch}.`);
+      return;
+    }
+
+    if (target === 'export') {
+      const which = String(flag('page', 'dashboard'));
+      const html = exportSingleFile(root, cfg, which);
+      const dest = path.resolve(root, String(flag('out', `${cfg.output}/${which}.standalone.html`)));
+      fs.mkdirSync(path.dirname(dest), { recursive: true });
+      fs.writeFileSync(dest, html, 'utf8');
+      say(`Wrote a self-contained ${which} → ${path.relative(root, dest)} (${(Buffer.byteLength(html) / 1024).toFixed(0)} KB)`);
+      return;
+    }
+
+    console.error(`Unknown publish target: ${target}. Use wiki, pages or export.`);
+    process.exitCode = 2;
+    return;
+  }
+
+  if (cmd === 'watch') {
+    doBuild(root, cfg, withGit, false);
+    const interval = Number(flag('interval', 1500)) || 1500;
+    say(`\nWatching for changes (poll every ${interval}ms). The open page reloads itself. Ctrl-C to stop.`);
+    let last = fingerprint(root, cfg);
+    setInterval(() => {
+      const now = fingerprint(root, cfg);
+      if (now === last) return;
+      last = now;
+      try {
+        const r = doBuild(root, cfg, withGit, false, { stamp: true });
+        say(`  rebuilt — ${r.pages} page(s), ${r.health.blockingCount} blocking`);
+      } catch (err) {
+        console.error(`  build failed, watching continues: ${err.message}`);
+      }
+    }, interval);
+    return;
+  }
+
+  console.error(`Unknown command: ${cmd}\n`);
+  usage();
+  process.exitCode = 2;
+}
+
+/** A terminal view of the planning document: progress bars, grouped by track. */
+function formatTasks(plan, filter, useColor) {
+  const c = useColor
+    ? { dim: (s) => `\x1b[2m${s}\x1b[0m`, bold: (s) => `\x1b[1m${s}\x1b[0m`, blue: (s) => `\x1b[34m${s}\x1b[0m`,
+        green: (s) => `\x1b[32m${s}\x1b[0m`, red: (s) => `\x1b[31m${s}\x1b[0m`, yellow: (s) => `\x1b[33m${s}\x1b[0m` }
+    : new Proxy({}, { get: () => (s) => s });
+
+  let items = plan.items;
+  if (filter) {
+    const f = filter.toLowerCase();
+    items = items.filter((i) => [i.id, i.title, i.track, i.priority, i.criticality, i.status.label]
+      .join(' ').toLowerCase().includes(f));
+  }
+
+  const bar = (pct) => {
+    if (pct === null) return c.dim('░'.repeat(12)) + '   ? ';
+    const filled = Math.round((pct / 100) * 12);
+    const glyph = '█'.repeat(filled) + c.dim('░'.repeat(12 - filled));
+    const paint = pct === 0 ? c.dim : pct >= 90 ? c.green : pct >= 40 ? c.blue : c.yellow;
+    return paint(glyph) + String(pct).padStart(4) + '%';
+  };
+
+  const L = [];
+  L.push(c.bold(`${plan.source} — ${plan.stats.total} open item(s), mean completion ${plan.stats.mean ?? '—'}%`));
+  if (filter) L.push(c.dim(`filtered by "${filter}" — ${items.length} match(es)`));
+  L.push('');
+
+  for (const t of plan.tracks) {
+    const own = items.filter((i) => i.track === t.name);
+    if (!own.length) continue;
+    L.push(c.bold(t.name) + c.dim(`  ${own.length} item(s)` + (t.mean === null ? '' : ` · mean ${t.mean}%`)));
+    for (const i of own.sort((a, b) => (b.percent ?? -1) - (a.percent ?? -1))) {
+      const est = i.estimated ? c.dim('*') : ' ';
+      L.push(`  ${i.id.padEnd(5)} ${bar(i.percent)}${est} ${c.dim(i.priority)} ${i.title}`);
+    }
+    L.push('');
+  }
+
+  const s = plan.stats;
+  L.push(c.dim('  ' + s.byStatus.map((b) => `${b.label} ${b.count}`).join(' · ') +
+    (s.unknown ? ` · Unknown ${s.unknown}` : '')));
+  if (s.estimated) L.push(c.dim(`  ${s.estimated} figure(s) marked * are estimated in the source, not measured against the code.`));
+  return L.join('\n');
+}
+
+function doBuild(root, cfg, withGit, withReport, { stamp = false } = {}) {
+  const index = buildIndex(root, cfg, { withGit });
+  const health = runHealth(index, cfg, root);
+  if (withReport) say(formatReport(health, index, { verbose: !!flag('verbose'), color }), '\n');
+  const { outDir, pages, truncated, plan, deck } = renderSite(index, health, cfg, root);
+  if (stamp || flag('watch')) writeBuildStamp(root, cfg, new Date().toISOString().slice(11, 19));
+
+  say(`Built ${pages} page(s) → ${path.relative(root, outDir) || outDir}`);
+  if (truncated) say(`  ${truncated} long document(s) indexed to the first ${(cfg.searchBodyLimit || 6000).toLocaleString()} characters for search.`);
+  say(plan && !plan.missing
+    ? `  Dashboard: ${plan.stats.total} item(s) from ${plan.source}${plan.stats.unknown ? `, ${plan.stats.unknown} without a figure` : ''}.`
+    : `  Dashboard: no planning source configured — set planning.source to chart a task list.`);
+  say(deck ? `  Deck: ${deck.slides.length} slide(s) from ${deck.source}.` : `  Deck: none — create docs/atlas/DECK.md to add one.`);
+  say(`  Open: file://${path.join(outDir, 'index.html')}`);
+  return { index, health, pages, outDir };
+}
+
+/** Cheap change detector for watch mode: names, sizes and mtimes of every input the build reads. */
+function fingerprint(root, cfg) {
+  const parts = [];
+  for (const f of discover(root, cfg)) {
+    try { const s = fs.statSync(path.join(root, f)); parts.push(`${f}:${s.size}:${s.mtimeMs}`); } catch { /* removed mid-scan */ }
+  }
+  for (const extra of [cfg.planning?.source, cfg.deck?.source, 'docs/atlas/DECK.md'].filter(Boolean)) {
+    try { const s = fs.statSync(path.join(root, extra)); parts.push(`${extra}:${s.size}:${s.mtimeMs}`); } catch { /* absent */ }
+  }
+  return parts.join('|');
+}
+
+function summarise(index, cfg) {
+  const L = [];
+  L.push(`${index.siteTitle} — ${index.stats.documents} documents, ${index.stats.lines.toLocaleString()} lines, ${(index.stats.bytes / 1024 / 1024).toFixed(1)} MB`);
+  L.push(`${index.stats.links} internal links · ${index.stats.citations} code citations · git metadata ${index.stats.withGit ? 'on' : 'OFF'}`);
+  L.push('');
+  const width = Math.max(...index.clusters.map((c) => c.title.length));
+  for (const c of index.clusters) {
+    L.push(`  ${c.title.padEnd(width)}  ${String(c.documents.length).padStart(4)}`);
+  }
+  const orphans = index.documents.filter((d) => !d.backlinks.length).length;
+  L.push('');
+  L.push(`  ${orphans} document(s) have no inbound link.`);
+  if (!index.documents.some((d) => /(^|\/)README\.md$/i.test(d.path) && d.path.includes('/')))
+    L.push(`  No docs/README.md — there is no written entry point to this corpus.`);
+  return L.join('\n');
+}
+
+/* ------------------------------------------------------------------ init */
+
+function init(root, configPath) {
+  const target = configPath ? path.resolve(configPath) : path.join(root, CONFIG_NAME);
+  if (fs.existsSync(target) && !flag('force')) {
+    console.error(`${path.relative(root, target)} already exists. Pass --force to overwrite (your customisations will be lost).`);
+    process.exitCode = 1;
+    return;
+  }
+
+  // Probe with defaults so the generated config reflects what is actually here.
+  const probe = { ...DEFAULT_CONFIG, siteTitle: path.basename(root) };
+  const files = discover(root, probe);
+  const dirs = new Map();
+  for (const f of files) {
+    const d = f.includes('/') ? f.slice(0, f.lastIndexOf('/')) : '.';
+    dirs.set(d, (dirs.get(d) || 0) + 1);
+  }
+
+  const used = new Set();
+  for (const f of files) {
+    for (const c of DEFAULT_CLUSTERS) {
+      if (c.match.some((g) => new RegExp('^' + g.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*\*\//g, '(?:.*/)?').replace(/\*/g, '[^/]*') + '$').test(f))) { used.add(c.id); break; }
+    }
+  }
+
+  const cfg = {
+    $schema: DEFAULT_CONFIG.$schema,
+    siteTitle: path.basename(root),
+    output: DEFAULT_CONFIG.output,
+    trackedOnly: true,
+    exclude: DEFAULT_CONFIG.exclude,
+    clusters: DEFAULT_CLUSTERS.filter((c) => used.has(c.id)),
+    fallbackCluster: 'uncategorised',
+    blocking: DEFAULT_CONFIG.blocking,
+    staleDays: DEFAULT_CONFIG.staleDays,
+    forbiddenTerms: [],
+    crossref: [],
+    suppress: [],
+  };
+  if (!cfg.clusters.length) cfg.clusters = DEFAULT_CLUSTERS;
+
+  fs.writeFileSync(target, JSON.stringify(cfg, null, 2) + '\n', 'utf8');
+
+  say(`Wrote ${path.relative(root, target)}`);
+  say(`  ${files.length} markdown file(s) across ${dirs.size} directories.`);
+  say(`  ${cfg.clusters.length} cluster(s) kept of ${DEFAULT_CLUSTERS.length} defaults — the rest matched nothing here.`);
+  say('');
+  say('  Next: review the clusters, then add the two checks that are off until configured —');
+  say('    forbiddenTerms  retired product or persona names   (enables H7)');
+  say('    crossref        paired documents, e.g. backlog + task list  (enables H9)');
+  say('');
+  const top = [...dirs.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8);
+  say('  Largest documentation directories:');
+  for (const [d, n] of top) say(`    ${String(n).padStart(4)}  ${d}`);
+}
+
+function usage() {
+  console.log(`docs-atlas — a derived, auditable knowledgebase over your repository's documentation.
+
+  atlas init                 write ${CONFIG_NAME}, detecting this repository's layout
+  atlas scan  [--json]       build and summarise the index
+  atlas contrib [--json]     who did what, from git history alone
+  atlas health [--verbose]   report rot signals; exit 1 if any blocking signal fires
+  atlas build                generate the static site (index, dashboard, deck, health)
+  atlas watch                build, then rebuild on change; the open page reloads itself
+  atlas all                  scan + health + build
+  atlas publish              stage a target; NOTHING is pushed without --push
+    --target wiki            GitHub Wiki — flattened markdown, links rewritten, drift-guarded
+    --target pages           the full site to a gh-pages branch (dashboard + deck survive)
+    --target export          one self-contained HTML file (--page dashboard|index|health)
+
+Flags
+  --root <dir>       repository root (default: git toplevel, else cwd)
+  --config <path>    config file (default: <root>/${CONFIG_NAME})
+  --verbose[=all]    list findings, not just counts
+  --json             machine-readable output
+  --no-git           skip git metadata; staleness is reported as unchecked rather than guessed
+  --quiet            suppress progress output
+  --force            (init) overwrite an existing config
+
+The markdown is the source of truth. Everything this tool writes is derived and safe to delete.`);
+}
+
+main().catch((err) => {
+  console.error(String(err && err.message ? err.message : err));
+  process.exitCode = 1;
+});

@@ -1,0 +1,372 @@
+/**
+ * docs-atlas · dashboard
+ *
+ * Charts and a sortable, searchable item table over the planning document and the corpus health.
+ *
+ * Design notes, so nobody "improves" these into the usual mistakes:
+ *  - **Every chart is single-series or ordinal.** There is no categorical palette here, because there is no
+ *    chart whose job is identity. Magnitude across categories is a bar chart in one hue.
+ *  - **The progress ramp is a validated ordinal ramp** (blue, monotone lightness, light end clearing 2:1 on
+ *    both surfaces). Not a rainbow, not a red→green gradient.
+ *  - **Status colours are the reserved status palette**, and they never appear without a text label — colour
+ *    alone is not an encoding.
+ *  - **Unknown is not zero.** An item with no recorded percentage is drawn as unknown and excluded from means.
+ *    Charting it as 0% would invent data.
+ *  - **Estimated figures are hatched**, because the source distinguishes measured from estimated and a chart
+ *    that flattens that distinction is lying quietly.
+ */
+
+import { escapeHtml } from './markdown.mjs';
+import { SIGNALS } from './health.mjs';
+
+/**
+ * Ordinal progress ramp — the project's own brand hue, not a generic chart blue.
+ * Validated as an ordinal ramp in both modes: monotone lightness, ΔL ≥ 0.06 between steps, single hue
+ * (spread 7° light / 6° dark), light end clearing 2:1 against the surface it sits on
+ * (2.01:1 on #f7f6f4, 2.42:1 on #242528). Re-run the validator before changing any of these six values.
+ */
+export const RAMP = {
+  light: { none: '#e2e0dc', mid: '#b9a3fa', high: '#8a5cf6', done: '#4f2ea8', unknown: '#d6d3ce' },
+  dark: { none: '#3a3c42', mid: '#d5c6ff', high: '#a984ff', done: '#6b45c9', unknown: '#2e3035' },
+};
+/**
+ * State colours, taken from the app's own `--ok` / `--warm` / `--danger` rather than a stock status palette.
+ * Reserved: never used for a data series, and never the only signal — every use carries a text label.
+ * The light steps are darkened from the app's dark-mode values to hold contrast on a light ground.
+ */
+export const STATUS = { good: '#3f9e68', warning: '#b5722a', serious: '#c07338', critical: '#c0433f' };
+
+export function dashboardPage(index, health, plan, cfg, shell) {
+  const body = `
+<h1>Project dashboard</h1>
+<p class="lede">${escapeHtml(index.siteTitle)} · ${index.stats.documents} documents · ${index.stats.lines.toLocaleString()} lines
+${plan && !plan.missing ? `· ${plan.stats.total} tracked items` : ''}
+<span class="stamp" id="stamp"></span></p>
+
+${tiles(index, health, plan)}
+<div class="dash">
+  <div class="dash-main">
+    ${plan && !plan.missing ? charts(plan) : noPlanning(cfg)}
+    ${healthChart(health, cfg)}
+    ${clusterChart(index)}
+    ${caveats(plan, health)}
+  </div>
+  <aside class="dash-side">
+    ${plan && !plan.missing ? itemTable(plan) : ''}
+  </aside>
+</div>
+`;
+
+  return shell({
+    title: `Dashboard · ${index.siteTitle}`,
+    siteTitle: index.siteTitle,
+    body,
+    extraHead: `<style>${DASH_CSS}</style>`,
+    scripts: `<script>${TABLE_JS}</script>`,
+  });
+}
+
+/* ------------------------------------------------------------------ tiles */
+
+function tiles(index, health, plan) {
+  const t = [];
+  if (plan && !plan.missing) {
+    t.push(tile(String(plan.stats.total), 'open items', plan.stats.unknown ? `${plan.stats.unknown} without a figure` : 'all carry a figure'));
+    t.push(tile(plan.stats.mean === null ? '—' : `${plan.stats.mean}%`, 'mean completion',
+      `across ${plan.stats.total - plan.stats.unknown} measured`));
+  }
+  t.push(tile(String(health.blockingCount), 'blocking findings',
+    health.blockingCount ? 'defects with no legitimate cause' : 'none — corpus is clean',
+    health.blockingCount ? 'critical' : 'good'));
+  t.push(tile(String(index.stats.documents), 'documents', `${index.stats.clusters} clusters`));
+  return `<section class="tiles">${t.join('')}</section>`;
+}
+
+function tile(value, label, sub, tone) {
+  const dot = tone ? `<span class="dot" style="background:${STATUS[tone]}"></span>` : '';
+  return `<div class="tile"><p class="tv">${dot}${escapeHtml(value)}</p><p class="tl">${escapeHtml(label)}</p><p class="ts">${escapeHtml(sub)}</p></div>`;
+}
+
+/* ------------------------------------------------------------------ charts */
+
+function charts(plan) {
+  const tracks = plan.tracks.filter((t) => t.mean !== null).sort((a, b) => b.mean - a.mean);
+  const statusRows = plan.stats.byStatus.filter((b) => b.count)
+    .concat(plan.stats.unknown ? [{ label: 'Unknown', tone: 'unknown', count: plan.stats.unknown }] : []);
+
+  return `
+<div class="grid2">
+  <figure class="card">
+    <figcaption><h2>Mean completion by track</h2>
+      <p class="cap">Percent complete, averaged over the items in each track that carry a figure. Tracks with no measured item are omitted rather than shown as zero.</p></figcaption>
+    ${hbar(tracks.map((t) => ({
+      label: t.name.replace(/^Track \d+\s*[—–-]\s*/, ''),
+      value: t.mean, max: 100, suffix: '%',
+      tone: toneFor(t.mean),
+      hint: `${t.known} of ${t.count} items measured`,
+    })))}
+  </figure>
+
+  <figure class="card">
+    <figcaption><h2>Items by status</h2>
+      <p class="cap">Every tracked item, bucketed by its recorded completion. Colour follows the same ordinal ramp as the bars above; each bucket is labelled, so colour is never the only signal.</p></figcaption>
+    ${hbar(statusRows.map((b) => ({
+      label: b.label, value: b.count, max: Math.max(...statusRows.map((x) => x.count)),
+      tone: b.tone, hint: `${b.count} item(s)`,
+    })))}
+  </figure>
+</div>`;
+}
+
+function healthChart(health, cfg) {
+  const rows = Object.values(SIGNALS).map((s) => ({
+    id: s.id, title: s.title, count: health.counts[s.id] || 0,
+    blocking: (cfg.blocking || []).includes(s.id), why: s.why,
+  })).filter((r) => r.count > 0);
+
+  if (!rows.length) {
+    return `<figure class="card"><figcaption><h2>Documentation health</h2></figcaption>
+      <p class="empty"><span class="dot" style="background:${STATUS.good}"></span> No findings. Every signal reports clean.</p></figure>`;
+  }
+  const max = Math.max(...rows.map((r) => r.count));
+  return `
+<figure class="card">
+  <figcaption><h2>Documentation health</h2>
+    <p class="cap">Findings per rot signal. <strong>Blocking</strong> signals have no legitimate cause; advisory ones do — an archived record <em>should</em> cite code that has since moved. Read the delta, not the absolute.</p></figcaption>
+  <div class="bars">
+    ${rows.map((r) => `
+    <div class="bar" title="${escapeHtml(r.why)}">
+      <span class="bl"><span class="sig ${r.blocking ? 'block' : 'adv'}">${r.id}</span> ${escapeHtml(r.title)}</span>
+      <span class="bt"><span class="bf" style="width:${Math.max(2, (r.count / max) * 100)}%;background:${r.blocking ? STATUS.critical : STATUS.warning}"></span></span>
+      <span class="bv">${r.count}<span class="bh">${r.blocking ? 'blocking' : 'advisory'}</span></span>
+    </div>`).join('')}
+  </div>
+</figure>`;
+}
+
+function clusterChart(index) {
+  const rows = index.clusters.map((c) => ({ label: c.title, value: c.documents.length })).sort((a, b) => b.value - a.value);
+  const max = Math.max(...rows.map((r) => r.value), 1);
+  return `
+<figure class="card">
+  <figcaption><h2>Documents by cluster</h2>
+    <p class="cap">Where the corpus actually lives. A large <em>Uncategorised</em> count is a missing taxonomy rule, not a problem with the documents.</p></figcaption>
+  ${hbar(rows.map((r) => ({ label: r.label, value: r.value, max, tone: 'high', hint: `${r.value} document(s)` })))}
+</figure>`;
+}
+
+function hbar(rows) {
+  if (!rows.length) return '<p class="empty">Nothing to chart.</p>';
+  return `<div class="bars">${rows.map((r) => `
+    <div class="bar">
+      <span class="bl">${escapeHtml(r.label)}</span>
+      <span class="bt"><span class="bf t-${r.tone}${r.estimated ? ' est' : ''}" style="width:${Math.max(2, (r.value / (r.max || 1)) * 100)}%"></span></span>
+      <span class="bv">${r.value}${r.suffix || ''}<span class="bh">${escapeHtml(r.hint || '')}</span></span>
+    </div>`).join('')}</div>`;
+}
+
+const toneFor = (p) => (p === null ? 'unknown' : p === 0 ? 'none' : p >= 100 ? 'done' : p >= 90 ? 'high' : 'mid');
+
+/* ------------------------------------------------------------------ table */
+
+function itemTable(plan) {
+  return `
+<section class="card" id="items">
+  <h2>All items <span class="count">${plan.items.length}</span></h2>
+  <p class="cap">Click a column heading to sort. Type to filter across id, title, track, priority and status.
+  A hatched bar means the figure is <strong>estimated in the source</strong>, not measured against the code.</p>
+  <input id="tq" type="search" placeholder="Filter items…" autocomplete="off">
+  <div class="table-wrap">
+    <table id="itbl">
+      <!-- Progress and status lead, before the descriptive columns. In a side-by-side layout the table
+           scrolls horizontally, and whatever sits last is what gets scrolled out of sight — so the two
+           columns the list exists to show must not be last. -->
+      <thead><tr>
+        <th data-k="id" class="sortable">ID</th>
+        <th data-k="percent" class="sortable num" data-default="desc">Progress</th>
+        <th data-k="status" class="sortable">Status</th>
+        <th data-k="title" class="sortable">Item</th>
+        <th data-k="priority" class="sortable">Pri</th>
+        <th data-k="criticality" class="sortable">Crit</th>
+        <th data-k="track" class="sortable">Track</th>
+      </tr></thead>
+      <tbody>
+        ${plan.items.map((i) => `<tr data-percent="${i.percent === null ? -1 : i.percent}">
+          <td class="mono">${escapeHtml(i.id)}</td>
+          <td class="num">
+            <span class="mini"><span class="mf t-${i.status.tone}${i.estimated ? ' est' : ''}" style="width:${i.percent === null ? 0 : i.percent}%"></span></span>
+            <span class="pct">${i.percent === null ? '—' : i.percent + '%'}${i.estimated ? '<abbr title="estimated in the source, not measured against the code">*</abbr>' : ''}</span>
+          </td>
+          <td><span class="pill t-${i.status.tone}">${escapeHtml(i.status.label)}</span></td>
+          <td><strong>${escapeHtml(i.title)}</strong><span class="sum">${escapeHtml(i.summary || '')}</span></td>
+          <td class="mono">${escapeHtml(i.priority)}</td>
+          <td>${escapeHtml(i.criticality)}</td>
+          <td>${escapeHtml(i.track.replace(/^Track \d+\s*[—–-]\s*/, ''))}</td>
+        </tr>`).join('')}
+      </tbody>
+    </table>
+  </div>
+  <p class="hint" id="tcount"></p>
+</section>`;
+}
+
+function noPlanning(cfg) {
+  return `<figure class="card"><figcaption><h2>Planning</h2></figcaption>
+  <p class="empty">No planning source configured, so no item charts are drawn — rather than charting nothing and calling it zero.
+  Set <code>planning.source</code> in <code>llm-wiki.config.json</code> to a task list such as <code>docs/TASKS.md</code>.</p></figure>`;
+}
+
+function caveats(plan, health) {
+  const notes = [...(plan && !plan.missing ? plan.notes : []), ...health.notChecked];
+  if (!notes.length) return '';
+  return `<section class="card muted">
+    <h2>What this dashboard does not show</h2>
+    <p class="cap">Stated explicitly, because a dashboard that silently omits reads as one that found nothing.</p>
+    <ul>${notes.map((n) => `<li>${escapeHtml(n)}</li>`).join('')}</ul>
+  </section>`;
+}
+
+/* ------------------------------------------------------------------ assets */
+
+const DASH_CSS = `
+/* Layout ladder.
+ * Below 1180px everything stacks — a 10" tablet has no room for a side column, and a squeezed table is
+ * worse than a scrolled one.
+ * At 1180px and up (a 13" laptop and above) the charts and the item list sit side by side, because the
+ * charts summarise and the list is the detail you scan against them; putting the list a full screen-height
+ * below the charts is what left all that empty space in the first place.
+ * The list column never goes below 430px, and its table keeps its own horizontal scroll, so no column of
+ * data is ever hidden to make the layout fit. */
+.dash { display:grid; gap:16px; align-items:start; }
+@media (min-width:1180px) {
+  .dash { grid-template-columns:minmax(0,1.05fr) minmax(430px,0.95fr); }
+  .dash-side { position:sticky; top:58px; max-height:calc(100vh - 74px); display:flex; flex-direction:column; }
+  .dash-side > .card { display:flex; flex-direction:column; min-height:0; margin:0; }
+  .dash-side .table-wrap { overflow:auto; min-height:0; }
+  #itbl thead th { position:sticky; top:0; z-index:1; background:var(--panel); }
+}
+@media (min-width:1500px) { .dash { grid-template-columns:minmax(0,1.15fr) minmax(520px,0.85fr); } }
+.dash-main { min-width:0; }
+.dash-side { min-width:0; }
+
+.tiles { display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:12px; margin:20px 0 28px; }
+.tile { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:14px 16px; }
+.tv { font-size:30px; font-weight:660; margin:0; letter-spacing:-.02em; display:flex; align-items:center; gap:8px; }
+.tl { margin:2px 0 0; font-size:13px; color:var(--ink); }
+.ts { margin:2px 0 0; font-size:12px; color:var(--muted); }
+.dot { width:10px; height:10px; border-radius:50%; display:inline-block; }
+.grid2 { display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:16px; }
+@media (max-width:640px) { .grid2 { grid-template-columns:1fr; } }
+.card { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:16px 20px; margin:0 0 16px; }
+.card h2 { margin:0 0 4px; font-size:16px; }
+.cap { color:var(--muted); font-size:13px; margin:0 0 14px; }
+figcaption { display:block; }
+.bars { display:grid; gap:9px; }
+.bar { display:grid; grid-template-columns:minmax(84px,30%) 1fr auto; align-items:center; gap:12px; font-size:13.5px; }
+@media (max-width:520px) { .bar { grid-template-columns:1fr auto; } .bar .bt { grid-column:1 / -1; order:3; } }
+.bl { color:var(--ink); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.bt { background:var(--code-bg); border-radius:4px; height:16px; overflow:hidden; }
+.bf { display:block; height:100%; border-radius:0 4px 4px 0; }
+.bv { color:var(--ink); font-variant-numeric:tabular-nums; font-size:13px; text-align:right; min-width:52px; }
+.bh { display:block; color:var(--muted); font-size:11px; }
+.t-none { background:var(--r-none); } .t-mid { background:var(--r-mid); }
+.t-high { background:var(--r-high); } .t-done { background:var(--r-done); }
+.t-unknown { background:var(--r-unknown); }
+.est { background-image:repeating-linear-gradient(45deg,transparent,transparent 3px,rgba(255,255,255,.45) 3px,rgba(255,255,255,.45) 6px); }
+.empty { color:var(--muted); font-size:14px; margin:0; display:flex; align-items:center; gap:8px; }
+#tq { width:100%; padding:9px 12px; margin:0 0 12px; font-size:14px; color:var(--ink); background:var(--bg); border:1px solid var(--line); border-radius:8px; }
+/* A minimum width, so a narrow column scrolls the table rather than crushing it — squeezing wraps the id
+ * onto two lines and clips the status pill, which is how you end up hiding data to make a layout fit. */
+#itbl { border-collapse:collapse; width:100%; min-width:660px; font-size:13.5px; }
+#itbl th,#itbl td { border-bottom:1px solid var(--line); padding:8px 10px; text-align:left; vertical-align:top; }
+#itbl td:first-child,#itbl th:first-child { white-space:nowrap; }
+#itbl td:nth-child(2),#itbl td:nth-child(3) { white-space:nowrap; }
+#itbl td:last-child { white-space:nowrap; max-width:130px; overflow:hidden; text-overflow:ellipsis; }
+/* The three leading columns stay put while the descriptive ones scroll under them. */
+@media (min-width:1180px) {
+  .dash-side #itbl td:nth-child(-n+3),
+  .dash-side #itbl th:nth-child(-n+3) { position:sticky; background:var(--panel); z-index:1; }
+  .dash-side #itbl td:nth-child(1),.dash-side #itbl th:nth-child(1) { left:0; }
+  .dash-side #itbl td:nth-child(2),.dash-side #itbl th:nth-child(2) { left:52px; }
+  .dash-side #itbl td:nth-child(3),.dash-side #itbl th:nth-child(3) { left:172px; box-shadow:1px 0 0 var(--line); }
+  .dash-side #itbl thead th { z-index:2; }
+}
+#itbl th.sortable { cursor:pointer; user-select:none; white-space:nowrap; }
+#itbl th.sortable:hover { color:var(--link); }
+#itbl th[aria-sort]:after { content:" ▾"; }
+#itbl th[aria-sort="ascending"]:after { content:" ▴"; }
+#itbl td.num { text-align:right; white-space:nowrap; font-variant-numeric:tabular-nums; }
+.mono { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12.5px; }
+/* Clamp the summary to two lines: full text stays in the DOM (so the filter still matches on it) but a
+ * long one cannot make a row four times the height of its neighbours. */
+.sum { display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;
+  color:var(--muted); font-size:12.5px; margin-top:2px; }
+#itbl td:nth-child(2) { min-width:210px; }
+.mini { display:inline-block; width:64px; height:8px; background:var(--code-bg); border-radius:3px; overflow:hidden; vertical-align:middle; margin-right:7px; }
+.mf { display:block; height:100%; }
+.pct { font-size:12.5px; }
+.pill { display:inline-block; padding:2px 9px; border-radius:999px; font-size:12px; color:#fff; white-space:nowrap; }
+.pill.t-none,.pill.t-unknown { color:var(--ink); }
+.stamp { color:var(--muted); font-size:12px; }
+abbr { text-decoration:none; cursor:help; color:var(--muted); }
+:root { --r-none:${RAMP.light.none}; --r-mid:${RAMP.light.mid}; --r-high:${RAMP.light.high}; --r-done:${RAMP.light.done}; --r-unknown:${RAMP.light.unknown}; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --r-none:${RAMP.dark.none}; --r-mid:${RAMP.dark.mid}; --r-high:${RAMP.dark.high}; --r-done:${RAMP.dark.done}; --r-unknown:${RAMP.dark.unknown}; } }
+:root[data-theme="dark"] { --r-none:${RAMP.dark.none}; --r-mid:${RAMP.dark.mid}; --r-high:${RAMP.dark.high}; --r-done:${RAMP.dark.done}; --r-unknown:${RAMP.dark.unknown}; }
+`;
+
+const TABLE_JS = `
+(function () {
+  var tbl = document.getElementById('itbl'); if (!tbl) return;
+  var tb = tbl.tBodies[0], rows = Array.prototype.slice.call(tb.rows);
+  var q = document.getElementById('tq'), cnt = document.getElementById('tcount');
+  var dir = {}, cols = {};
+  Array.prototype.forEach.call(tbl.tHead.rows[0].cells, function (th, i) { cols[th.dataset.k] = i; });
+
+  function val(row, k) {
+    if (k === 'percent') return Number(row.dataset.percent);
+    return (row.cells[cols[k]].textContent || '').trim().toLowerCase();
+  }
+  function sortBy(k, th) {
+    var d = dir[k] = dir[k] === 'asc' ? 'desc' : 'asc';
+    Array.prototype.forEach.call(tbl.tHead.rows[0].cells, function (c) { c.removeAttribute('aria-sort'); });
+    th.setAttribute('aria-sort', d === 'asc' ? 'ascending' : 'descending');
+    rows.sort(function (a, b) {
+      var x = val(a, k), y = val(b, k);
+      var r = typeof x === 'number' ? x - y : x < y ? -1 : x > y ? 1 : 0;
+      return d === 'asc' ? r : -r;
+    });
+    rows.forEach(function (r) { tb.appendChild(r); });
+  }
+  Array.prototype.forEach.call(tbl.tHead.rows[0].cells, function (th) {
+    if (!th.classList.contains('sortable')) return;
+    th.addEventListener('click', function () { sortBy(th.dataset.k, th); });
+  });
+
+  function filter() {
+    var v = (q.value || '').trim().toLowerCase(), shown = 0;
+    rows.forEach(function (r) {
+      var hit = !v || r.textContent.toLowerCase().indexOf(v) !== -1;
+      r.style.display = hit ? '' : 'none';
+      if (hit) shown++;
+    });
+    cnt.textContent = v ? shown + ' of ' + rows.length + ' items shown' : rows.length + ' items';
+  }
+  q.addEventListener('input', filter);
+  filter();
+
+  var stamp = document.getElementById('stamp');
+  // Near-live refresh: the build writes a stamp file; when it changes, the page reloads itself.
+  var seen = null;
+  function poll() {
+    fetch('build-stamp.txt', { cache: 'no-store' }).then(function (r) { return r.ok ? r.text() : null; })
+      .then(function (t) {
+        if (t === null) return;
+        t = t.trim();
+        if (seen === null) { seen = t; if (stamp) stamp.textContent = '· built ' + t; return; }
+        if (t !== seen) location.reload();
+      }).catch(function () {});
+  }
+  poll(); setInterval(poll, 3000);
+})();
+`;

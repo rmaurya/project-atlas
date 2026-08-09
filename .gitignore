@@ -1,0 +1,5 @@
+node_modules/
+.DS_Store
+*.log
+docs/_wiki/
+llm-wiki.config.json
