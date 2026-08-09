@@ -1,6 +1,6 @@
 # Roadmap — project-atlas
 
-**Last updated:** 2026-08-10 · **Version:** 0.1.16 · **Status:** pre-release, dogfooding
+**Last updated:** 2026-08-10 · **Version:** 0.1.17 · **Status:** pre-release, dogfooding
 
 Open work, with an honest completion figure against each item. A figure marked `*` is estimated rather than
 measured against the code — the same distinction the tool preserves everywhere else, applied to itself.
@@ -18,7 +18,7 @@ measured against the code — the same distinction the tool preserves everywhere
 | P-1 | 100 | P-2 | 90 | P-3 | 70* |
 | Q-1 | 100 | Q-2 | 30* | Q-3 | 0 |
 | D-1 | 100 | D-2 | 100 | D-3 | 100 |
-| D-4 | 100 | D-5 | 30* | D-6 | 0 |
+| D-4 | 100 | D-5 | 100 | D-6 | 0 |
 | D-7 | 0 | D-8 | 100 | D-9 | 100 |
 | D-10 | 100 | I-1 | 100 | | |
 | I-3 | 40* | D-11 | 100 | I-2 | 100 |
@@ -118,7 +118,7 @@ sat five releases behind while every command reported success. **Nothing else in
 until this is fixed.**
 
 **D-5 · Tag the release when the version moves** — **P1 · High**
-*Twelve tags now exist, `v0.1.0` through `v0.1.11`, and every one was typed by hand.*
+*Shipped in 0.1.17.* Sixteen tags existed and every one was typed by hand.
 The first five were created retroactively; the rest were remembered, one release at a time, which is the
 definition of a step that will eventually be forgotten. A CI job on push to `main`: if
 `.claude-plugin/plugin.json` declares a version with no matching tag, create the annotated tag. The version

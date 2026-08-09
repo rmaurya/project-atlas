@@ -13,6 +13,18 @@ versions follow [Semantic Versioning](https://semver.org/).
 - `atlas plan` — propose the git route for the working tree and wait for approval, rather than only refusing a
   commit once it is attempted.
 
+## [0.1.17] — 2026-08-10
+
+### Added
+- **CI tags the release.** Sixteen versions shipped and every tag was typed by hand — the first five
+  retroactively, the rest remembered one release at a time, which is the definition of a step that
+  eventually gets forgotten. The release gate already proved the version moved; nothing marked the commit.
+
+  A job on pushes that touch `.claude-plugin/plugin.json` creates the annotated tag, with that version's
+  changelog section as its message. Idempotent: a manifest change that does not move the version finds the
+  tag already there and exits 0, because a workflow that fails the second time it runs is a workflow people
+  disable.
+
 ## [0.1.16] — 2026-08-10
 
 ### Fixed

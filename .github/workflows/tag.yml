@@ -1,0 +1,50 @@
+name: Tag
+# Sixteen versions shipped and every tag was typed by hand — the first five retroactively, the rest
+# remembered one release at a time, which is the definition of a step that eventually gets forgotten. The
+# release gate already proves the version moved; nothing marked the commit.
+#
+# Runs only when the manifest changes, so an ordinary commit does not start a job to do nothing.
+on:
+  push:
+    branches: [main]
+    paths: ['.claude-plugin/plugin.json']
+
+permissions:
+  contents: write        # the only thing here that needs more than read: creating the tag
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }        # tags are history; a shallow clone cannot see which already exist
+
+      - name: Tag the version, if it is not already tagged
+        run: |
+          set -euo pipefail
+          version=$(node -p "require('./.claude-plugin/plugin.json').version")
+          tag="v${version}"
+
+          # Idempotent by design: this job reruns on any manifest change, including one that does not move
+          # the version, and a workflow that fails the second time it runs is a workflow people disable.
+          if git rev-parse -q --verify "refs/tags/${tag}" >/dev/null; then
+            echo "${tag} already exists — nothing to do."
+            exit 0
+          fi
+
+          # An annotated tag, not lightweight: it carries a date and an author, which is what makes
+          # `git describe` and the releases page useful rather than decorative.
+          # index(), not a regex match: awk reads -v through backslash processing, so "## \[0.1.16\]"
+          # arrived with its escapes eaten and matched nothing. A literal comparison cannot be misquoted.
+          note=$(awk -v v="## [${version}]" '
+            index($0, v) == 1 {found=1; next}
+            found && index($0, "## [") == 1 {exit}
+            found {print}
+          ' CHANGELOG.md | head -40)
+
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          printf '%s\n\n%s\n' "${tag}" "${note:-No changelog entry found for ${version}.}" \
+            | git tag -a "${tag}" -F -
+          git push origin "${tag}"
+          echo "Tagged ${tag}."
