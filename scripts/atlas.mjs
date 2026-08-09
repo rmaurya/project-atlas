@@ -5,6 +5,8 @@
  *   atlas init     write a config, detecting the repository's layout
  *   atlas scan     build the index            (--json)
  *   atlas tasks    the planning document, with progress bars   (--json, or a filter word)
+ *   atlas caps     which host features are on: wiki, pages, issues, discussions (the one network call)
+ *   atlas community  generate issue/PR/discussion scaffolding for whatever the host supports
  *   atlas contrib  who did what, from git: people, agents, desks, hours, outcomes
  *   atlas health   report rot signals         (--verbose | --verbose=all)  exit 1 on blocking
  *   atlas build    generate the static site (index, dashboard, deck, health)
@@ -25,6 +27,8 @@ import { runHealth, formatReport } from './lib/health.mjs';
 import { renderSite, writeBuildStamp } from './lib/render.mjs';
 import { buildWikiPages, stageWiki, stagePages, exportSingleFile } from './lib/publish.mjs';
 import { readContrib, formatContrib } from './lib/contrib.mjs';
+import { detectHost, probeCapabilities, gateTarget, formatCapabilities } from './lib/host.mjs';
+import { communityAssets, writeCommunity } from './lib/community.mjs';
 
 const argv = process.argv.slice(2);
 
@@ -105,6 +109,41 @@ async function main() {
     return;
   }
 
+  if (cmd === 'capabilities' || cmd === 'caps') {
+    const host = detectHost(root, cfg);
+    const caps = await probeCapabilities(root, host, { offline: !!flag('offline'), fresh: !!flag('fresh') });
+    if (flag('json')) { console.log(JSON.stringify({ host, caps }, null, 2)); return; }
+    say(formatCapabilities(host, caps, color));
+    return;
+  }
+
+  if (cmd === 'community') {
+    const host = detectHost(root, cfg);
+    const caps = await probeCapabilities(root, host, { offline: !!flag('offline') });
+    const index = buildIndex(root, cfg, { withGit });
+    const health = runHealth(index, cfg, root);
+    const assets = communityAssets(index, health, readPlanning(root, cfg), host, caps, cfg);
+
+    if (!flag('write')) {
+      say(`Would generate ${assets.files.size} file(s) for ${host.slug || 'this repository'}:`);
+      for (const f of assets.files.keys()) say(`  ${fs.existsSync(path.join(root, f)) ? 'skip (exists)' : 'create      '}  ${f}`);
+      if (assets.skipped.length) {
+        say('\nNot generated, and why:');
+        for (const s2 of assets.skipped) say(`  · ${s2}`);
+      }
+      say('\nRe-run with --write to create them, --force to overwrite existing ones.');
+      return;
+    }
+    const r = writeCommunity(root, assets, { force: !!flag('force') });
+    for (const f of r.written) say(`  wrote  ${f}`);
+    for (const f of r.kept) say(`  kept   ${f}  (already exists; --force to overwrite)`);
+    if (assets.skipped.length) {
+      say('\nNot generated, and why:');
+      for (const s2 of assets.skipped) say(`  · ${s2}`);
+    }
+    return;
+  }
+
   if (cmd === 'contrib') {
     const k = readContrib(root, cfg);
     if (flag('json')) { console.log(JSON.stringify(k, null, 2)); return; }
@@ -135,6 +174,17 @@ async function main() {
     const index = buildIndex(root, cfg, { withGit });
     const health = runHealth(index, cfg, root);
     const plan = readPlanning(root, cfg);
+
+    const host = detectHost(root, cfg);
+    const caps = await probeCapabilities(root, host, { offline: !!flag('offline') });
+    const gate = gateTarget(target, host, caps);
+    if (gate.warn) say(`  note: ${gate.warn}`);
+    if (!gate.ok) {
+      console.error(`\nRefusing to publish to ${target}. ${gate.reason}`);
+      if (gate.hint) console.error(`  ${gate.hint}`);
+      process.exitCode = 1;
+      return;
+    }
 
     if (target === 'wiki') {
       const built = buildWikiPages(index, health, plan, cfg, root);
@@ -363,6 +413,8 @@ function usage() {
 
   atlas init                 write ${CONFIG_NAME}, detecting this repository's layout
   atlas scan  [--json]       build and summarise the index
+  atlas caps                 which host features are on (wiki/pages/issues/discussions)
+  atlas community [--write]  scaffolding for the features this host actually supports
   atlas contrib [--json]     who did what, from git history alone
   atlas health [--verbose]   report rot signals; exit 1 if any blocking signal fires
   atlas build                generate the static site (index, dashboard, deck, health)
@@ -379,6 +431,7 @@ Flags
   --verbose[=all]    list findings, not just counts
   --json             machine-readable output
   --no-git           skip git metadata; staleness is reported as unchecked rather than guessed
+  --offline          skip the capability probe; assume features exist and say so
   --quiet            suppress progress output
   --force            (init) overwrite an existing config
 

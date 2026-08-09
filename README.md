@@ -12,8 +12,9 @@
 A derived, auditable knowledgebase over your repository's own documentation. Indexes the markdown you already
 have, detects rot mechanically, and generates a searchable site, a project dashboard and a browser slide deck.
 Your markdown stays the source of truth; everything generated regenerates byte-identically, so it cannot fork
-from your docs. Ships as a Claude Code skill, a portable `AGENTS.md` for any LLM agent, and a standalone CLI.
-Zero dependencies, Node ≥ 18, no network.
+from your docs. Adapts to what your host actually offers — Wiki, Pages, Issues and Discussions are each
+detected, never assumed. Ships as a Claude Code skill, a portable `AGENTS.md` for any LLM agent, and a
+standalone CLI. Zero dependencies, Node ≥ 18, and **one** optional network call (`atlas caps`).
 
 ---
 
@@ -24,6 +25,7 @@ Zero dependencies, Node ≥ 18, no network.
 [Rot signals](#rot-signals) ·
 [Contributions](#contribution-analytics) ·
 [Publishing](#publishing) ·
+[Host capabilities](#host-capabilities) ·
 [Honesty rules](#honesty-rules-enforced-in-the-output) ·
 [Configuration](#configuration) ·
 [Reference guides](#reference-guides) ·
@@ -168,6 +170,30 @@ GitHub offers no pull-request review on wiki repositories, so every push there i
 therefore carries a do-not-edit banner, and each publish records a content hash per page. When a hash no
 longer matches, publish **refuses** — `--import` copies the hand-edited pages out for review rather than
 destroying them.
+
+## Host capabilities
+
+Wiki, Pages, Issues and Discussions can each be off, and a publish target aimed at a disabled feature fails
+with an obscure git error. So the tool checks:
+
+```bash
+node $S caps            # which features are on; --offline to skip the check entirely
+node $S community       # generate scaffolding for the ones that exist; --write to create it
+```
+
+`caps` is **the only command that touches the network**, it says so when it runs, and the result is cached for
+an hour inside `.git/`. Everything else is entirely offline. When the check cannot run — offline, rate
+limited, private without a token — targets proceed on a **stated assumption** rather than blocking or guessing
+silently.
+
+`community` generates issue templates, a PR template and a Discussions welcome post **seeded from your own
+repository** — its real document counts, cluster names and open items — and generates *only* what the host
+supports. It lists what it skipped and why, and never overwrites your files without `--force`.
+
+One distinction worth knowing, because it cost a confusing failure to find: **a wiki being enabled is not the
+same as its repository existing.** GitHub creates `<repo>.wiki.git` only when the first page is saved by hand,
+so the tool checks reachability with `git ls-remote` and tells you exactly that, rather than letting the push
+fail as "Repository not found".
 
 ## Honesty rules, enforced in the output
 

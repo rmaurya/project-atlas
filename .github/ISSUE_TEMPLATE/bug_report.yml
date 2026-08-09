@@ -1,34 +1,30 @@
 name: Bug report
-description: Something the tool did wrong
+description: Something docs-atlas did wrong
 labels: [bug]
 body:
   - type: markdown
     attributes:
       value: |
-        **The most serious class of bug here is the tool reporting something as clean that was not.**
-        If that is what happened, say so at the top — it jumps the queue.
+        **If the tool reported something as clean that was not, say so at the top.**
+        That is the most serious class of bug here and it jumps the queue.
   - type: textarea
     id: what
     attributes:
       label: What happened
-      description: The command you ran, what you expected, and what you got.
-      placeholder: |
-        $ node scripts/atlas.mjs health
-        Expected: H1 to flag the dead link in docs/foo.md
-        Got: "No blocking findings"
+      description: The command, what you expected, what you got.
     validations: { required: true }
   - type: textarea
     id: shape
     attributes:
       label: Repository shape
-      description: Output of `node scripts/atlas.mjs scan`. It tells us more than a description will.
+      description: Output of `atlas scan`. It tells us more than a description will.
       render: text
     validations: { required: true }
   - type: textarea
     id: config
     attributes:
-      label: Your docs-atlas.config.json
-      description: Redact anything you need to; the cluster rules and suppressions are the useful part.
+      label: Your config
+      description: Redact what you must; the cluster rules and suppressions are the useful part.
       render: json
   - type: input
     id: versions

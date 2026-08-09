@@ -1,0 +1,41 @@
+name: Pages
+# Publishes the generated site. Runs only when documentation or the generator changes, so it does not
+# rebuild on every unrelated commit.
+on:
+  push:
+    branches: [main]
+    paths: ['**/*.md', 'scripts/**', 'docs-atlas.config.json', '.github/workflows/pages.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0        # the tool reads git history; a shallow clone would hide every date
+      - uses: actions/setup-node@v4
+        with: { node-version: '20' }
+      - name: Build the site
+        run: node scripts/atlas.mjs build
+      - uses: actions/upload-pages-artifact@v3
+        with: { path: docs/_wiki }
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
