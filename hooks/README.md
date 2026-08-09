@@ -9,6 +9,7 @@ about to land known rot?*
 
 | When | Hook | What it does | Blocks? |
 |---|---|---|---|
+| session start | `on-session-start.sh` | `atlas version --notice` — one line if the install is behind | never |
 | after a `.md` write | `on-write.sh` | `atlas build` — index, dashboard, health page, six role views | never |
 | before `git commit` | `on-commit.sh` | `atlas branch`, then `atlas health --gate` | yes, exit 2 |
 
@@ -61,6 +62,41 @@ A derived surface that refreshes only when someone remembers is a stale surface 
 this project exists to detect. So the write hook rebuilds, always exits 0, and never blocks the edit that
 triggered it: a build failing is a problem with the generator, not with what the author just wrote. It still
 says so on stderr, because nothing here degrades silently.
+
+## The update notice
+
+A session was spent debugging a tool that had already been fixed, because `atlas` on `PATH` resolved to a
+plugin cache two weeks behind the working copy in the same terminal. `/plugin` reported *"already at the
+latest version"* and fetched nothing, because it compares version strings and the version had not moved.
+
+So this prints one line at session start, and only when something is behind:
+
+```
+project-atlas 0.1.0 → 0.1.3 available (local and user). Run /plugin to update.
+```
+
+Silent otherwise. **This is the only hook here that makes a network request**, so it is bound tightly: at most
+once per 24 hours, two-second timeout, result cached outside any repository, failures cached too so an offline
+machine does not retry every session. It is named in [SECURITY.md](../SECURITY.md) beside `atlas caps`.
+
+Turn it off with `ATLAS_UPDATE_CHECK=0`. That is an environment variable rather than a config key on purpose:
+it runs in every session, including in repositories with no `project-atlas.config.json` to read a key from.
+
+For the same question asked deliberately rather than at startup:
+
+```
+$ atlas version
+project-atlas 0.1.3
+  commit    5a8fcfe
+  running   /Users/you/Working/project-atlas
+  source    working copy — not the installed plugin
+  installed 0.1.1 local · 0.1.0 user
+  latest    0.1.3  (checked 2026-08-10)
+
+  ! 2 registrations disagree: 0.1.1 local · 0.1.0 user. Updating one scope leaves the others behind.
+```
+
+`--offline` skips the network entirely; `--check` forces a fetch rather than reading the day's cache.
 
 ## Turning them off
 

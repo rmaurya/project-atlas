@@ -247,3 +247,10 @@ project; without that rule, editing any markdown anywhere would generate a `docs
 a dead link in someone else's repository would block their commit.
 
 The hooks that call these are described in [hooks/README.md](../../hooks/README.md).
+
+### The update check is an environment variable, not a key here
+
+`ATLAS_UPDATE_CHECK=0` disables the session-start notice that reports a newer published version. It is not a
+config key because it runs in every session, including in repositories that have no config file for a key to
+live in. It is described in [hooks/README.md](../../hooks/README.md) and named in
+[SECURITY.md](../../SECURITY.md) as one of this tool's two network requests.

@@ -13,6 +13,30 @@ versions follow [Semantic Versioning](https://semver.org/).
 - `atlas plan` — propose the git route for the working tree and wait for approval, rather than only refusing a
   commit once it is attempted.
 
+## [0.1.4] — 2026-08-10
+
+### Added
+- **`atlas version` — which build is actually answering.** There was no way to ask. `atlas --version` printed
+  the usage banner, and establishing the truth took `which atlas` plus a `grep` through
+  `installed_plugins.json`. It now reports the running version, its commit, its path, whether that path is an
+  installed plugin or a working copy, and **every registration and its version**. On the machine this was
+  written on that is three different versions at once — working copy `0.1.3`, `local 0.1.1`, `user 0.1.0` —
+  with `atlas` on `PATH` resolving to the oldest and nothing saying so.
+- **A session-start notice when the install is behind.** One line, only when something is actually behind,
+  silent otherwise: a line that appears every session is a line people learn to scroll past.
+- `ATLAS_UPDATE_CHECK=0` disables it. An environment variable rather than a config key, because it runs in
+  every session including repositories with no config file to read one from.
+
+### Security
+- **A second network request now exists, and `SECURITY.md` names it** rather than continuing to claim there is
+  exactly one. The check `GET`s the published manifest from `raw.githubusercontent.com`, derived from the
+  `repository` field of the installed manifest so a fork checks itself and a non-GitHub repository is not
+  checked at all. It sends nothing, times out in two seconds, runs at most once per 24 hours, and caches its
+  result — including failures, so an offline machine does not retry every session — outside any repository, in
+  `${XDG_CACHE_HOME:-~/.cache}/project-atlas/`.
+- An unknown result is reported as *"not checked"*, never as up to date. The one thing this must not do is
+  reassure you it confirmed something it could not reach.
+
 ## [0.1.3] — 2026-08-10
 
 ### Added

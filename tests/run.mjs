@@ -33,6 +33,8 @@ import { detectHost, gateTarget } from '../scripts/lib/host.mjs';
 import { resolveViews, navItems, PANELS } from '../scripts/lib/views.mjs';
 import { communityAssets } from '../scripts/lib/community.mjs';
 import { versionVerdict, isRuntimePath, parseVersion, compareVersions } from '../scripts/lib/release.mjs';
+import { disagreements, updateNotice, isPluginCache } from '../scripts/lib/version.mjs';
+import { manifestUrl, checkForUpdate, fetchLatest, readCache, writeCache, isFresh } from '../scripts/lib/update.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const CLI = path.join(HERE, '..', 'scripts', 'atlas.mjs');
@@ -1972,6 +1974,98 @@ test('publish · a manifest page name that is a path is refused, not read', () =
   ok(!r.drift.some((d) => (d.content || '').includes('PRIVATE-NOTES-MARKER')),
     'nothing outside the staging directory may be read into the drift report');
   fs.rmSync(victim, { force: true });
+});
+
+/* ================================================================== which build is answering */
+
+console.log('\nwhich build is answering');
+
+test('version · two registrations that disagree are named, not averaged', () => {
+  // The state this machine was actually in: local 0.1.1, user 0.1.0, working copy 0.1.3, and `atlas` on PATH
+  // resolving to the oldest of the three with nothing saying so.
+  const d = disagreements({
+    running: { version: '0.1.3', fromCache: false },
+    registrations: [{ scope: 'local', version: '0.1.1' }, { scope: 'user', version: '0.1.0' }],
+  });
+  ok(d.some((x) => x.text.includes('registrations disagree')), 'the split must be stated');
+  ok(d.filter((x) => x.text.includes('older than this working copy')).length === 2);
+});
+
+test('version · a cache that matches the working copy says nothing', () => {
+  const d = disagreements({
+    running: { version: '0.1.3', fromCache: true },
+    registrations: [{ scope: 'user', version: '0.1.3' }],
+  });
+  eq(d.length, 0, 'agreement is not news');
+});
+
+test('version · the update notice is silent when everything is current', () => {
+  // A line that appears every session is a line people learn to scroll past.
+  eq(updateNotice({ registrations: [{ scope: 'user', version: '0.1.3' }], latest: '0.1.3' }), null);
+  eq(updateNotice({ registrations: [{ scope: 'user', version: '0.1.3' }], latest: null }), null,
+     'an unknown latest is not an update');
+});
+
+test('version · the update notice reports the oldest scope, and names every scope behind', () => {
+  const line = updateNotice({
+    registrations: [{ scope: 'local', version: '0.1.1' }, { scope: 'user', version: '0.1.0' }],
+    latest: '0.1.3',
+  });
+  includes(line, '0.1.0 → 0.1.3');
+  includes(line, 'local and user');
+});
+
+test('version · a plugin cache path is distinguished from a working copy', () => {
+  ok(isPluginCache('/Users/x/.claude/plugins/cache/project-atlas/atlas/0.1.3/bin/atlas'));
+  ok(!isPluginCache('/Users/x/Working/GitHub/project-atlas/bin/atlas'));
+});
+
+test('update · the manifest URL is derived from the repository, and refuses unknown hosts', () => {
+  // A fork must check itself, not this repository. And silently fetching from somewhere the user did not
+  // point at is worse than not checking at all.
+  includes(manifestUrl('https://github.com/someone/their-fork'),
+           'raw.githubusercontent.com/someone/their-fork/main/.claude-plugin/plugin.json');
+  eq(manifestUrl('https://gitlab.com/someone/thing'), null);
+  eq(manifestUrl(''), null);
+});
+
+test('update · a fresh cache is reused and no fetch happens', async () => {
+  const file = path.join(tmpRoot, 'uc-fresh.json');
+  const now = 1770000000000;
+  writeCache({ at: now - 1000, date: '2026-08-10', latest: '0.9.9' }, file);
+  let called = 0;
+  const r = await checkForUpdate({
+    repository: 'https://github.com/a/b', now, file,
+    fetchImpl: () => { called++; return Promise.resolve({ ok: true, text: async () => '{"version":"1.0.0"}' }); },
+  });
+  eq(called, 0, 'a check inside the 24h window must not touch the network');
+  eq(r.latest, '0.9.9');
+  eq(r.fromCache, true);
+});
+
+test('update · a failed check is cached too, so an offline machine does not retry every session', async () => {
+  const file = path.join(tmpRoot, 'uc-fail.json');
+  const now = 1770000000000;
+  const r = await checkForUpdate({
+    repository: 'https://github.com/a/b', now, file,
+    fetchImpl: () => Promise.reject(new Error('offline')),
+  });
+  eq(r.latest, null, 'unknown is never reported as current');
+  ok(isFresh(readCache(file), now), 'the failure is recorded, not left for the next session to repeat');
+});
+
+test('update · a non-ok response is null rather than a version parsed from an error page', async () => {
+  eq(await fetchLatest('https://example.invalid/x', { fetchImpl: () => Promise.resolve({ ok: false }) }), null);
+  eq(await fetchLatest('https://example.invalid/x',
+     { fetchImpl: () => Promise.resolve({ ok: true, text: async () => '<html>404</html>' }) }), null);
+});
+
+test('cli · version --offline reports the build and makes no network call', () => {
+  const dir = fixture('ver-offline', { 'docs/A.md': '# A\n' });
+  const r = cli(dir, ['version', '--offline']);
+  eq(r.code, 0);
+  includes(r.stdout, 'project-atlas');
+  includes(r.stdout, 'not checked', 'it must never imply it confirmed you are current');
 });
 
 /* ================================================================== automation, and its off switch */

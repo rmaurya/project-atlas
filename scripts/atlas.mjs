@@ -23,8 +23,10 @@
  */
 
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { resolveConfig, DEFAULT_CONFIG, DEFAULT_CLUSTERS, CONFIG_NAME } from './lib/config.mjs';
 import { buildIndex, discover } from './lib/scan.mjs';
 import { readPlanning } from './lib/planning.mjs';
@@ -37,6 +39,8 @@ import { communityAssets, writeCommunity } from './lib/community.mjs';
 import { branchStatus, createBranch, formatBranch, TYPES } from './lib/branch.mjs';
 import { readTokens, formatTokens, formatSessions, transcriptDir, assertNotPublishable } from './lib/tokens.mjs';
 import { readChanges, formatChanges, fileDiff } from './lib/changes.mjs';
+import { formatVersion, updateNotice, isPluginCache } from './lib/version.mjs';
+import { checkForUpdate } from './lib/update.mjs';
 
 const argv = process.argv.slice(2);
 
@@ -83,8 +87,61 @@ function repoRoot() {
   }
 }
 
+/** Where this executing copy lives, and what it is. Reads only its own installation, never the repository. */
+function runningBuild() {
+  const pluginRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+  let version = 'unknown';
+  try {
+    version = JSON.parse(fs.readFileSync(path.join(pluginRoot, '.claude-plugin', 'plugin.json'), 'utf8')).version;
+  } catch { /* running from a tree without a manifest; the path below still tells the user where they are */ }
+  let commit = null;
+  try {
+    commit = execFileSync('git', ['-C', pluginRoot, 'rev-parse', '--short', 'HEAD'],
+                          { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+  } catch { /* an installed plugin is not a git checkout — expected, and reported as unknown rather than faked */ }
+  return { version, commit, path: pluginRoot, fromCache: isPluginCache(pluginRoot), pluginRoot };
+}
+
+/** Every scope this plugin is registered under. Two registrations that disagree is the case worth surfacing. */
+function readRegistrations() {
+  const dir = process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude');
+  try {
+    const db = JSON.parse(fs.readFileSync(path.join(dir, 'plugins', 'installed_plugins.json'), 'utf8'));
+    const entries = Object.entries(db.plugins || {}).filter(([k]) => k.startsWith('atlas@'));
+    return entries.flatMap(([, list]) => (Array.isArray(list) ? list : [list]))
+      .map((e) => ({ scope: e.scope || 'unknown', version: e.version || 'unknown', sha: (e.gitCommitSha || '').slice(0, 7) }));
+  } catch {
+    return [];                       // not installed as a plugin, which is a normal way to run this
+  }
+}
+
 async function main() {
   if (cmd === 'help' || flag('help')) return usage();
+
+  // Answers from its own installation, so it works in any directory, repository or not.
+  if (cmd === 'version') {
+    const running = runningBuild();
+    const registrations = readRegistrations();
+    let repository = null;
+    try { repository = JSON.parse(fs.readFileSync(path.join(running.pluginRoot, '.claude-plugin', 'plugin.json'), 'utf8')).repository; } catch {}
+
+    let latest = null, checkedAt = null;
+    if (!flag('offline')) {
+      const r = await checkForUpdate({ repository, force: !!flag('check') });
+      latest = r.latest; checkedAt = r.checkedAt;
+    }
+
+    // `--notice` is the session hook's entry point: one line if something is behind, silence otherwise.
+    // stdout, not stderr: a SessionStart hook's stdout is what becomes context for the session. Silence when
+    // everything is current, so the line only ever appears when it has something to say.
+    if (flag('notice')) {
+      const line = updateNotice({ registrations, latest });
+      if (line) console.log(line);
+      return;
+    }
+    say(formatVersion({ running, registrations, latest, checkedAt }, color));
+    return;
+  }
 
   const root = repoRoot();
   const configPath = typeof flag('config') === 'string' ? flag('config') : undefined;
@@ -539,6 +596,7 @@ function init(root, configPath) {
 function usage() {
   console.log(`project-atlas — a derived, auditable knowledgebase over your repository's documentation.
 
+  atlas version              which build is answering, where it lives, and whether it is behind
   atlas init                 write ${CONFIG_NAME}, detecting this repository's layout
   atlas scan  [--json]       build and summarise the index
   atlas branch [type slug]   branch state, or create type/short-slug carrying your changes
