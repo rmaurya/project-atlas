@@ -17,6 +17,11 @@
  *
  * The generated tree is committed so an install works from a plain clone, and `--check` is what stops it
  * silently diverging from `skills/`.
+ *
+ * **Exclude `plugins/**` from the corpus.** The generated copy is byte-identical prose, so indexing it makes
+ * every skill a duplicate title — which is a blocking signal, and correctly so: two files claiming one H1 is
+ * exactly the forked-document signature the tool hunts for. It fired on this project the moment the copy
+ * landed. The copy is not a fork, but the only way to say so is to exclude it deliberately.
  */
 
 import fs from 'node:fs';

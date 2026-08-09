@@ -79,6 +79,11 @@ arbitrary. Index it as it is, let the signals accumulate, and reorganise later w
 (orphan), H6 (stale) and H7 (forbidden term) forever, all correctly. Suppress those directories with a stated
 reason on the first pass, or the report is noise from the start.
 
+**Exclude generated copies of your own documents.** Any directory holding a build output, a vendored copy, or
+a mirror of documents that also live elsewhere will make every one of them a duplicate title — a blocking
+signal, and correctly so, since two files claiming one H1 is the forked-document signature. Excluding it is a
+one-line change and the alternative is a permanently red report.
+
 **Watch for the fallback cluster.** A large `Uncategorised` count is a missing rule, not a problem with the
 documents. Add rules until it is small enough to read.
 
