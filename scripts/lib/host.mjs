@@ -1,5 +1,5 @@
 /**
- * docs-atlas · host detection and capability probing
+ * project-atlas · host detection and capability probing
  *
  * **This is the only module in the tool that touches the network, and it does so only when asked.**
  * Everything else — scan, health, build, publish staging — is entirely offline. That separation is
@@ -77,7 +77,7 @@ export function detectHost(root, cfg = {}) {
 
 /* ------------------------------------------------------------------ probing (network) */
 
-const cachePath = (root) => path.join(root, '.git', 'docs-atlas-capabilities.json');
+const cachePath = (root) => path.join(root, '.git', 'project-atlas-capabilities.json');
 
 /**
  * Ask the host which features are enabled. Network. Cached for an hour inside `.git/`, which is never
@@ -100,7 +100,7 @@ export async function probeCapabilities(root, host, { timeoutMs = 6000, offline 
     const timer = setTimeout(() => ctl.abort(), timeoutMs);
     const res = await fetch(host.api, {
       signal: ctl.signal,
-      headers: { accept: 'application/json', 'user-agent': 'docs-atlas' },
+      headers: { accept: 'application/json', 'user-agent': 'project-atlas' },
     });
     clearTimeout(timer);
     if (res.status === 404) return unknown('the host returned 404 — the repository is private, renamed, or does not exist');

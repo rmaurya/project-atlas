@@ -2,7 +2,7 @@
 
 ## What this tool touches
 
-docs-atlas **reads** your repository and **writes** one output directory (`docs/_wiki` by default), plus a
+project-atlas **reads** your repository and **writes** one output directory (`docs/_wiki` by default), plus a
 config file on `init`. It makes **no network requests**, has **no runtime dependencies**, and runs no code it
 finds in your repository — markdown is parsed, never executed.
 
@@ -27,7 +27,7 @@ target**. Use `exclude` to keep private directories out, and check `atlas scan` 
 
 ## Reporting a vulnerability
 
-Open a [security advisory](https://github.com/rmaurya/docs-atlas/security/advisories/new) rather than a public
+Open a [security advisory](https://github.com/rmaurya/project-atlas/security/advisories/new) rather than a public
 issue.
 
 Useful things to include: the command, the repository shape (`atlas scan` output), and what an attacker would

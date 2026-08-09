@@ -1,5 +1,5 @@
 /**
- * docs-atlas · dashboard
+ * project-atlas · dashboard
  *
  * Charts and a sortable, searchable item table over the planning document and the corpus health.
  *
@@ -218,7 +218,7 @@ function itemTable(plan) {
 function noPlanning(cfg) {
   return `<figure class="card"><figcaption><h2>Planning</h2></figcaption>
   <p class="empty">No planning source configured, so no item charts are drawn — rather than charting nothing and calling it zero.
-  Set <code>planning.source</code> in <code>docs-atlas.config.json</code> to a task list such as <code>docs/TASKS.md</code>.</p></figure>`;
+  Set <code>planning.source</code> in <code>project-atlas.config.json</code> to a task list such as <code>docs/TASKS.md</code>.</p></figure>`;
 }
 
 function caveats(plan, health) {

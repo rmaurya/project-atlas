@@ -1,5 +1,5 @@
 /**
- * docs-atlas · project deck
+ * project-atlas · project deck
  *
  * Renders a markdown source into a browser slide deck. **The deck has a markdown source file** like everything
  * else here — it is authored prose, committed and reviewed in a diff, and this module only presents it. There

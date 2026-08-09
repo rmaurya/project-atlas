@@ -2,7 +2,7 @@
 
 How work reaches `main` in this project, and what an assistant working on it must do.
 
-This exists because the first five commits of docs-atlas went **straight to `main`** while its own
+This exists because the first five commits of project-atlas went **straight to `main`** while its own
 `CONTRIBUTING.md` preached discipline. That is the honest reason, and it is the reason worth writing down: a
 rule nobody notices being broken is not a rule.
 

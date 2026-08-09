@@ -1,5 +1,5 @@
 name: Bug report
-description: Something docs-atlas did wrong
+description: Something project-atlas did wrong
 labels: [bug]
 body:
   - type: markdown

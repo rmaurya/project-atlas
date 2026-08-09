@@ -1,5 +1,5 @@
 /**
- * docs-atlas · rot signals
+ * project-atlas · rot signals
  *
  * Nine mechanical checks. Every one of them is a fact about the repository, never a judgment about quality —
  * "this link points at a file that does not exist" is checkable; "this document is badly written" is not, and
@@ -187,7 +187,7 @@ export function formatReport(health, index, { verbose = false, color = true } = 
     : { red: (s) => s, yellow: (s) => s, green: (s) => s, dim: (s) => s, bold: (s) => s };
 
   const L = [];
-  L.push(c.bold(`docs-atlas · ${index.siteTitle}`));
+  L.push(c.bold(`project-atlas · ${index.siteTitle}`));
   L.push(c.dim(`${index.stats.documents} documents · ${index.stats.lines.toLocaleString()} lines · ${index.stats.clusters} clusters · ${index.stats.links} links · ${index.stats.citations} citations`));
   L.push('');
 

@@ -1,4 +1,4 @@
-# Roadmap — docs-atlas
+# Roadmap — project-atlas
 
 **Last updated:** 2026-08-09 · **Version:** 0.1.0 · **Status:** pre-release, dogfooding
 

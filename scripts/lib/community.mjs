@@ -1,5 +1,5 @@
 /**
- * docs-atlas · community scaffolding
+ * project-atlas · community scaffolding
  *
  * Generates the files a repository needs to run Issues, Discussions and a wiki well — **but only the ones its
  * host actually supports.** Writing an issue template into a repository with Issues disabled, or routing

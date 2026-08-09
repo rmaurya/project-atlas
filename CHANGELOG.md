@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to docs-atlas. Format follows [Keep a Changelog](https://keepachangelog.com/);
+All notable changes to project-atlas. Format follows [Keep a Changelog](https://keepachangelog.com/);
 versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]

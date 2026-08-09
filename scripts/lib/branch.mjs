@@ -1,5 +1,5 @@
 /**
- * docs-atlas · branch discipline
+ * project-atlas · branch discipline
  *
  * Reports where you are and whether it is safe to commit there. Exists because this project's own first five
  * commits went straight to `main` while its contributing guide preached discipline — a rule nobody notices

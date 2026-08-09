@@ -1,5 +1,5 @@
 {
-  "siteTitle": "docs-atlas",
+  "siteTitle": "project-atlas",
   "output": "docs/_wiki",
   "trackedOnly": true,
   "exclude": [
@@ -75,7 +75,16 @@
   "forbiddenTerms": [
     {
       "term": "llm-wiki",
-      "reason": "early working name; the project is docs-atlas",
+      "reason": "first working name; the project is project-atlas",
+      "ignore": [
+        "CHANGELOG.md",
+        "references/configuration.md",
+        "scripts/lib/config.mjs"
+      ]
+    },
+    {
+      "term": "docs-atlas",
+      "reason": "second working name; renamed once the tool outgrew documentation-only scope",
       "ignore": [
         "CHANGELOG.md",
         "references/configuration.md",
@@ -105,5 +114,5 @@
       "reason": "GitHub renders a pull-request template as the body of a new PR, where an H1 would become a stray heading in every description. It is a form, not a document."
     }
   ],
-  "$schema": "https://github.com/rmaurya/docs-atlas/schema/v1"
+  "$schema": "https://github.com/rmaurya/project-atlas/schema/v1"
 }

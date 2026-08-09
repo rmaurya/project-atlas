@@ -4,7 +4,7 @@ name: Pages
 on:
   push:
     branches: [main]
-    paths: ['**/*.md', 'scripts/**', 'docs-atlas.config.json', '.github/workflows/pages.yml']
+    paths: ['**/*.md', 'scripts/**', 'project-atlas.config.json', '.github/workflows/pages.yml']
   workflow_dispatch:
 
 permissions:

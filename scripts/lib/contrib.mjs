@@ -1,5 +1,5 @@
 /**
- * docs-atlas · contribution analytics
+ * project-atlas · contribution analytics
  *
  * Everything here is derived from `git log`. No telemetry, no service, no new file for anyone to maintain —
  * the repository is the witness, same as the rest of the tool.

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * docs-atlas · test suite
+ * project-atlas · test suite
  *
  * Zero dependencies, no test framework. Builds throwaway git repositories in a temp directory, runs the real
  * pipeline against them, and asserts on the result — so these are integration tests over the actual behaviour,
@@ -64,7 +64,7 @@ function includes(hay, needle, msg = '') {
 
 /* ------------------------------------------------------------------ fixtures */
 
-const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'docs-atlas-test-'));
+const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'project-atlas-test-'));
 const made = [];
 
 /** Build a throwaway git repo. `files` is { path: contents }. `remote` adds an origin so slug detection works. */
@@ -87,7 +87,7 @@ function fixture(name, files, { remote = null } = {}) {
 }
 
 function analyse(dir, configOverrides = {}) {
-  const cfgPath = path.join(dir, 'docs-atlas.config.json');
+  const cfgPath = path.join(dir, 'project-atlas.config.json');
   if (Object.keys(configOverrides).length) fs.writeFileSync(cfgPath, JSON.stringify(configOverrides), 'utf8');
   const cfg = resolveConfig(dir);
   const index = buildIndex(dir, cfg);
@@ -897,7 +897,7 @@ test('cli · health exits 0 on a clean corpus', () => {
 test('cli · init writes a config and refuses to clobber it', () => {
   const dir = fixture('cli-init', { 'docs/A.md': '# A\n' });
   eq(cli(dir, ['init']).code, 0);
-  ok(fs.existsSync(path.join(dir, 'docs-atlas.config.json')));
+  ok(fs.existsSync(path.join(dir, 'project-atlas.config.json')));
   eq(cli(dir, ['init']).code, 1, 'a second init without --force must refuse');
 });
 

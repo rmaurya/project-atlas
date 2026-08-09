@@ -1,5 +1,5 @@
 /**
- * docs-atlas · planning extraction
+ * project-atlas · planning extraction
  *
  * Reads a planning document (a task list / backlog) into structured items so the dashboard can chart them.
  *

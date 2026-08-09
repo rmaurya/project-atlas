@@ -1,9 +1,9 @@
-# docs-atlas — portable agent instructions
+# project-atlas — portable agent instructions
 
 **For any LLM agent, not just Claude Code.** If your runtime loads a single instruction file, load this one.
 Claude Code users should use `SKILL.md` instead, which the runtime picks up automatically.
 
-You are working with **docs-atlas**: a tool that builds a derived, auditable knowledgebase over a
+You are working with **project-atlas**: a tool that builds a derived, auditable knowledgebase over a
 repository's own markdown.
 
 ---

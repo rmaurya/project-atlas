@@ -1,5 +1,5 @@
 name: Feature request
-description: Something docs-atlas should do
+description: Something project-atlas should do
 labels: [enhancement]
 body:
   - type: markdown

@@ -1,9 +1,9 @@
 # Welcome post for GitHub Discussions
 
 **Not rendered anywhere.** This is the body to paste into
-[Discussions → New discussion → Announcements](https://github.com/rmaurya/docs-atlas/discussions/new?category=announcements).
+[Discussions → New discussion → Announcements](https://github.com/rmaurya/project-atlas/discussions/new?category=announcements).
 
-Title: `Welcome to docs-atlas Discussions`
+Title: `Welcome to project-atlas Discussions`
 
 Regenerate with `atlas community --write --force` after the project's shape changes.
 
@@ -11,10 +11,10 @@ Regenerate with `atlas community --write --force` after the project's shape chan
 
 ## Welcome
 
-**docs-atlas** — 16 documents, 1,608 lines, across 7 clusters: Start here · Agent instructions · Reference guides · Planning & history · Contributing · Community · Uncategorised.
+**project-atlas** — 17 documents, 1,778 lines, across 7 clusters: Start here · Agent instructions · Reference guides · Planning & history · Contributing · Community · Uncategorised.
 
 This is the place for anything that is **not** a defect and **not** a concrete proposal. Those belong in
-[Issues](https://github.com/rmaurya/docs-atlas/issues), which have templates that ask for what actually diagnoses a problem.
+[Issues](https://github.com/rmaurya/project-atlas/issues), which have templates that ask for what actually diagnoses a problem.
 
 ### Where to put what
 
@@ -38,6 +38,6 @@ This is the place for anything that is **not** a defect and **not** a concrete p
 
 ### Before you post
 
-Skim the [README](https://github.com/rmaurya/docs-atlas) and the reference guides. The [roadmap](https://github.com/rmaurya/docs-atlas/blob/main/ROADMAP.md) carries **12 open items** with honest completion figures — 3 of them marked estimated rather than measured. If something you need is on it, say so; that is how it gets prioritised.
+Skim the [README](https://github.com/rmaurya/project-atlas) and the reference guides. The [roadmap](https://github.com/rmaurya/project-atlas/blob/main/ROADMAP.md) carries **12 open items** with honest completion figures — 3 of them marked estimated rather than measured. If something you need is on it, say so; that is how it gets prioritised.
 
 _This repository currently reports no blocking documentation findings, and the tool is run against itself in CI._

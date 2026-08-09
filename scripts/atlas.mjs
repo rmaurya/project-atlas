@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * docs-atlas — a derived, auditable knowledgebase over a repository's own documentation.
+ * project-atlas — a derived, auditable knowledgebase over a repository's own documentation.
  *
  *   atlas init     write a config, detecting the repository's layout
  *   atlas scan     build the index            (--json)
@@ -104,7 +104,7 @@ async function main() {
 
   if (cmd === 'tasks') {
     const plan = readPlanning(root, cfg);
-    if (!plan) { console.error('No planning source configured. Set planning.source in docs-atlas.config.json.'); process.exitCode = 1; return; }
+    if (!plan) { console.error('No planning source configured. Set planning.source in project-atlas.config.json.'); process.exitCode = 1; return; }
     if (plan.missing) { console.error(`${plan.source} not found.`); process.exitCode = 1; return; }
     if (flag('json')) { console.log(JSON.stringify(plan, null, 2)); return; }
     say(formatTasks(plan, positionals[0], color));
@@ -210,7 +210,7 @@ async function main() {
       const r = stageWiki(root, cfg, built, { push, force: !!flag('force'), importDrift: !!flag('import') });
 
       if (!r.staged) {
-        console.error(`\nRefusing to publish — the wiki at ${r.url} has ${r.drift.length} change(s) not written by docs-atlas.\n`);
+        console.error(`\nRefusing to publish — the wiki at ${r.url} has ${r.drift.length} change(s) not written by project-atlas.\n`);
         for (const d of r.drift.slice(0, 20)) {
           console.error(`  ${d.kind.padEnd(9)} ${d.page}${d.source ? `   (from ${d.source})` : ''}${d.detail ? `\n    ${d.detail}` : ''}`);
         }
@@ -428,7 +428,7 @@ function init(root, configPath) {
 }
 
 function usage() {
-  console.log(`docs-atlas — a derived, auditable knowledgebase over your repository's documentation.
+  console.log(`project-atlas — a derived, auditable knowledgebase over your repository's documentation.
 
   atlas init                 write ${CONFIG_NAME}, detecting this repository's layout
   atlas scan  [--json]       build and summarise the index

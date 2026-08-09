@@ -1,13 +1,19 @@
 ```
-██████   █████   ██████  ██████      █████  ███████ ██       █████   ██████
-██   ██ ██   ██ ██      ██          ██   ██    ██   ██      ██   ██ ██
-██   ██ ██   ██ ██       █████      ██   ██    ██   ██      ██   ██  █████
-██   ██ ██   ██ ██           ██     ███████    ██   ██      ███████      ██
-██   ██ ██   ██ ██           ██     ██   ██    ██   ██      ██   ██      ██
-██████   █████   ██████ ██████      ██   ██    ██   ███████ ██   ██ ██████
+██████  ██████   █████       ██ ███████  ██████ ███████
+██   ██ ██   ██ ██   ██      ██ ██      ██         ██
+██████  ██████  ██   ██      ██ █████   ██         ██
+██      ██  ██  ██   ██      ██ ██      ██         ██
+██      ██   ██ ██   ██ ██   ██ ██      ██         ██
+██      ██   ██  █████   █████  ███████  ██████    ██
+ █████  ███████ ██       █████   ██████
+██   ██    ██   ██      ██   ██ ██
+██   ██    ██   ██      ██   ██  █████
+███████    ██   ██      ███████      ██
+██   ██    ██   ██      ██   ██      ██
+██   ██    ██   ███████ ██   ██ ██████
 ```
 
-[github.com/rmaurya/docs-atlas](https://github.com/rmaurya/docs-atlas)
+[github.com/rmaurya/project-atlas](https://github.com/rmaurya/project-atlas)
 
 A derived, auditable knowledgebase over your repository's own documentation. Indexes the markdown you already
 have, detects rot mechanically, and generates a searchable site, a project dashboard and a browser slide deck.
@@ -38,7 +44,7 @@ standalone CLI. Zero dependencies, Node ≥ 18, and **one** optional network cal
 
 ## The one rule everything else follows
 
-**Your markdown is the source of truth. Everything docs-atlas produces is derived.**
+**Your markdown is the source of truth. Everything project-atlas produces is derived.**
 
 Delete the output directory, rebuild, and you get a byte-identical result. The tool owns no prose that is not
 already a committed `.md` file in your repository — so it cannot drift from your documentation, because it has
@@ -67,15 +73,15 @@ None of that needed judgment to find. All of it needed someone to look.
 **Claude Code** — one line, then the tool is on your PATH as `atlas`:
 
 ```bash
-/plugin marketplace add rmaurya/docs-atlas
-/plugin install atlas@docs-atlas
+/plugin marketplace add rmaurya/project-atlas
+/plugin install atlas@project-atlas
 ```
 
 **Any other agent, or no agent at all** — clone and run it:
 
 ```bash
-git clone https://github.com/rmaurya/docs-atlas.git
-./docs-atlas/bin/atlas --help
+git clone https://github.com/rmaurya/project-atlas.git
+./project-atlas/bin/atlas --help
 ```
 
 Non-Claude runtimes should load [`AGENTS.md`](AGENTS.md), which carries the same instructions in a portable
@@ -211,7 +217,7 @@ These are why the tool is worth trusting, and they are not negotiable in contrib
 
 ## Configuration
 
-`atlas init` writes `docs-atlas.config.json` after inspecting your layout. Everything is overridable: the
+`atlas init` writes `project-atlas.config.json` after inspecting your layout. Everything is overridable: the
 cluster taxonomy, which signals block, the stale window, forbidden terms, cross-reference pairs, suppressions,
 the planning source, and the deck source. Every key is documented in
 [`references/configuration.md`](references/configuration.md).
