@@ -46,6 +46,7 @@ import { verifySite, formatVerify } from './lib/verify.mjs';
 import { route, formatRoute } from './lib/plan.mjs';
 import { dayKey, commitsOn, renderDay, writeDay } from './lib/worklog.mjs';
 import { ownership, summariseOwnership } from './lib/ownership.mjs';
+import { survivingLines, formatSurviving } from './lib/surviving.mjs';
 
 const argv = process.argv.slice(2);
 
@@ -432,6 +433,13 @@ async function main() {
     // The branch, and only the branch. Committing and pushing stay explicit: this proposes a route, it does
     // not drive one, and pushing is outward-facing besides.
     say(`\nSwitched to ${made.name}. Nothing else was run.`);
+    return;
+  }
+
+  if (cmd === 'surviving') {
+    const k = survivingLines(root, { limit: Number(flag('limit', 400)) || 400 });
+    if (flag('json')) { console.log(JSON.stringify(k, null, 2)); return; }
+    say(formatSurviving(k, color));
     return;
   }
 

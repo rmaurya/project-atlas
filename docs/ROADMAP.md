@@ -1,6 +1,6 @@
 # Roadmap — project-atlas
 
-**Last updated:** 2026-08-10 · **Version:** 0.1.21 · **Status:** pre-release, dogfooding
+**Last updated:** 2026-08-10 · **Version:** 0.1.22 · **Status:** pre-release, dogfooding
 
 Open work, with an honest completion figure against each item. A figure marked `*` is estimated rather than
 measured against the code — the same distinction the tool preserves everywhere else, applied to itself.
@@ -14,7 +14,7 @@ measured against the code — the same distinction the tool preserves everywhere
 | Item | % | Item | % | Item | % |
 |---|---|---|---|---|---|
 | C-1 | 100 | C-2 | 100 | C-3 | 100 |
-| C-4 | 100 | C-5 | 0* | C-6 | 100 |
+| C-4 | 100 | C-5 | 100 | C-6 | 100 |
 | P-1 | 100 | P-2 | 90 | P-3 | 70* |
 | Q-1 | 100 | Q-2 | 30* | Q-3 | 100 |
 | D-1 | 100 | D-2 | 100 | D-3 | 100 |
@@ -48,9 +48,13 @@ delete a control the built page rendered.
 Shipped. The host is detected from the remote, and Pages is emitted as a CI job rather than a branch.
 
 **C-5 · Surviving-lines analysis** — **P3 · Low**
-*Lines added is a poor measure; lines that survived is the closest honest one available.*
-A `git blame` pass, capped and opt-in because it is slow on a large repository. Reported beside the other
-measures, never combined into a score.
+*Shipped in 0.1.22.* `atlas surviving` — a `git blame` pass counting lines still in the file today. It does
+not reward churn: a thousand lines written and replaced next week count once, for whoever wrote what remains.
+
+Capped and opt-in, and **the cap is reported**: a sample presented as a total is the quiet lie this project
+refuses everywhere else. Reported beside the other measures, never combined into a score, and it still does
+not measure quality — deleted work counts for nothing here and removing a bad abstraction leaves no surviving
+lines at all.
 
 **C-6 · Bus factor and ownership** — **P3 · Medium**
 *Shipped in 0.1.21.* `atlas ownership` — per area, not per repository. "Bus factor 1" for a whole project

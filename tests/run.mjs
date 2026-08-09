@@ -40,6 +40,7 @@ import { verifyPage, verifySite } from '../scripts/lib/verify.mjs';
 import { route, inferType } from '../scripts/lib/plan.mjs';
 import { dayKey, commitsOn, renderDay } from '../scripts/lib/worklog.mjs';
 import { ownership, areaOf, summariseOwnership } from '../scripts/lib/ownership.mjs';
+import { survivingLines } from '../scripts/lib/surviving.mjs';
 import { manifestUrl, checkForUpdate, fetchLatest, readCache, writeCache, isFresh } from '../scripts/lib/update.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -2373,6 +2374,43 @@ test('automation · neither hook acts in a repository that never adopted the too
   eq(cli(dir, ['build', '--auto', '--quiet']).code, 0);
   ok(!fs.existsSync(path.join(dir, 'docs', '_wiki')), 'no config, no site written');
   eq(cli(dir, ['health', '--gate']).code, 0, 'no config, no gate');
+});
+
+/* ================================================================== lines that survived */
+
+console.log('\nsurviving lines');
+
+test('surviving · counts what is still in the file, and says what it did not blame', () => {
+  const dir = fixture('surv', { 'a.md': '# A\n\nline one\nline two\n', 'b.md': '# B\n' });
+  const k = survivingLines(dir, { limit: 400 });
+  eq(k.available, true);
+  ok(k.lines > 0);
+  ok(k.people.length >= 1);
+  ok(Array.isArray(k.notChecked), 'a capped measurement always states its cap');
+});
+
+test('surviving · the file cap is reported, because a sample presented as a total is a lie', () => {
+  const dir = fixture('surv-cap', { 'a.md': '# A\n', 'b.md': '# B\n', 'c.md': '# C\n' });
+  const k = survivingLines(dir, { limit: 1 });
+  eq(k.filesBlamed, 1);
+  ok(k.skipped >= 1);
+  ok(k.notChecked.some((n) => n.includes('cap')), 'the truncation must appear in the output');
+});
+
+test('surviving · "Not Committed Yet" is a placeholder, not a contributor', () => {
+  // Leaving git's own placeholder in puts a fictional person in a report about contribution.
+  const dir = fixture('surv-dirty', { 'a.md': '# A\n' });
+  fs.appendFileSync(path.join(dir, 'a.md'), 'an uncommitted line\n', 'utf8');
+  const k = survivingLines(dir);
+  ok(!k.people.some((p) => p.author === 'Not Committed Yet'));
+  ok(k.uncommitted >= 1);
+  ok(k.notChecked.some((n) => n.includes('not committed yet')));
+});
+
+test('surviving · a directory with no repository degrades instead of throwing', () => {
+  const dir = path.join(tmpRoot, 'surv-norepo');
+  fs.mkdirSync(dir, { recursive: true });
+  eq(survivingLines(dir).available, false);
 });
 
 /* ================================================================== who is the only one who touched this */

@@ -13,6 +13,24 @@ versions follow [Semantic Versioning](https://semver.org/).
 - `atlas plan` — propose the git route for the working tree and wait for approval, rather than only refusing a
   commit once it is attempted.
 
+## [0.1.22] — 2026-08-10
+
+### Added
+- **`atlas surviving` — lines still in the file today.** Every contribution figure here carries the same
+  disclaimer: *lines added is shown because it is cheap, not because it measures value.* Survival is the
+  closest honest number git alone can give. It cannot be gamed by volume — a thousand lines written and
+  replaced next week count once, for whoever wrote what remains.
+
+  Opt-in and capped, because `git blame` walks every line of every file: fractions of a second here, minutes
+  on a large repository, and a report that hangs is one nobody runs twice. **The cap is always reported** —
+  a sample presenting itself as a total is the quiet lie this project refuses everywhere else.
+
+  `Not Committed Yet` is git's placeholder for uncommitted lines and is excluded: leaving it in puts a
+  fictional contributor in a report about contribution.
+
+  It still does not measure quality. A line nobody revisited may be load-bearing or may be in a corner
+  nobody reads, and removing a bad abstraction leaves no surviving lines at all.
+
 ## [0.1.21] — 2026-08-10
 
 ### Added
