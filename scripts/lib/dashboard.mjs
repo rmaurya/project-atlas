@@ -175,7 +175,7 @@ function itemTable(plan) {
   <h2>All items <span class="count">${plan.items.length}</span></h2>
   <p class="cap">Click a column heading to sort. Type to filter across id, title, track, priority and status.
   A hatched bar means the figure is <strong>estimated in the source</strong>, not measured against the code.</p>
-  <input id="tq" type="search" placeholder="Filter items…" autocomplete="off">
+  <input id="tq" type="search" placeholder="Filter every column…" autocomplete="off">
   <div class="table-wrap">
     <table id="itbl">
       <!-- Progress and status lead, before the descriptive columns. In a side-by-side layout the table
@@ -189,7 +189,12 @@ function itemTable(plan) {
         <th data-k="priority" class="sortable">Pri</th>
         <th data-k="criticality" class="sortable">Crit</th>
         <th data-k="track" class="sortable">Track</th>
-      </tr></thead>
+      </tr>
+      <!-- Per-column filters. Populated by script: a column with few distinct values becomes a dropdown,
+           one with many becomes a text box, and the numeric column gets a minimum. Built from the rendered
+           rows rather than declared here, so it stays correct if the columns change. -->
+      <tr class="filters" id="tfilters"></tr>
+      </thead>
       <tbody>
         ${plan.items.map((i) => `<tr data-percent="${i.percent === null ? -1 : i.percent}">
           <td class="mono">${escapeHtml(i.id)}</td>
@@ -243,7 +248,7 @@ const DASH_CSS = `
   .dash-side { position:sticky; top:58px; max-height:calc(100vh - 74px); display:flex; flex-direction:column; }
   .dash-side > .card { display:flex; flex-direction:column; min-height:0; margin:0; }
   .dash-side .table-wrap { overflow:auto; min-height:0; }
-  #itbl thead th { position:sticky; top:0; z-index:1; background:var(--panel); }
+  #itbl thead tr:first-child th { position:sticky; top:0; z-index:2; background:var(--panel); }
 }
 @media (min-width:1500px) { .dash { grid-template-columns:minmax(0,1.15fr) minmax(520px,0.85fr); } }
 .dash-main { min-width:0; }
@@ -279,18 +284,36 @@ figcaption { display:block; }
  * onto two lines and clips the status pill, which is how you end up hiding data to make a layout fit. */
 #itbl { border-collapse:collapse; width:100%; min-width:660px; font-size:13.5px; }
 #itbl th,#itbl td { border-bottom:1px solid var(--line); padding:8px 10px; text-align:left; vertical-align:top; }
-#itbl td:first-child,#itbl th:first-child { white-space:nowrap; }
-#itbl td:nth-child(2),#itbl td:nth-child(3) { white-space:nowrap; }
-#itbl td:last-child { white-space:nowrap; max-width:130px; overflow:hidden; text-overflow:ellipsis; }
-/* The three leading columns stay put while the descriptive ones scroll under them. */
-@media (min-width:1180px) {
-  .dash-side #itbl td:nth-child(-n+3),
-  .dash-side #itbl th:nth-child(-n+3) { position:sticky; background:var(--panel); z-index:1; }
-  .dash-side #itbl td:nth-child(1),.dash-side #itbl th:nth-child(1) { left:0; }
-  .dash-side #itbl td:nth-child(2),.dash-side #itbl th:nth-child(2) { left:52px; }
-  .dash-side #itbl td:nth-child(3),.dash-side #itbl th:nth-child(3) { left:172px; box-shadow:1px 0 0 var(--line); }
-  .dash-side #itbl thead th { z-index:2; }
+/* Column widths, sized to the content each holds. Without these the progress column takes space it does not
+ * need and the item title wraps one word per line — which is what the layout did before this block existed. */
+#itbl th:nth-child(1),#itbl td:nth-child(1) { white-space:nowrap; width:1%; }              /* id       */
+#itbl th:nth-child(2),#itbl td:nth-child(2) { white-space:nowrap; width:120px; }           /* progress */
+#itbl th:nth-child(3),#itbl td:nth-child(3) { white-space:nowrap; width:1%; }              /* status   */
+#itbl th:nth-child(4),#itbl td:nth-child(4) { min-width:230px; }                           /* item     */
+#itbl th:nth-child(5),#itbl td:nth-child(5),
+#itbl th:nth-child(6),#itbl td:nth-child(6) { white-space:nowrap; width:1%; }              /* pri/crit */
+#itbl td:nth-child(7) { white-space:nowrap; max-width:140px; overflow:hidden; text-overflow:ellipsis; }
+
+/* Row hover. The whole row lifts, so the eye can follow a value across seven columns without losing the line. */
+#itbl tbody tr { transition:background-color .09s ease; }
+#itbl tbody tr:hover { background:var(--code-bg); }
+#itbl tbody tr:hover .mini { outline:1px solid var(--line); }
+@media (prefers-reduced-motion: reduce) { #itbl tbody tr { transition:none; } }
+
+/* Per-column filter row */
+#itbl tr.filters th { padding:5px 8px 8px; border-bottom:1px solid var(--line); }
+.ftxt,.fsel,.fnum {
+  width:100%; min-width:0; font:inherit; font-size:12px; color:var(--ink);
+  background:var(--bg); border:1px solid var(--line); border-radius:6px; padding:3px 6px;
 }
+.fnum { width:100%; min-width:58px; }
+#itbl tr.filters th { min-width:74px; }
+#itbl tr.filters th:nth-child(4) { min-width:150px; }
+.ftxt:focus,.fsel:focus,.fnum:focus { outline:2px solid var(--link); outline-offset:1px; }
+.fsel { cursor:pointer; }
+/* Sticky leading columns were tried and removed: combined with a sticky filter row they hid the first three
+ * filter controls behind the frozen cells, and pinned the header over the first data row. The columns are
+ * width-constrained now, so the table rarely needs horizontal scroll in the first place. */
 #itbl th.sortable { cursor:pointer; user-select:none; white-space:nowrap; }
 #itbl th.sortable:hover { color:var(--link); }
 #itbl th[aria-sort]:after { content:" ▾"; }
@@ -301,7 +324,7 @@ figcaption { display:block; }
  * long one cannot make a row four times the height of its neighbours. */
 .sum { display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;
   color:var(--muted); font-size:12.5px; margin-top:2px; }
-#itbl td:nth-child(2) { min-width:210px; }
+
 .mini { display:inline-block; width:64px; height:8px; background:var(--code-bg); border-radius:3px; overflow:hidden; vertical-align:middle; margin-right:7px; }
 .mf { display:block; height:100%; }
 .pct { font-size:12.5px; }
@@ -343,14 +366,76 @@ const TABLE_JS = `
     th.addEventListener('click', function () { sortBy(th.dataset.k, th); });
   });
 
+  // ---- per-column filters -------------------------------------------------
+  // A column whose values repeat (status, priority, track) is a dropdown; a column of mostly-unique values
+  // (an id, a title) is a text box. The threshold is measured from the data, not guessed per column, so the
+  // same code produces sensible controls for any table.
+  var head = tbl.tHead.rows[0].cells;
+  var frow = document.getElementById('tfilters');
+  var controls = [];
+
+  function cellText(row, i) { return (row.cells[i].textContent || '').trim(); }
+
+  Array.prototype.forEach.call(head, function (th, i) {
+    var cell = document.createElement('th');
+    var k = th.dataset.k;
+    var ctl;
+    if (k === 'percent') {
+      ctl = document.createElement('input');
+      ctl.type = 'number'; ctl.min = 0; ctl.max = 100; ctl.placeholder = '≥ %';
+      ctl.className = 'fnum';
+      ctl.setAttribute('aria-label', 'Minimum progress');
+    } else {
+      var vals = {}, n = 0;
+      rows.forEach(function (r) { var t = cellText(r, i); if (t && !vals[t]) { vals[t] = 1; n++; } });
+      // A dropdown only where the values actually repeat. Distinct-count alone is not enough: a title column
+      // in a 12-row table has 12 distinct values and would become a useless 12-option select. Requiring the
+      // distinct count to be at most half the rows keeps categories as dropdowns and free text as text.
+      if (n > 1 && n <= 12 && n * 2 <= rows.length) {
+        ctl = document.createElement('select');
+        ctl.className = 'fsel';
+        ctl.appendChild(new Option('All', ''));
+        Object.keys(vals).sort().forEach(function (v) { ctl.appendChild(new Option(v, v)); });
+      } else {
+        ctl = document.createElement('input');
+        ctl.type = 'search'; ctl.placeholder = 'filter…'; ctl.className = 'ftxt';
+      }
+      ctl.setAttribute('aria-label', 'Filter by ' + th.textContent.trim());
+    }
+    ctl.dataset.col = i; ctl.dataset.kind = k;
+    ctl.addEventListener('input', filter);
+    ctl.addEventListener('change', filter);
+    controls.push(ctl);
+    cell.appendChild(ctl);
+    frow.appendChild(cell);
+  });
+
+  function matches(row) {
+    var v = (q.value || '').trim().toLowerCase();
+    if (v && row.textContent.toLowerCase().indexOf(v) === -1) return false;
+    for (var j = 0; j < controls.length; j++) {
+      var c = controls[j], want = (c.value || '').trim();
+      if (!want) continue;
+      var i = Number(c.dataset.col);
+      if (c.dataset.kind === 'percent') {
+        var p = Number(row.dataset.percent);
+        if (p < 0 || p < Number(want)) return false;      // unknown (-1) never satisfies a minimum
+      } else if (c.tagName === 'SELECT') {
+        if (cellText(row, i) !== want) return false;      // exact, because the option came from the data
+      } else if (cellText(row, i).toLowerCase().indexOf(want.toLowerCase()) === -1) return false;
+    }
+    return true;
+  }
+
   function filter() {
-    var v = (q.value || '').trim().toLowerCase(), shown = 0;
+    var shown = 0, active = (q.value || '').trim() !== '';
+    controls.forEach(function (c) { if ((c.value || '').trim()) active = true; });
     rows.forEach(function (r) {
-      var hit = !v || r.textContent.toLowerCase().indexOf(v) !== -1;
+      var hit = matches(r);
       r.style.display = hit ? '' : 'none';
       if (hit) shown++;
     });
-    cnt.textContent = v ? shown + ' of ' + rows.length + ' items shown' : rows.length + ' items';
+    cnt.textContent = active ? shown + ' of ' + rows.length + ' items shown' : rows.length + ' items';
   }
   q.addEventListener('input', filter);
   filter();
