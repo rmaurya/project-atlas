@@ -39,6 +39,7 @@ import { risks, summarise } from '../scripts/lib/insight.mjs';
 import { verifyPage, verifySite } from '../scripts/lib/verify.mjs';
 import { route, inferType } from '../scripts/lib/plan.mjs';
 import { dayKey, commitsOn, renderDay } from '../scripts/lib/worklog.mjs';
+import { ownership, areaOf, summariseOwnership } from '../scripts/lib/ownership.mjs';
 import { manifestUrl, checkForUpdate, fetchLatest, readCache, writeCache, isFresh } from '../scripts/lib/update.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -2372,6 +2373,45 @@ test('automation · neither hook acts in a repository that never adopted the too
   eq(cli(dir, ['build', '--auto', '--quiet']).code, 0);
   ok(!fs.existsSync(path.join(dir, 'docs', '_wiki')), 'no config, no site written');
   eq(cli(dir, ['health', '--gate']).code, 0, 'no config, no gate');
+});
+
+/* ================================================================== who is the only one who touched this */
+
+console.log('\nownership');
+
+test('ownership · areas are directories, and a file object is not a path', () => {
+  // The first version read c.files as bare strings. They are { path, added, removed }, so every path went
+  // into one "(root)" bucket and it reported 401 files under a single area — plausible enough to ship, and
+  // saying nothing at all.
+  eq(areaOf('scripts/lib/scan.mjs'), 'scripts/lib');
+  eq(areaOf('README.md'), '(root)');
+  const list = ownership([{ author: 'A', files: [{ path: 'scripts/lib/a.mjs' }, { path: 'docs/b.md' }] },
+                          { author: 'A', files: [{ path: 'scripts/lib/c.mjs' }, { path: 'docs/d.md' }] }]);
+  eq(list.length, 2, 'two areas, not one');
+  ok(list.every((a) => a.area !== '(root)'));
+});
+
+test('ownership · a second author raises the number, however little they wrote', () => {
+  // "Meaningful contribution" is a judgement this cannot make. One commit counts, because the claim is only
+  // about who could pick the area up.
+  const commits = [
+    { author: 'A', files: [{ path: 'src/x.js' }] }, { author: 'A', files: [{ path: 'src/x.js' }] },
+    { author: 'B', files: [{ path: 'src/x.js' }] },
+  ];
+  eq(ownership(commits)[0].busFactor, 2);
+  eq(ownership(commits)[0].authors[0].name, 'A', 'ordered by commits, so the main author reads first');
+});
+
+test('ownership · an area with one commit is new, not concentrated', () => {
+  // Otherwise the first week of any project buries the real risks under every directory it just created.
+  const list = ownership([{ author: 'A', files: [{ path: 'fresh/x.js' }] }]);
+  eq(list.length, 0);
+});
+
+test('ownership · one committer is reported as a fact about the repository, not per area', () => {
+  const list = ownership([{ author: 'A', files: [{ path: 'src/x.js' }] }, { author: 'A', files: [{ path: 'src/y.js' }] }]);
+  includes(summariseOwnership(list, 1), 'single committer');
+  includes(summariseOwnership(list, 3), 'exactly one author');
 });
 
 /* ================================================================== the day, written down */

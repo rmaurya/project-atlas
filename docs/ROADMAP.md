@@ -1,6 +1,6 @@
 # Roadmap — project-atlas
 
-**Last updated:** 2026-08-10 · **Version:** 0.1.20 · **Status:** pre-release, dogfooding
+**Last updated:** 2026-08-10 · **Version:** 0.1.21 · **Status:** pre-release, dogfooding
 
 Open work, with an honest completion figure against each item. A figure marked `*` is estimated rather than
 measured against the code — the same distinction the tool preserves everywhere else, applied to itself.
@@ -14,7 +14,7 @@ measured against the code — the same distinction the tool preserves everywhere
 | Item | % | Item | % | Item | % |
 |---|---|---|---|---|---|
 | C-1 | 100 | C-2 | 100 | C-3 | 100 |
-| C-4 | 100 | C-5 | 0* | C-6 | 0 |
+| C-4 | 100 | C-5 | 0* | C-6 | 100 |
 | P-1 | 100 | P-2 | 90 | P-3 | 70* |
 | Q-1 | 100 | Q-2 | 30* | Q-3 | 100 |
 | D-1 | 100 | D-2 | 100 | D-3 | 100 |
@@ -53,8 +53,13 @@ A `git blame` pass, capped and opt-in because it is slow on a large repository. 
 measures, never combined into a score.
 
 **C-6 · Bus factor and ownership** — **P3 · Medium**
-*Which areas have exactly one author who has ever touched them.*
-Derivable from the history already being read.
+*Shipped in 0.1.21.* `atlas ownership` — per area, not per repository. "Bus factor 1" for a whole project
+says one person wrote everything, which on a young repository is a fact about its age; *these seven
+directories have exactly one author, and one of them is the publishing path* names something to do.
+
+An area with a single commit is excluded — it is new, not concentrated, and the first week of any project
+would otherwise bury the real risks. A second author counts however little they wrote: "meaningful
+contribution" is a judgement this cannot make.
 
 ## Track 2 — Product
 

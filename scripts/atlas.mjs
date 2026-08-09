@@ -45,6 +45,7 @@ import { checkForUpdate } from './lib/update.mjs';
 import { verifySite, formatVerify } from './lib/verify.mjs';
 import { route, formatRoute } from './lib/plan.mjs';
 import { dayKey, commitsOn, renderDay, writeDay } from './lib/worklog.mjs';
+import { ownership, summariseOwnership } from './lib/ownership.mjs';
 
 const argv = process.argv.slice(2);
 
@@ -431,6 +432,23 @@ async function main() {
     // The branch, and only the branch. Committing and pushing stay explicit: this proposes a route, it does
     // not drive one, and pushing is outward-facing besides.
     say(`\nSwitched to ${made.name}. Nothing else was run.`);
+    return;
+  }
+
+  if (cmd === 'ownership') {
+    const contrib = readContrib(root, cfg);
+    if (!contrib.available) { console.error('No git history to read.'); process.exitCode = 1; return; }
+    const list = ownership(contrib.commits, { depth: Number(flag('depth', 2)) || 2 });
+    if (flag('json')) { console.log(JSON.stringify(list, null, 2)); return; }
+    say(summariseOwnership(list, contrib.people.length) || 'Nothing to report.');
+    say('');
+    for (const a of list.slice(0, 25)) {
+      const who = a.authors.map((x) => `${x.name} (${x.commits})`).join(', ');
+      say(`  ${String(a.busFactor).padStart(2)}  ${a.area.padEnd(26)} ${String(a.files).padStart(3)} file(s)  ${who}`);
+    }
+    say('');
+    say('  The number is authors who have ever committed to that area — not a judgement of the code, and');
+    say('  not weighted by how much each wrote. It says what happens if one of them stops.');
     return;
   }
 

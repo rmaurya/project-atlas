@@ -13,6 +13,21 @@ versions follow [Semantic Versioning](https://semver.org/).
 - `atlas plan` — propose the git route for the working tree and wait for approval, rather than only refusing a
   commit once it is attempted.
 
+## [0.1.21] — 2026-08-10
+
+### Added
+- **`atlas ownership` — bus factor per area, which is the version anyone can act on.** A repository-wide
+  "bus factor 1" says one person wrote everything; on a young project that is a fact about its age. Per area
+  it names something: *these directories have exactly one author who has ever touched them.*
+
+  An area with a single commit is excluded — new is not concentrated, and otherwise the first week of any
+  project buries the real risks. A second author counts however little they wrote, because "meaningful
+  contribution" is a judgement this cannot make and should not pretend to.
+
+  Caught before shipping: `commit.files` entries are `{ path, added, removed }`, not strings. Read as
+  strings, every path fell into one `(root)` bucket and it reported 401 files under a single area — a number
+  plausible enough to ship and saying nothing at all.
+
 ## [0.1.20] — 2026-08-10
 
 ### Added
