@@ -13,6 +13,19 @@ versions follow [Semantic Versioning](https://semver.org/).
 - `atlas plan` — propose the git route for the working tree and wait for approval, rather than only refusing a
   commit once it is attempted.
 
+## [0.1.10] — 2026-08-10
+
+### Added
+- **A repository where the plugin does nothing now says so.** Both hooks are inert without a
+  `project-atlas.config.json` — deliberately, so installing the plugin does not start writing `docs/_wiki`
+  into every repository you open or gating commits in projects that never adopted it. But *inert and silent*
+  is indistinguishable from *broken*, and it read as broken: enabled in the plugin list, no dashboard, no
+  explanation, in a repository holding 349 indexable markdown files.
+
+  One line at session start, naming the count and the two commands. It stays quiet outside a git repository,
+  quiet where a config exists, and quiet below three markdown files — a Swift app with one README does not
+  want a knowledgebase, and a plugin that suggests itself in every directory is one people disable.
+
 ## [0.1.9] — 2026-08-10
 
 ### Fixed

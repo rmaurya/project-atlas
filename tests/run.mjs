@@ -1612,6 +1612,28 @@ test('skills · /atlas:diff is one command, because the permission checker split
      `no guard around the invocation — atlas already handles an empty path: ${cmd}`);
 });
 
+test('cli · an installed plugin that does nothing in a repository says why', () => {
+  // Both hooks are inert without a config, deliberately. Inert AND silent is indistinguishable from broken —
+  // it read as broken in a repository with 349 markdown files: plugin enabled, no dashboard, no explanation.
+  const dir = fixture('adopt-none', { 'docs/A.md': '# A\n', 'docs/B.md': '# B\n', 'README.md': '# R\n' });
+  const r = cli(dir, ['version', '--notice', '--offline']);
+  eq(r.code, 0);
+  includes(r.stdout, 'has not adopted it');
+  includes(r.stdout, 'atlas init');
+});
+
+test('cli · the adoption notice stays quiet where it would be noise', () => {
+  // A repository that already adopted the tool, and one with too little markdown to want a knowledgebase.
+  // A plugin that suggests itself in every directory is a plugin people disable.
+  const adopted = fixture('adopt-yes', { 'docs/A.md': '# A\n', 'docs/B.md': '# B\n', 'README.md': '# R\n' });
+  fs.writeFileSync(path.join(adopted, 'project-atlas.config.json'), '{}', 'utf8');
+  eq(cli(adopted, ['version', '--notice', '--offline']).stdout.trim(), '');
+
+  const sparse = fixture('adopt-sparse', { 'README.md': '# R\n' });
+  eq(cli(sparse, ['version', '--notice', '--offline']).stdout.trim(), '',
+     'one README is not a corpus');
+});
+
 test('cli · diff with no path lists what there is to ask about', () => {
   // Printing usage and exiting 1 made the caller run a second command to learn the answer, and made the
   // skill need shell logic to cover the empty case. Listing is both more useful and what lets the skill be

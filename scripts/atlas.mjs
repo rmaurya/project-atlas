@@ -164,6 +164,38 @@ async function aboutFacts(root, cfg) {
   };
 }
 
+/**
+ * "This repository has not adopted the tool", or `null` when saying so would be noise.
+ *
+ * Deliberately narrow. It stays quiet outside a git repository, quiet when a config already exists, and quiet
+ * in a repository with almost no markdown — a Swift app with one README does not want a documentation
+ * knowledgebase, and a plugin that suggests one in every directory is a plugin people disable.
+ */
+function adoptionNotice() {
+  const MIN_DOCS = 3;
+  let root;
+  try {
+    root = execFileSync('git', ['rev-parse', '--show-toplevel'],
+                        { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+  } catch { return null; }                                   // not a repository; nothing to adopt
+  if (!root) return null;
+
+  for (const name of [CONFIG_NAME, 'docs-atlas.config.json', 'llm-wiki.config.json']) {
+    if (fs.existsSync(path.join(root, name))) return null;   // already adopted
+  }
+
+  let count = 0;
+  try {
+    count = execFileSync('git', ['-C', root, 'ls-files', '*.md', '**/*.md'],
+                         { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })
+      .split('\n').filter(Boolean).length;
+  } catch { return null; }
+  if (count < MIN_DOCS) return null;
+
+  return `project-atlas is installed but this repository has not adopted it — no ${CONFIG_NAME}, so its hooks ` +
+         `do nothing here. ${count} markdown file(s) are indexable: run \`atlas init\` then \`atlas all\`.`;
+}
+
 async function main() {
   if (cmd === 'help' || flag('help')) return usage();
 
@@ -186,6 +218,12 @@ async function main() {
     if (flag('notice')) {
       const line = updateNotice({ registrations, latest });
       if (line) console.log(line);
+      // **An installed plugin that does nothing must say why.** Both hooks are inert in a repository with no
+      // config — deliberately, so installing this does not start writing docs/_wiki into every repository you
+      // open. But inert *and silent* is indistinguishable from broken, and it read as broken: enabled in the
+      // plugin list, no dashboard, no explanation. One line, only where there is something to index.
+      const adopt = adoptionNotice();
+      if (adopt) console.log(adopt);
       return;
     }
     say(formatVersion({ running, registrations, latest, checkedAt }, color));
