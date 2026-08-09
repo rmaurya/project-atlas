@@ -13,6 +13,21 @@ versions follow [Semantic Versioning](https://semver.org/).
 - `atlas plan` — propose the git route for the working tree and wait for approval, rather than only refusing a
   commit once it is attempted.
 
+## [0.1.23] — 2026-08-10
+
+### Changed
+- **The default taxonomy classifies tool and plugin repositories.** Running `init` on this one matched 4 of
+  39 documents and put 35 in the fallback — every `SKILL.md`, every reference guide, `AGENTS.md`, the whole
+  of `.github`. The defaults were tuned for product repositories and said "uncategorised" about the shape
+  this tool is most often installed into.
+
+  Three clusters: **Agent instructions** (`**/SKILL.md`, `**/skills/**`, `AGENTS.md`, `CLAUDE.md`),
+  **Reference guides** (`references/**`), **Community** (`.github/**`, `CODE_OF_CONDUCT.md`). Plus
+  `hooks/**` under Operations and `ANALYSIS.md` under Research. Same corpus, **39 of 39 classified**.
+
+  A regression test pins the product-repo shapes. The new rules are filename-driven and run before the
+  directory catches, so adding a shape could have silently moved one that already worked.
+
 ## [0.1.22] — 2026-08-10
 
 ### Added

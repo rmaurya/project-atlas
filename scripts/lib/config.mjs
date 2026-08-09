@@ -183,6 +183,18 @@ export const DEFAULT_CLUSTERS = [
     match: ['README.md', 'docs/README.md', 'docs/INDEX.md', 'CONTRIBUTING.md', 'docs/index.md'] },
 
   // --- filename-driven: these win wherever the file happens to live ---
+
+  // Tool and plugin repositories were the blind spot. Running `init` on this one matched 4 of 39 documents
+  // and dropped 35 into the fallback: every SKILL.md, every reference guide, AGENTS.md and the whole of
+  // .github. The taxonomy was tuned for product repositories and quietly said "uncategorised" about the
+  // shape of repository this tool is most often installed into.
+  { id: 'agent', title: 'Agent instructions', blurb: 'What an assistant loads: skills, and the instructions that frame them.',
+    match: ['**/SKILL.md', '**/skills/**', 'AGENTS.md', 'CLAUDE.md', 'GEMINI.md', '**/AGENT*.md',
+            '.cursorrules', '**/prompts/**'] },
+  { id: 'reference', title: 'Reference guides', blurb: 'Loaded on demand, one topic each.',
+    match: ['references/**', 'docs/references/**', 'docs/reference/**', '**/*-reference.md'] },
+  { id: 'community', title: 'Community', blurb: 'How to take part: templates, conduct, support.',
+    match: ['.github/**', '**/CODE_OF_CONDUCT.md', '**/GOVERNANCE.md', '**/SUPPORT.md', '**/CONTRIBUTORS.md'] },
   { id: 'procedures', title: 'Procedures', blurb: 'How work is done here — SOPs, playbooks, runbooks.',
     match: ['**/*sop*.md', '**/*SOP*.md', '**/*runbook*.md', '**/*RUNBOOK*.md', 'docs/playbooks/**',
             'docs/procedures/**', 'docs/sop/**'] },
@@ -196,7 +208,8 @@ export const DEFAULT_CLUSTERS = [
             '**/GETTING_STARTED.md'] },
   { id: 'operations', title: 'Operations', blurb: 'Build, ship, run, secure.',
     match: ['docs/ops/**', 'docs/operations/**', '**/DEPLOYMENT.md', '**/DEPLOY*.md', '**/INSTALL*.md',
-            '**/SECURITY.md', '**/OPERATIONS.md', '**/RELEASE*.md', '**/PACKAGING.md', '**/NOTARIZATION.md'] },
+            '**/SECURITY.md', '**/OPERATIONS.md', '**/RELEASE*.md', '**/PACKAGING.md', '**/NOTARIZATION.md',
+            'hooks/**', '**/*hook*.md', '**/CI.md'] },
 
   // --- directory-driven: the broad catches, last ---
   { id: 'product', title: 'Product & direction', blurb: 'What is being built, and why.',
@@ -204,7 +217,7 @@ export const DEFAULT_CLUSTERS = [
             '**/FEATURES.md', '**/ROADMAP.md', '**/VISION.md'] },
   { id: 'research', title: 'Research & record', blurb: 'Findings, session records, prior art. Historical by nature.',
     match: ['docs/research/**', 'docs/qa-log/**', 'docs/logs/**', 'docs/patents/**', 'docs/notes/**',
-            '**/*RESEARCH*.md', '**/*_Research_*.md', '**/*worklog*.md', '**/*-log.md'] },
+            '**/*RESEARCH*.md', '**/*_Research_*.md', '**/*worklog*.md', '**/*-log.md', '**/ANALYSIS.md'] },
   { id: 'engineering', title: 'Engineering', blurb: 'How it is built — architecture, design, data flow.',
     match: ['docs/architecture/**', 'docs/design/**', 'docs/engineering/**', '**/HLD.md', '**/LLD.md',
             '**/ARCHITECTURE.md', '**/DESIGN*.md', '**/DATA_FLOW.md', '**/*-design.md'] },

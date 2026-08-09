@@ -16,7 +16,7 @@ import path from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
-import { globToRegExp, resolveConfig, DEFAULT_CLUSTERS, clusterFor, unsafeRegexReason } from '../scripts/lib/config.mjs';
+import { globToRegExp, resolveConfig, DEFAULT_CLUSTERS, DEFAULT_CONFIG, clusterFor, unsafeRegexReason } from '../scripts/lib/config.mjs';
 import { buildIndex } from '../scripts/lib/scan.mjs';
 import { runHealth, formatReport, SIGNALS } from '../scripts/lib/health.mjs';
 import { renderSite } from '../scripts/lib/render.mjs';
@@ -2374,6 +2374,43 @@ test('automation · neither hook acts in a repository that never adopted the too
   eq(cli(dir, ['build', '--auto', '--quiet']).code, 0);
   ok(!fs.existsSync(path.join(dir, 'docs', '_wiki')), 'no config, no site written');
   eq(cli(dir, ['health', '--gate']).code, 0, 'no config, no gate');
+});
+
+/* ================================================================== defaults that fit real repositories */
+
+console.log('\ndefault taxonomy');
+
+test('taxonomy · a tool repository is classified, not dropped into the fallback', () => {
+  // Running init on this repository matched 4 of 39 documents and put 35 in the fallback: every SKILL.md,
+  // every reference guide, AGENTS.md and the whole of .github. The defaults were tuned for product repos
+  // and said "uncategorised" about the shape of repository this tool is most often installed into.
+  const shape = {
+    'README.md': '# R\n', 'AGENTS.md': '# A\n', 'CODE_OF_CONDUCT.md': '# C\n',
+    'skills/ask/SKILL.md': '# S\n', 'skills/help/SKILL.md': '# S\n',
+    'references/adoption.md': '# R\n', 'hooks/README.md': '# H\n',
+    '.github/PULL_REQUEST_TEMPLATE.md': '# P\n',
+  };
+  const dir = fixture('tax-tool', shape);
+  const cfg = { ...DEFAULT_CONFIG, clusters: DEFAULT_CLUSTERS, fallbackCluster: 'uncategorised', __configPath: null };
+  const index = buildIndex(dir, cfg, { withGit: false });
+  const fallback = index.documents.filter((d) => d.cluster === 'uncategorised');
+  eq(fallback.length, 0, `unclassified: ${fallback.map((d) => d.path).join(', ')}`);
+  eq(clusterFor('skills/ask/SKILL.md', cfg), 'agent');
+  eq(clusterFor('references/adoption.md', cfg), 'reference');
+  eq(clusterFor('.github/PULL_REQUEST_TEMPLATE.md', cfg), 'community');
+});
+
+test('taxonomy · a product repository still classifies the way it did', () => {
+  // The new rules are filename-driven and run before the directory catches, so they can shadow. This is the
+  // regression guard: adding a shape must not move one that already worked.
+  const cfg = { ...DEFAULT_CONFIG, clusters: DEFAULT_CLUSTERS, fallbackCluster: 'uncategorised', __configPath: null };
+  eq(clusterFor('README.md', cfg), 'start');
+  eq(clusterFor('docs/specs/login-srs.md', cfg), 'specs');
+  eq(clusterFor('docs/architecture/HLD.md', cfg), 'engineering');
+  eq(clusterFor('docs/ops/DEPLOYMENT.md', cfg), 'operations');
+  eq(clusterFor('docs/playbooks/oncall.md', cfg), 'procedures');
+  eq(clusterFor('ROADMAP.md', cfg), 'product');
+  eq(clusterFor('BACKLOG.md', cfg), 'planning');
 });
 
 /* ================================================================== lines that survived */

@@ -1,6 +1,6 @@
 # Roadmap — project-atlas
 
-**Last updated:** 2026-08-10 · **Version:** 0.1.22 · **Status:** pre-release, dogfooding
+**Last updated:** 2026-08-10 · **Version:** 0.1.23 · **Status:** pre-release, dogfooding
 
 Open work, with an honest completion figure against each item. A figure marked `*` is estimated rather than
 measured against the code — the same distinction the tool preserves everywhere else, applied to itself.
@@ -16,7 +16,7 @@ measured against the code — the same distinction the tool preserves everywhere
 | C-1 | 100 | C-2 | 100 | C-3 | 100 |
 | C-4 | 100 | C-5 | 100 | C-6 | 100 |
 | P-1 | 100 | P-2 | 90 | P-3 | 70* |
-| Q-1 | 100 | Q-2 | 30* | Q-3 | 100 |
+| Q-1 | 100 | Q-2 | 100 | Q-3 | 100 |
 | D-1 | 100 | D-2 | 100 | D-3 | 100 |
 | D-4 | 100 | D-5 | 100 | D-6 | 100 |
 | D-7 | 100 | D-8 | 100 | D-9 | 100 |
@@ -90,8 +90,15 @@ workflow builds and uploads, but the repository's Pages source is not set to Git
 Every bug the tool has shipped is pinned by a test that fails without its fix.
 
 **Q-2 · Defaults that fit real repositories** — **P1 · High**
-*The shipped taxonomy is tuned for product repos and fits tool repos badly.*
-Running `init` on this repository matched 1 of 9 default clusters. Found by dogfooding.
+*Shipped in 0.1.23.* Running `init` on this repository classified 4 of 39 documents and dropped 35 into the
+fallback: every `SKILL.md`, every reference guide, `AGENTS.md` and the whole of `.github`. The taxonomy was
+tuned for product repositories and said "uncategorised" about the shape of repository this tool is most often
+installed into.
+
+Three clusters added — **Agent instructions**, **Reference guides**, **Community** — plus `hooks/**` under
+Operations and `ANALYSIS.md` under Research. The same corpus now classifies **39 of 39**. A regression test
+pins the product-repo shapes, because the new rules are filename-driven and run before the directory catches,
+so they could shadow what already worked.
 
 **Q-3 · CI on a matrix** — **P2 · Low**
 *Shipped in 0.1.20.* Six combinations: ubuntu, macOS and Windows against Node 20 and 22, `fail-fast: false`
