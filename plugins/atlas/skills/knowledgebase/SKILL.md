@@ -139,6 +139,10 @@ prevent.
 - **Never `git push` without being asked.** Branching is local and reversible; pushing is neither.
 - **Say which branch you are on** when reporting work — the user cannot see your shell.
 
+- **Carry the trailers.** `Co-Authored-By:` names the assisting model and `Desk:` names the working context.
+  The delivery analytics read both, and **neither can be added to history afterwards** — a commit without them
+  is permanently unattributed.
+
 Full rules: `references/branching.md`.
 
 ## Rot signals

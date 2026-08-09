@@ -59,6 +59,35 @@ Why it mattered, what was actually wrong, what it cost.
 **The subject states the defect, not the patch.** `fix(scan): git metadata never loaded — NUL bytes cannot be
 passed in argv` is useful six months later. `fix(scan): update handler` is not.
 
+## Trailers
+
+Two trailers, and the analytics read both. Neither can be added retroactively, so they only work going
+forward — which is the whole argument for adopting them before you want the data.
+
+```
+type(scope): the finding
+
+Body.
+
+Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
+Desk: atlas
+```
+
+**`Co-Authored-By`** names the model that assisted. `atlas contrib` reads it for the model-mix panel. Without
+it the panel reports 0% AI-assisted — which is what this repository showed for its first eighteen commits,
+correctly, because the trailer was missing.
+
+**`Desk:`** names the working context — a machine, a person, an agent lane. It is what makes per-desk
+attribution possible when several sessions share one git identity, which is the normal case for a solo
+maintainer running more than one agent. With one desk and one author it adds nothing; adopt it anyway, because
+`atlas contrib` cannot tag history after the fact.
+
+Set the template once:
+
+```bash
+git config commit.template .gitmessage
+```
+
 ## Merging
 
 Squash-merge into `main`, keeping the branch's subject as the commit subject. CI must be green. Delete the

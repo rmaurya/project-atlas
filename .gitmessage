@@ -1,0 +1,10 @@
+# type(scope): the finding, in plain language
+#
+# Why it mattered, what was actually wrong, what it cost.
+#
+# Trailers — keep these; they are what the delivery analytics read:
+# Co-Authored-By: <model name> <noreply@anthropic.com>
+# Desk: <name>
+#
+# type: feat fix docs refactor test chore
+# The subject states the DEFECT, not the patch.
