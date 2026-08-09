@@ -11,11 +11,11 @@ $ARGUMENTS
 
 # Candidate documents
 
-!`test -n "$ARGUMENTS" && grep -ril --include='*.md' -- "$ARGUMENTS" . 2>/dev/null | grep -v '_wiki' | head -20 || echo "(no question given)"`
+!`if [ -z "$ARGUMENTS" ]; then echo "(no question given)"; else out=$(grep -ril --include='*.md' -- "$ARGUMENTS" . 2>/dev/null | grep -v '_wiki'); if [ -n "$out" ]; then printf '%s\n' "$out" | head -20; else echo "(no document contains that literal text — the corpus may still answer it in other words)"; fi; fi`
 
 # Corpus
 
-!`atlas scan 2>/dev/null | head -4`
+!`out=$(atlas scan 2>/dev/null); if [ -n "$out" ]; then printf '%s\n' "$out" | head -4; else echo "(atlas scan produced nothing — no config, not a git repository, or no atlas on PATH)"; fi`
 
 ---
 

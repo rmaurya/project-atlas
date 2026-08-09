@@ -8,7 +8,8 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { renderMarkdown, escapeHtml } from './markdown.mjs';
+import { renderMarkdown, escapeHtml, escapeAttr } from './markdown.mjs';
+import { confine } from './paths.mjs';
 import { SIGNALS } from './health.mjs';
 import { readPlanning } from './planning.mjs';
 import { viewPage } from './dashboard.mjs';
@@ -18,22 +19,67 @@ import { resolveViews, navItems, viewFile } from './views.mjs';
 import { PANELS } from './views.mjs';
 
 export { flatName } from './render-shared.mjs';
-import { flatName } from './render-shared.mjs';
+import { flatName, pageNames, jsonForScript } from './render-shared.mjs';
+
+/**
+ * Files every build of this tool writes into its output directory. They are the proof that the directory is
+ * ours to delete — see `prepareOutputDir`.
+ */
+const BUILD_MARKERS = ['README.md', '.gitattributes'];
+
+/**
+ * The output directory is **deleted recursively** on every build, and until this existed the path came
+ * straight from an unvalidated config key. Two verified outcomes, both destructive and both reported as
+ * success: `{"output":"../PRECIOUS"}` removed a directory outside the repository, and `{"output":"."}` removed
+ * the repository itself, `.git` included.
+ *
+ * Two independent guards, because either one alone has a hole:
+ *
+ *  1. **Containment.** The directory must resolve to somewhere strictly inside the repository — checked
+ *     through `realpath` on both sides, so a symlinked `output` cannot point the deletion elsewhere.
+ *  2. **Provenance.** A directory that already holds files but carries none of this tool's markers was written
+ *     by someone else. `docs/` is a plausible typo for `docs/_wiki`, and the difference between those two is a
+ *     day's work. An empty directory, or a missing one, is fine — there is nothing to lose.
+ */
+function prepareOutputDir(root, cfg) {
+  const outDir = confine(root, cfg.output, 'output', cfg.__configPath);
+
+  if (fs.existsSync(outDir)) {
+    const stat = fs.lstatSync(outDir);
+    if (!stat.isDirectory()) throw new Error(`output resolves to ${outDir}, which is not a directory.`);
+    const entries = fs.readdirSync(outDir);
+    const ours = BUILD_MARKERS.every((m) => entries.includes(m));
+    if (entries.length && !ours) {
+      throw new Error(
+        `Refusing to delete ${outDir}: it contains ${entries.length} entr${entries.length === 1 ? 'y' : 'ies'} ` +
+        `but none of the files a project-atlas build leaves behind (${BUILD_MARKERS.join(', ')}).\n` +
+        `  The build clears its output directory completely, so this would destroy work that is not derived.\n` +
+        `  Point \`output\` at a directory of its own, or delete this one by hand if it really is generated.`);
+    }
+    fs.rmSync(outDir, { recursive: true, force: true });
+  }
+  return outDir;
+}
 
 export function renderSite(index, health, cfg, root) {
-  const outDir = path.resolve(root, cfg.output);
+  const outDir = prepareOutputDir(root, cfg);
   const pagesDir = path.join(outDir, 'pages');
-  fs.rmSync(outDir, { recursive: true, force: true });
   fs.mkdirSync(pagesDir, { recursive: true });
 
   const byPath = new Map(index.documents.map((d) => [d.path, d]));
   const toRoot = path.relative(pagesDir, root).split(path.sep).join('/') || '.';
 
+  // One name per document, collisions resolved and reported rather than left to overwrite each other.
+  const { nameOf, collisions } = pageNames(index.documents.map((d) => d.path));
+  const nameFor = (p) => nameOf.get(p) || flatName(p);
+
   const resolveFrom = (docPath) => (href) => {
-    if (/^(https?:|mailto:|tel:|#|data:)/i.test(href)) return { href, cls: '' };
+    // `data:` is deliberately gone from this list. It used to be treated as an external scheme and passed
+    // through untouched, which made every document able to embed arbitrary content in a published page.
+    if (/^(https?:|mailto:|tel:|#)/i.test(href)) return { href, cls: '' };
     const [target, anchor] = href.split('#');
     const resolved = path.posix.normalize(path.posix.join(path.posix.dirname(docPath), target || ''));
-    if (byPath.has(resolved)) return { href: flatName(resolved) + (anchor ? '#' + anchor : ''), cls: 'wl' };
+    if (byPath.has(resolved)) return { href: nameFor(resolved) + (anchor ? '#' + anchor : ''), cls: 'wl' };
     if (fs.existsSync(path.join(root, resolved))) return { href: `${toRoot}/${resolved}`, cls: 'src' };
     return { href: `${toRoot}/${resolved}`, cls: 'dead' };
   };
@@ -45,11 +91,16 @@ export function renderSite(index, health, cfg, root) {
 
   let truncated = 0;
   const searchRows = [];
+  // The count that gets reported. Taken from the writes, never from `index.documents.length`: a count read
+  // from the index is a count that cannot notice two documents landing on one file.
+  const written = new Set();
 
   for (const d of index.documents) {
     const findings = health.findings.filter((f) => f.doc === d.path && !f.suppressed);
     const body = renderMarkdown(d.body, { resolveLink: resolveFrom(d.path) });
-    fs.writeFileSync(path.join(pagesDir, flatName(d.path)), docPage(d, body, findings, index, cfg, toRoot, docNav), 'utf8');
+    const file = nameFor(d.path);
+    fs.writeFileSync(path.join(pagesDir, file), docPage(d, body, findings, index, cfg, toRoot, docNav, nameFor), 'utf8');
+    written.add(file);
 
     const limit = cfg.searchBodyLimit || 6000;
     const text = d.body.replace(/\s+/g, ' ').trim();
@@ -57,7 +108,7 @@ export function renderSite(index, health, cfg, root) {
     searchRows.push({
       p: d.path, t: d.title || d.path, c: d.cluster,
       h: d.headings.filter((h) => h.depth <= 3).map((h) => h.text).join(' · ').slice(0, 600),
-      x: d.excerpt, b: text.slice(0, limit), f: flatName(d.path),
+      x: d.excerpt, b: text.slice(0, limit), f: file,
     });
   }
 
@@ -65,15 +116,17 @@ export function renderSite(index, health, cfg, root) {
   const deck = deck0;
   const contrib = readContrib(root, cfg);
 
+  // `jsonForScript`, not `JSON.stringify`: this file is inlined verbatim into a <script> tag by
+  // `exportSingleFile`, and it carries document body text. See render-shared.mjs for what that cost.
   fs.writeFileSync(path.join(outDir, 'search-index.js'),
-    'window.ATLAS = ' + JSON.stringify({ docs: searchRows, truncated }) + ';\n', 'utf8');
-  fs.writeFileSync(path.join(outDir, 'index.html'), indexPage(index, health, cfg, truncated, docNav.map((n) => ({ ...n, current: n.href === 'index.html' })), views0, plan, contrib), 'utf8');
+    'window.ATLAS = ' + jsonForScript({ docs: searchRows, truncated }) + ';\n', 'utf8');
+  fs.writeFileSync(path.join(outDir, 'index.html'), indexPage(index, health, cfg, truncated, docNav.map((n) => ({ ...n, current: n.href === 'index.html' })), views0, plan, contrib, nameFor), 'utf8');
   fs.writeFileSync(path.join(outDir, 'wiki.html'), wikiPage(index, cfg, truncated,
-    docNav.map((n) => ({ ...n, current: n.href === 'wiki.html' }))), 'utf8');
-  fs.writeFileSync(path.join(outDir, 'health.html'), healthPage(index, health, cfg, docNav.map((n) => ({ ...n, current: n.href === 'health.html' }))), 'utf8');
+    docNav.map((n) => ({ ...n, current: n.href === 'wiki.html' })), nameFor), 'utf8');
+  fs.writeFileSync(path.join(outDir, 'health.html'), healthPage(index, health, cfg, docNav.map((n) => ({ ...n, current: n.href === 'health.html' })), nameFor), 'utf8');
   const views = views0;
   const baseNav = docNav;
-  const ctx = { index, health, plan, cfg: { ...cfg, __root: root }, contrib };
+  const ctx = { index, health, plan, cfg: { ...cfg, __root: root }, contrib, nameFor };
   for (const v of views) {
     const nav = baseNav.map((n) => ({ ...n, current: n.href === viewFile(v.id) }));
     fs.writeFileSync(path.join(outDir, viewFile(v.id)), viewPage(v, { ...ctx, nav }, shell), 'utf8');
@@ -83,7 +136,7 @@ export function renderSite(index, health, cfg, root) {
   fs.writeFileSync(path.join(outDir, '.gitattributes'), '* linguist-generated=true\n', 'utf8');
   fs.writeFileSync(path.join(outDir, 'README.md'), derivedReadme(cfg), 'utf8');
 
-  return { outDir, pages: index.documents.length, truncated, plan, deck };
+  return { outDir, pages: written.size, truncated, plan, deck, collisions };
 }
 
 /**
@@ -92,7 +145,7 @@ export function renderSite(index, health, cfg, root) {
  * pure, and this is called by the CLI when a caller asked for live reload.
  */
 export function writeBuildStamp(root, cfg, value) {
-  const outDir = path.resolve(root, cfg.output);
+  const outDir = confine(root, cfg.output, 'output', cfg.__configPath);
   fs.writeFileSync(path.join(outDir, 'build-stamp.txt'), String(value) + '\n', 'utf8');
 }
 
@@ -102,7 +155,7 @@ export function writeBuildStamp(root, cfg, value) {
  * page says what this project is and where to look; the wiki is where you actually look. Merging them meant
  * a reader scrolling past a search box to reach the dashboards, or past the dashboards to reach the search.
  */
-function wikiPage(index, cfg, truncated, nav) {
+function wikiPage(index, cfg, truncated, nav, nameFor) {
   const clusters = index.clusters.map((c) => {
     const docs = c.documents.map((p) => index.documents.find((d) => d.path === p)).filter(Boolean)
       .sort((a, b) => (a.title || a.path).localeCompare(b.title || b.path));
@@ -112,7 +165,7 @@ function wikiPage(index, cfg, truncated, nav) {
   ${c.blurb ? `<p class="blurb">${escapeHtml(c.blurb)}</p>` : ''}
   <ul class="docs">
     ${docs.map((d) => `<li>
-      <a class="dt" href="pages/${flatName(d.path)}">${escapeHtml(d.title || d.path)}</a>
+      <a class="dt" href="pages/${escapeAttr(nameFor(d.path))}">${escapeHtml(d.title || d.path)}</a>
       <span class="dm">${d.git ? d.git.date + ' · ' : ''}${d.lines.toLocaleString()} lines</span>
       ${d.excerpt ? `<span class="dx">${escapeHtml(d.excerpt.slice(0, 190))}</span>` : ''}
       <code class="dp">${escapeHtml(d.path)}</code>
@@ -243,7 +296,7 @@ ${extraHead}
 <header class="topbar">
   <a class="brand" href="${base}index.html">${escapeHtml(siteTitle)}</a>
   <nav>
-    ${(nav || []).map((n) => `<a href="${base}${n.href}"${n.current ? ' aria-current="page"' : ''}>${escapeHtml(n.label)}</a>`).join('\n    ')}
+    ${(nav || []).map((n) => `<a href="${escapeAttr(base + n.href)}"${n.current ? ' aria-current="page"' : ''}>${escapeHtml(n.label)}</a>`).join('\n    ')}
     <button type="button" class="theme-toggle" id="themeToggle" aria-label="Theme: system">◐</button>
   </nav>
 </header>
@@ -274,7 +327,7 @@ function lede(index) {
 }
 
 
-function docPage(d, bodyHtml, findings, index, cfg, toRoot, nav) {
+function docPage(d, bodyHtml, findings, index, cfg, toRoot, nav, nameFor) {
   const meta = [];
   if (d.git) meta.push(`<span title="${escapeHtml(d.git.subject)}">Last commit <strong>${d.git.date}</strong> <code>${d.git.hash}</code></span>`);
   meta.push(`<span>${d.lines.toLocaleString()} lines</span>`);
@@ -291,7 +344,7 @@ function docPage(d, bodyHtml, findings, index, cfg, toRoot, nav) {
   const backlinks = d.backlinks.length
     ? `<section class="panel"><h2>Referenced by</h2><ul class="linklist">${d.backlinks.map((b) => {
         const t = index.documents.find((x) => x.path === b);
-        return `<li><a href="${flatName(b)}">${escapeHtml(t?.title || b)}</a> <code>${escapeHtml(b)}</code></li>`;
+        return `<li><a href="${escapeAttr(nameFor(b))}">${escapeHtml(t?.title || b)}</a> <code>${escapeHtml(b)}</code></li>`;
       }).join('')}</ul></section>`
     : `<section class="panel muted"><h2>Referenced by</h2><p>Nothing links here — this document is reachable only by knowing it exists.</p></section>`;
 
@@ -306,7 +359,7 @@ function docPage(d, bodyHtml, findings, index, cfg, toRoot, nav) {
     nav,
     base: '../',                     // document pages live in pages/; the stylesheet and nav are one level up
     body: `
-<div class="derived">Derived page. Source: <a href="${toRoot}/${d.path}"><code>${escapeHtml(d.path)}</code></a> — edit that file, not this one.</div>
+<div class="derived">Derived page. Source: <a href="${escapeAttr(`${toRoot}/${d.path}`)}"><code>${escapeHtml(d.path)}</code></a> — edit that file, not this one.</div>
 <div class="doc-meta">${meta.join('')}</div>
 ${tocHtml}
 <article class="prose">
@@ -318,7 +371,7 @@ ${backlinks}
   });
 }
 
-function indexPage(index, health, cfg, truncated, nav, views, plan, contrib) {
+function indexPage(index, health, cfg, truncated, nav, views, plan, contrib, nameFor) {
   const clusters = index.clusters.map((c) => {
     const docs = c.documents.map((p) => index.documents.find((d) => d.path === p)).filter(Boolean)
       .sort((a, b) => (a.title || a.path).localeCompare(b.title || b.path));
@@ -328,7 +381,7 @@ function indexPage(index, health, cfg, truncated, nav, views, plan, contrib) {
   ${c.blurb ? `<p class="blurb">${escapeHtml(c.blurb)}</p>` : ''}
   <ul class="docs">
     ${docs.map((d) => `<li>
-      <a class="dt" href="pages/${flatName(d.path)}">${escapeHtml(d.title || d.path)}</a>
+      <a class="dt" href="pages/${escapeAttr(nameFor(d.path))}">${escapeHtml(d.title || d.path)}</a>
       <span class="dm">${d.git ? d.git.date + ' · ' : ''}${d.lines.toLocaleString()} lines</span>
       ${d.excerpt ? `<span class="dx">${escapeHtml(d.excerpt.slice(0, 190))}</span>` : ''}
       <code class="dp">${escapeHtml(d.path)}</code>
@@ -363,7 +416,7 @@ function indexPage(index, health, cfg, truncated, nav, views, plan, contrib) {
 
 <section class="viewgrid">
   ${views.filter((v) => v.nav !== false).map((v) => `
-  <a class="viewcard" href="${viewFile(v.id)}">
+  <a class="viewcard" href="${escapeAttr(viewFile(v.id))}">
     <span class="vt">${escapeHtml(v.title)}</span>
     <span class="vb">${escapeHtml(v.blurb || '')}</span>
     <span class="vp">${v.panels.length} panel(s)</span>
@@ -383,17 +436,20 @@ function indexPage(index, health, cfg, truncated, nav, views, plan, contrib) {
   });
 }
 
-function healthPage(index, health, cfg, nav) {
+function healthPage(index, health, cfg, nav, nameFor) {
   const sections = Object.values(SIGNALS).map((s) => {
     const items = health.findings.filter((f) => f.signal === s.id && !f.suppressed);
     const isBlocking = (cfg.blocking || []).includes(s.id);
+    // Zero findings because the check ran, or zero because its pattern was declined? Those are different
+    // claims, and only one of them is "clean". See health.mjs::runHealth.
+    const skipped = (health.unevaluated || []).includes(s.id);
     return `
 <section class="panel">
   <h2><span class="sig ${isBlocking ? 'block' : 'adv'}">${s.id}</span> ${escapeHtml(s.title)}
-    <span class="count ${items.length ? (isBlocking ? 'bad' : 'warn') : 'ok'}">${items.length}</span></h2>
+    <span class="count ${skipped ? 'warn' : items.length ? (isBlocking ? 'bad' : 'warn') : 'ok'}">${skipped ? 'not evaluated' : items.length}</span></h2>
   <p class="blurb">${escapeHtml(s.why)} ${isBlocking ? '<strong>Blocking</strong> — no legitimate cause.' : 'Advisory — legitimate exceptions exist.'}</p>
   ${items.length ? `<ul class="findings">${items.slice(0, 300).map((f) =>
-      `<li><a href="pages/${flatName(f.doc)}">${escapeHtml(f.doc)}</a> <span class="det">${escapeHtml(f.detail || '')}</span></li>`).join('')}
+      `<li><a href="pages/${escapeAttr(nameFor(f.doc))}">${escapeHtml(f.doc)}</a> <span class="det">${escapeHtml(f.detail || '')}</span></li>`).join('')}
       ${items.length > 300 ? `<li class="det">… and ${items.length - 300} more (run <code>atlas health --verbose=all</code>)</li>` : ''}</ul>` : ''}
 </section>`;
   }).join('\n');

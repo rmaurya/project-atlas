@@ -16,15 +16,15 @@ import path from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
-import { globToRegExp, resolveConfig, DEFAULT_CLUSTERS, clusterFor } from '../scripts/lib/config.mjs';
+import { globToRegExp, resolveConfig, DEFAULT_CLUSTERS, clusterFor, unsafeRegexReason } from '../scripts/lib/config.mjs';
 import { buildIndex } from '../scripts/lib/scan.mjs';
-import { runHealth } from '../scripts/lib/health.mjs';
+import { runHealth, formatReport, SIGNALS } from '../scripts/lib/health.mjs';
 import { renderSite } from '../scripts/lib/render.mjs';
 import { renderMarkdown, inline } from '../scripts/lib/markdown.mjs';
-import { readPlanning } from '../scripts/lib/planning.mjs';
+import { readPlanning, DEFAULT_PLANNING } from '../scripts/lib/planning.mjs';
 import { readDeck } from '../scripts/lib/deck.mjs';
-import { RAMP, STATUS } from '../scripts/lib/dashboard.mjs';
-import { buildWikiPages, wikiPageName, exportSingleFile, RESERVED, gitlabPagesJob } from '../scripts/lib/publish.mjs';
+import { RAMP, STATUS, viewPage } from '../scripts/lib/dashboard.mjs';
+import { buildWikiPages, wikiPageName, exportSingleFile, RESERVED, gitlabPagesJob, stageWiki } from '../scripts/lib/publish.mjs';
 import { readContrib, estimateHours, taskCoverage } from '../scripts/lib/contrib.mjs';
 import { readTokens, formatTokens, formatSessions, assertNotPublishable, transcriptDir } from '../scripts/lib/tokens.mjs';
 import { readChanges, fileDiff, formatChanges } from '../scripts/lib/changes.mjs';
@@ -300,6 +300,41 @@ test('suppression · a reason is mandatory — config without one is rejected', 
   includes(threw.message, 'reason');
 });
 
+test('H7 · a pathological config pattern is declined and named, never run', () => {
+  // Verified before the fix: a forbiddenTerms pattern of `(a+)+$` against a single 40-character line never
+  // returned. `atlas health` was killed at 8 seconds having printed nothing at all — not slow, hung. A JS
+  // regex cannot be interrupted once running, so the pattern is screened and refused rather than timed out.
+  const dir = fixture('redos-h7', { 'docs/A.md': '# A\n\n' + 'a'.repeat(40) + 'b\n' });
+  const started = Date.now();
+  const { health } = analyse(dir, { forbiddenTerms: [{ term: 'boom', pattern: '(a+)+$', reason: 'x' }] });
+  ok(Date.now() - started < 5000, 'the run must finish rather than backtrack');
+
+  eq(sig(health, 'H7').length, 0);
+  eq(health.unevaluated, ['H7'], 'the signal must be marked unevaluated, not left looking clean');
+  const nc = health.notChecked.join(' ');
+  includes(nc, '(a+)+$', 'the offending pattern must be named');
+  includes(nc, 'NOT evaluated');
+});
+
+test('H7 · a declined pattern never renders as "ok" in the report', () => {
+  // Zero findings because the check ran is a different claim from zero findings because it never ran. The
+  // third non-negotiable is that a check which could not run is never reported as passing — including in the
+  // one-glance summary table, which is the only part most people read.
+  const dir = fixture('redos-report', { 'docs/A.md': '# A\n\naaaa\n' });
+  const { index, health } = analyse(dir, { forbiddenTerms: [{ term: 'boom', pattern: '(a|a)+', reason: 'x' }] });
+  const report = formatReport(health, index, { color: false });
+  ok(!/H7\s+ok/.test(report), `a declined check rendered as ok:\n${report}`);
+  includes(report, 'not evaluated');
+});
+
+test('H9 · an invalid crossref pattern is reported, not thrown', () => {
+  const { health } = analyse(cfgRepo, {
+    crossref: [{ id: 'plan', a: 'docs/BACKLOG.md', b: 'docs/TASKS.md', pattern: '\\b([A-Z' }],
+  });
+  eq(health.unevaluated, ['H9']);
+  includes(health.notChecked.join(' '), 'not a valid regular expression');
+});
+
 test('not-checked · unconfigured signals are declared rather than reported as clean', () => {
   const { health } = analyse(fixture('unconfigured', { 'docs/A.md': '# A\n' }));
   const text = health.notChecked.join(' ');
@@ -510,6 +545,31 @@ test('planning · an item with no figure is unknown, never charted as zero', () 
   eq(plan.stats.mean, 43.8);
   eq(plan.stats.unknown, 1);
   includes(plan.notes.join(' '), 'not as zero');
+});
+
+test('planning · a pathological item pattern is declined and stated, and the read still returns', () => {
+  // Same defect, a second entry point: `planning.itemPattern`, `trackPattern` and `percentCellPattern` are
+  // all configurable, and readPlanning runs them over every line of the source document.
+  const cfg = resolveConfig(planRepo);
+  cfg.planning = { source: 'docs/TASKS.md', itemPattern: '(a+)+$' };
+  const started = Date.now();
+  const plan = readPlanning(planRepo, cfg);
+  ok(Date.now() - started < 5000, 'the read must finish rather than backtrack');
+  eq(plan.items, [], 'a pattern that was never run extracts nothing — it does not invent items');
+  includes(plan.notes.join(' '), 'planning.itemPattern');
+  includes(plan.notes.join(' '), 'was NOT applied');
+});
+
+test('planning · the shipped default patterns all survive the screen', () => {
+  // The screen is deliberately conservative, so it is worth pinning that it does not refuse the tool's own
+  // defaults — `(?:\\*\\*)?` and `(\\*)?` are quantified groups whose bodies are escaped literals, not
+  // quantifiers, and refusing them would silently disable the whole planning dashboard.
+  for (const p of Object.values(DEFAULT_PLANNING).filter((v) => typeof v === 'string')) {
+    eq(unsafeRegexReason(p), null, `a default pattern was refused: ${p}`);
+  }
+  eq(unsafeRegexReason('(?:GET|POST)+'), null, 'distinct alternatives are not a hazard and must not be refused');
+  ok(unsafeRegexReason('(a+)+$'), 'a nested quantifier must be refused');
+  ok(unsafeRegexReason('(a|ab)*'), 'overlapping alternatives under a repeat must be refused');
 });
 
 test('planning · a missing source degrades rather than throwing', () => {
@@ -947,6 +1007,33 @@ test('publish · page-name collisions are resolved and reported, never dropped',
   eq(new Set(names).size, 2, 'both documents keep a distinct page');
 });
 
+test('publish · a document containing </script> cannot break out of the inlined search index', () => {
+  // Stored XSS, in the one artifact this tool tells people to publish. `JSON.stringify` does not escape `<`;
+  // the search index carries up to 6,000 characters of every document's body; `exportSingleFile` inlines that
+  // file into a <script> element. So a document containing the literal text `</script><script>…</script>`
+  // closed the element early and the rest ran as markup. Reproduced with exactly this payload before the fix:
+  // `__PWNED` landed *after* the first closing tag in the exported file.
+  const dir = fixture('export-xss', {
+    'docs/A.md': '# Pwn\n\nPayload: `</script><script>window.__PWNED=1</script>`\n',
+  });
+  const { cfg, index, health } = analyse(dir);
+  renderSite(index, health, cfg, dir);
+
+  const js = fs.readFileSync(path.join(dir, cfg.output, 'search-index.js'), 'utf8');
+  ok(!/<\/script/i.test(js), 'the generated search index must contain no literal </script');
+  const data = JSON.parse(js.replace(/^window\.ATLAS = /, '').replace(/;\s*$/, ''));
+  includes(data.docs[0].b, '</script>', 'the text must survive intact — this is escaping, not stripping');
+
+  for (const page of ['wiki', 'index']) {
+    const html = exportSingleFile(dir, cfg, page === 'wiki' ? 'wiki' : 'index');
+    const start = html.indexOf('window.ATLAS');
+    if (start < 0) continue;                       // that page does not inline the index
+    const body = html.slice(start, html.indexOf('</script>', start));
+    ok(!/<\/script/i.test(body), `${page}: no literal </script may appear inside the inlined data`);
+    includes(body, '__PWNED', `${page}: the payload must stay inside the script element, as data`);
+  }
+});
+
 test('publish · export inlines the stylesheet so the file stands alone', () => {
   const cfg = resolveConfig(pubRepo);
   const index = buildIndex(pubRepo, cfg);
@@ -1058,6 +1145,19 @@ test('host · an unchecked capability does NOT block a publish target', () => {
   const g = gateTarget('pages', detectHost(dir, {}), { checked: false, reason: 'offline' });
   eq(g.ok, true);
   includes(g.warn, 'unchecked');
+});
+
+test('host · --target export needs no git remote, because it writes a local file', () => {
+  // The no-remote refusal sat ABOVE the export short-circuit, so the one target that is entirely offline and
+  // touches no host was the one target refused in a repository without an origin.
+  const dir = path.join(tmpRoot, 'host-export-noremote');
+  fs.mkdirSync(dir, { recursive: true });
+  execFileSync('git', ['init', '-q'], { cwd: dir, stdio: 'ignore' });
+  const h = detectHost(dir, {});
+  eq(h.kind, 'none');
+  eq(gateTarget('export', h, { checked: false }).ok, true, 'export writes one local file and needs no remote');
+  eq(gateTarget('wiki', h, { checked: false }).ok, false, 'the remote check must still apply where a remote is needed');
+  eq(gateTarget('pages', h, { checked: false }).ok, false);
 });
 
 test('community · generates only what the host supports, and says what it skipped', () => {
@@ -1175,6 +1275,72 @@ test('runtimes · every skill declares a description, so help can be generated n
   }
 });
 
+/**
+ * A deliberately strict reader for the flat `key: value` frontmatter a plugin manifest uses. It is not a YAML
+ * parser and does not want to be — it is the set of rules a real YAML parser applies that this project has
+ * already been bitten by, made loud.
+ *
+ * The bite: `skills/knowledgebase/SKILL.md` carried an unquoted description ending
+ * `…doc drift is suspected: stale docs, dead links…`. A plain YAML scalar may not contain ": " — the parser
+ * reads it as a nested mapping, the *whole document* fails, and `name` and `description` are both dropped.
+ * Nothing warns. The skill simply stops matching, and the failure is invisible because the file still looks
+ * exactly right to a human and to a regex that pattern-matches one line at a time.
+ */
+function parseFrontmatterStrict(body, label) {
+  const lines = body.split('\n');
+  if (lines[0] !== '---') throw new Error(`${label}: must open with a --- line`);
+  const end = lines.indexOf('---', 1);
+  if (end < 0) throw new Error(`${label}: the frontmatter is never terminated`);
+
+  const out = {};
+  for (let i = 1; i < end; i++) {
+    const raw = lines[i];
+    if (!raw.trim() || raw.trimStart().startsWith('#')) continue;
+    const m = /^([A-Za-z0-9_-]+):( .*)?$/.exec(raw);
+    if (!m) throw new Error(`${label}: line ${i + 1} is not a plain \`key: value\` pair — ${JSON.stringify(raw)}`);
+    const key = m[1];
+    if (key in out) throw new Error(`${label}: duplicate key \`${key}\``);
+    const v = (m[2] || '').trim();
+    if (!v) throw new Error(`${label}: \`${key}\` has no value`);
+
+    const quoted = (v[0] === '"' || v[0] === "'") && v.length > 1 && v[v.length - 1] === v[0];
+    if (quoted) {
+      const inner = v.slice(1, -1);
+      if (inner.replace(/\\./g, '').includes(v[0])) throw new Error(`${label}: \`${key}\` contains an unescaped ${v[0]}`);
+      out[key] = inner;
+      continue;
+    }
+    if (v[0] === '"' || v[0] === "'") throw new Error(`${label}: \`${key}\` opens a quote it never closes`);
+    if (v.includes(': ')) {
+      throw new Error(`${label}: \`${key}\` is an UNQUOTED value containing ": ". YAML reads that as a nested ` +
+        `mapping and the ENTIRE frontmatter fails to parse — every key, including name and description, is ` +
+        `dropped and nothing warns. Wrap the value in double quotes.`);
+    }
+    if (v.includes(' #')) throw new Error(`${label}: \`${key}\` is unquoted and contains " #" — YAML treats the rest as a comment. Quote it.`);
+    if ('{}[]&*!|>%@`,'.includes(v[0])) throw new Error(`${label}: \`${key}\` starts with the YAML indicator \`${v[0]}\`. Quote it.`);
+    out[key] = v;
+  }
+  return out;
+}
+
+test('runtimes · every SKILL.md frontmatter parses strictly — an unquoted ": " drops every key', () => {
+  const dir = path.join(HERE, '..', 'skills');
+  const names = fs.readdirSync(dir).filter((n) => fs.existsSync(path.join(dir, n, 'SKILL.md')));
+  ok(names.length >= 6, `expected several skills, found ${names.length}`);
+  for (const n of names) {
+    const label = `skills/${n}/SKILL.md`;
+    const fm = parseFrontmatterStrict(fs.readFileSync(path.join(dir, n, 'SKILL.md'), 'utf8'), label);
+    ok(fm.description && fm.description.length > 20, `${label}: description is missing or too short to route on`);
+  }
+  // And the reader must actually reject the shape that shipped, or it proves nothing.
+  let threw = null;
+  try {
+    parseFrontmatterStrict('---\nname: x\ndescription: Use when drift is suspected: stale docs, dead links.\n---\n', 'fixture');
+  } catch (e) { threw = e; }
+  ok(threw, 'the strict reader must reject an unquoted value containing ": "');
+  includes(threw.message, 'UNQUOTED');
+});
+
 test('runtimes · the Codex package has not drifted from skills/', () => {
   // The only duplicated tree in the project, and it exists solely because a Codex marketplace cannot use
   // "./" as a source path. A copy is a fork waiting to happen, so it is generated and checked.
@@ -1198,6 +1364,48 @@ test('runtimes · the hook fires on git commit and ignores everything else', () 
   includes(onCommit.stderr + onCommit.stdout, 'Types:', 'a git commit must invoke the branch guard');
 });
 
+test('runtimes · the branch guard exits 2 on a protected branch and 0 everywhere else', () => {
+  // The hook shipped as `… && "$ROOT/bin/atlas" branch >&2 || exit 0`. `A && B || exit 0` swallows B's
+  // status, so the guard printed eleven lines of refusal and exited 0 — and a PreToolUse hook that exits 0
+  // sends its stderr to the debug log and lets the tool call through. Nothing was ever blocked, on any
+  // branch, for the entire life of the hook. **Exit 2 is the only code that puts stderr in front of Claude.**
+  const root = path.join(HERE, '..');
+  const cmd = JSON.parse(fs.readFileSync(path.join(root, 'hooks', 'hooks.json'), 'utf8'))
+    .hooks.PreToolUse[0].hooks[0].command;
+  const run = (dir, input) => spawnSync('sh', ['-c', cmd], {
+    cwd: dir,
+    input: JSON.stringify({ tool_input: { command: input } }),
+    encoding: 'utf8', env: { ...process.env, CLAUDE_PLUGIN_ROOT: root },
+  });
+
+  const onMain = fixture('hook-main', { 'docs/A.md': '# A\n' });
+  execFileSync('git', ['branch', '-M', 'main'], { cwd: onMain, stdio: 'ignore' });
+  const blocked = run(onMain, 'git commit -m "x"');
+  eq(blocked.status, 2, `a commit on main must exit 2 to block; got ${blocked.status}`);
+  includes(blocked.stderr, 'protected', 'the refusal must reach stderr, which is what exit 2 forwards');
+
+  eq(run(onMain, 'ls -la').status, 0, 'a non-commit Bash call must never be blocked, even on main');
+  eq(run(onMain, 'npm test').status, 0);
+
+  const onBranch = fixture('hook-branch', { 'docs/A.md': '# A\n' });
+  execFileSync('git', ['switch', '-c', 'fix/thing'], { cwd: onBranch, stdio: 'ignore' });
+  eq(run(onBranch, 'git commit -m "x"').status, 0, 'a commit on a conventional branch must pass');
+});
+
+test('runtimes · a guard that cannot run at all blocks and says so, rather than passing silently', () => {
+  // Same rule as every report in this tool: a check that could not run is never reported as having passed.
+  const root = path.join(HERE, '..');
+  const cmd = JSON.parse(fs.readFileSync(path.join(root, 'hooks', 'hooks.json'), 'utf8'))
+    .hooks.PreToolUse[0].hooks[0].command;
+  const dir = fixture('hook-broken', { 'docs/A.md': '# A\n' });
+  const r = spawnSync('sh', ['-c', cmd], {
+    cwd: dir, input: JSON.stringify({ tool_input: { command: 'git commit -m "x"' } }),
+    encoding: 'utf8', env: { ...process.env, CLAUDE_PLUGIN_ROOT: path.join(tmpRoot, 'no-such-plugin-root') },
+  });
+  eq(r.status, 2, 'a missing bin/atlas must not wave the commit through');
+  includes(r.stderr, 'NOT checked');
+});
+
 test('runtimes · each runtime manifest is where that runtime looks for it', () => {
   const root = path.join(HERE, '..');
   ok(fs.existsSync(path.join(root, '.claude-plugin', 'plugin.json')), 'Claude Code: .claude-plugin/plugin.json');
@@ -1207,6 +1415,50 @@ test('runtimes · each runtime manifest is where that runtime looks for it', () 
   const mk = JSON.parse(fs.readFileSync(path.join(root, '.agents', 'plugins', 'marketplace.json'), 'utf8'));
   ok(mk.plugins[0].source.path.startsWith('./') && mk.plugins[0].source.path !== './',
      'Codex source.path must be a subdirectory, not the marketplace root');
+
+  // `"skills": ["."]` failed manifest validation before Claude Code 2.1.221, and it was redundant either
+  // way: `skills/` is always scanned. The field carried a real cost and no benefit.
+  const claude = JSON.parse(fs.readFileSync(path.join(root, '.claude-plugin', 'plugin.json'), 'utf8'));
+  ok(!('skills' in claude), 'the Claude manifest must not declare a skills path — skills/ is scanned already');
+});
+
+test('skills · every embedded shell block produces output, so a missing atlas never renders blank', () => {
+  // `cmd | head -3 || echo FALLBACK` never prints the fallback: `head` exits 0 whatever `cmd` did, so a
+  // missing `atlas` binary produced an empty section that reads as "there is nothing to report". And
+  // `test -n "$ARGUMENTS" && atlas diff "$ARGUMENTS" || echo "(no file given)"` printed "(no file given)"
+  // when a file WAS given and the command merely failed — the same `A && B || C` bug as the hook.
+  const dir = fs.mkdtempSync(path.join(tmpRoot, 'skill-blocks-'));
+  const skillsDir = path.join(HERE, '..', 'skills');
+  const blocks = (name) => [...fs.readFileSync(path.join(skillsDir, name, 'SKILL.md'), 'utf8')
+    .matchAll(/^!`([\s\S]*?)`\s*$/gm)].map((m) => m[1]);
+
+  // A PATH with no `atlas` on it, which is the state of any machine where the plugin failed to install.
+  const env = { ...process.env, PATH: '/usr/bin:/bin', ARGUMENTS: 'docs/A.md', CLAUDE_PLUGIN_ROOT: path.join(dir, 'nope') };
+  let checked = 0;
+  for (const name of fs.readdirSync(skillsDir)) {
+    if (!fs.existsSync(path.join(skillsDir, name, 'SKILL.md'))) continue;
+    for (const cmd of blocks(name)) {
+      const r = spawnSync('sh', ['-c', cmd], { cwd: dir, encoding: 'utf8', env });
+      ok((r.stdout || '').trim().length > 0,
+        `skills/${name}: a block rendered empty instead of saying why:\n    ${cmd}`);
+      checked++;
+    }
+  }
+  ok(checked >= 12, `expected to exercise every block, ran ${checked}`);
+});
+
+test('skills · /atlas:diff does not claim "no file given" when a file was given', () => {
+  const dir = fs.mkdtempSync(path.join(tmpRoot, 'skill-diff-'));
+  const cmd = [...fs.readFileSync(path.join(HERE, '..', 'skills', 'diff', 'SKILL.md'), 'utf8')
+    .matchAll(/^!`([\s\S]*?)`\s*$/gm)][0][1];
+  const env = { ...process.env, PATH: '/usr/bin:/bin' };
+
+  const given = spawnSync('sh', ['-c', cmd], { cwd: dir, encoding: 'utf8', env: { ...env, ARGUMENTS: 'docs/A.md' } });
+  ok(!given.stdout.includes('no file given'), `a file WAS given:\n${given.stdout}`);
+  ok(given.stdout.trim().length > 0, 'and something must still be said about why there is no diff');
+
+  const missing = spawnSync('sh', ['-c', cmd], { cwd: dir, encoding: 'utf8', env: { ...env, ARGUMENTS: '' } });
+  includes(missing.stdout, 'no file given', 'with no argument, that IS the message');
 });
 
 /* ================================================================== cli */
@@ -1264,6 +1516,461 @@ test('cli · runs in a directory that is not a git repository', () => {
   const r = cli(dir, ['scan']);
   eq(r.code, 0, `must not crash outside git:\n${r.stdout}`);
   includes(r.stdout, '1 documents');
+});
+
+/* ================================================================== configuration is untyped input */
+
+console.log('\nconfig validation');
+
+// A configuration file is hand-written JSON. Until these existed the tool trusted every value in it, and the
+// four cases below were all verified producing a confident, wrong report rather than an error.
+
+test('config · a blocking value that is not an array is refused, never split into characters', () => {
+  // `new Set("H1")` is {'H','1'}. No signal id ever matched, so `atlas health` exited 0 with a dead link
+  // present — the CI gate inverted without a word. This is the highest-severity shape of config confusion:
+  // the check still runs, still prints, and simply never blocks.
+  const dir = fixture('cfg-blocking-string', { 'docs/A.md': '# A\n[gone](nope.md)\n' });
+  fs.writeFileSync(path.join(dir, 'project-atlas.config.json'), JSON.stringify({ blocking: 'H1' }), 'utf8');
+  let threw = null;
+  try { resolveConfig(dir); } catch (e) { threw = e; }
+  ok(threw, 'a string blocking must be refused');
+  includes(threw.message, 'blocking must be an array');
+  includes(threw.message, 'project-atlas.config.json', 'the message must name the file to open');
+});
+
+test('config · a blocking id that names no signal is refused, and the offending value is named', () => {
+  const dir = fixture('cfg-blocking-unknown', { 'docs/A.md': '# A\n' });
+  fs.writeFileSync(path.join(dir, 'project-atlas.config.json'), JSON.stringify({ blocking: ['H1', 'H99'] }), 'utf8');
+  let threw = null;
+  try { resolveConfig(dir); } catch (e) { threw = e; }
+  ok(threw, 'an unknown signal id must be refused');
+  includes(threw.message, '"H99"');
+  includes(threw.message, 'not a signal');
+});
+
+test('config · every known key is type-checked, and the message names the file', () => {
+  // Each of these was verified silently changing what the tool reported:
+  //   include: null          → 0 documents, and the build wrote an empty site over the previous one
+  //   searchBodyLimit: "..." → slice(0,"lots") is 0 characters, under a page claiming full-text indexing
+  //   staleDays: "ninety"    → NaN comparisons, so the H6 grace period became zero
+  //   exclude: "..."         → a raw TypeError with no mention of the config file
+  //   output: 123            → accepted by health, threw much later in build
+  const cases = [
+    [{ include: null }, 'include must be an array'],
+    [{ searchBodyLimit: 'lots' }, 'searchBodyLimit must be a positive number'],
+    [{ staleDays: 'ninety' }, 'staleDays must be a number'],
+    [{ exclude: 'node_modules/**' }, 'exclude must be an array'],
+    [{ output: 123 }, 'output must be a non-empty string'],
+    [{ output: '' }, 'output must be a non-empty string'],
+    [{ trackedOnly: 'yes' }, 'trackedOnly must be true or false'],
+    [{ roots: [1, 2] }, 'roots must be an array of strings'],
+    [{ planning: 'docs/TASKS.md' }, 'planning must be an object'],
+  ];
+  const dir = fixture('cfg-types', { 'docs/A.md': '# A\n' });
+  const cfgPath = path.join(dir, 'project-atlas.config.json');
+  for (const [bad, want] of cases) {
+    fs.writeFileSync(cfgPath, JSON.stringify(bad), 'utf8');
+    let threw = null;
+    try { resolveConfig(dir); } catch (e) { threw = e; }
+    ok(threw, `expected a refusal for ${JSON.stringify(bad)}`);
+    includes(threw.message, want, `wrong message for ${JSON.stringify(bad)}`);
+    includes(threw.message, 'project-atlas.config.json');
+  }
+});
+
+test('config · an unknown top-level key is refused, not ignored', () => {
+  // A typo'd key is a setting that silently did nothing. `blocking` spelled `blockng` reads as configured and
+  // is not.
+  const dir = fixture('cfg-unknown-key', { 'docs/A.md': '# A\n' });
+  fs.writeFileSync(path.join(dir, 'project-atlas.config.json'), JSON.stringify({ blockng: ['H1'] }), 'utf8');
+  let threw = null;
+  try { resolveConfig(dir); } catch (e) { threw = e; }
+  ok(threw, 'an unknown key must be refused');
+  includes(threw.message, 'unknown key "blockng"');
+});
+
+test('config · a status band tone outside the known set is refused', () => {
+  const dir = fixture('cfg-tone', { 'docs/A.md': '# A\n' });
+  fs.writeFileSync(path.join(dir, 'project-atlas.config.json'), JSON.stringify({
+    planning: { source: 'docs/TASKS.md', statusBands: [{ max: 100, label: 'X', tone: 'x" onmouseover="alert(1)' }] },
+  }), 'utf8');
+  let threw = null;
+  try { resolveConfig(dir); } catch (e) { threw = e; }
+  ok(threw, 'an unknown tone must be refused — a tone is a class attribute');
+  includes(threw.message, 'known tones');
+});
+
+test('config · every id in the default blocking list is a real signal', () => {
+  // Guards the config ↔ health import: `validate` reads SIGNALS across a module cycle, and a cycle that
+  // resolved differently would make this list unverifiable rather than wrong-looking.
+  const dir = fixture('cfg-defaults', { 'docs/A.md': '# A\n' });
+  const cfg = resolveConfig(dir);
+  ok(cfg.blocking.length > 0);
+  for (const id of cfg.blocking) ok(Object.keys(SIGNALS).includes(id), `${id} is not a signal`);
+});
+
+/* ================================================================== containment */
+
+console.log('\ncontainment');
+
+test('build · an output directory outside the repository is refused, not deleted', () => {
+  // `renderSite` deletes its output directory recursively. Verified before this guard existed:
+  // {"output":"../PRECIOUS"} removed a directory outside the repository and reported success.
+  const dir = fixture('out-escape', { 'docs/A.md': '# A\n' });
+  const precious = path.join(tmpRoot, 'PRECIOUS');
+  fs.mkdirSync(precious, { recursive: true });
+  fs.writeFileSync(path.join(precious, 'irreplaceable.txt'), 'do not delete me', 'utf8');
+
+  const { cfg, index, health } = analyse(dir, { output: '../PRECIOUS' });
+  let threw = null;
+  try { renderSite(index, health, cfg, dir); } catch (e) { threw = e; }
+  ok(threw, 'an output outside the repository must be refused');
+  includes(threw.message, 'outside the repository');
+  ok(fs.existsSync(path.join(precious, 'irreplaceable.txt')), 'the directory outside the repository must survive');
+  fs.rmSync(precious, { recursive: true, force: true });
+});
+
+test('build · an output of "." is refused rather than deleting the repository', () => {
+  // {"output":"."} deleted the entire repository, .git included, and reported success.
+  const dir = fixture('out-dot', { 'docs/A.md': '# A\n' });
+  const { cfg, index, health } = analyse(dir, { output: '.' });
+  let threw = null;
+  try { renderSite(index, health, cfg, dir); } catch (e) { threw = e; }
+  ok(threw, 'the repository root must never be the output directory');
+  ok(fs.existsSync(path.join(dir, '.git')), '.git must survive');
+  ok(fs.existsSync(path.join(dir, 'docs', 'A.md')), 'the corpus must survive');
+});
+
+test('build · a directory full of files this tool did not generate is not deleted', () => {
+  // `docs` is one keystroke from `docs/_wiki`, and the difference is a day's work. A build clears its output
+  // completely, so provenance is checked before anything is removed.
+  const dir = fixture('out-occupied', { 'docs/A.md': '# A\n', 'docs/handwritten.txt': 'months of work\n' });
+  const { cfg, index, health } = analyse(dir, { output: 'docs' });
+  let threw = null;
+  try { renderSite(index, health, cfg, dir); } catch (e) { threw = e; }
+  ok(threw, 'a directory with no build markers must not be deleted');
+  includes(threw.message, 'Refusing to delete');
+  eq(fs.readFileSync(path.join(dir, 'docs', 'handwritten.txt'), 'utf8'), 'months of work\n');
+});
+
+test('build · rebuilding over its own output is still fine', () => {
+  // The provenance check must not break the ordinary case, which is a rebuild.
+  const dir = fixture('out-rebuild', { 'docs/A.md': '# A\n' });
+  const { cfg, index, health } = analyse(dir, {});
+  const first = renderSite(index, health, cfg, dir);
+  const second = renderSite(index, health, cfg, dir);
+  eq(second.pages, first.pages);
+  ok(fs.existsSync(path.join(second.outDir, 'index.html')));
+});
+
+test('deck · a source outside the repository is refused, never rendered into a published page', () => {
+  // Verified: {"deck":{"source":"../../creds.env"}} rendered SECRET=hunter2 into deck.html, which
+  // `publish --target pages` force-pushes to a public branch.
+  const dir = fixture('deck-escape', { 'docs/A.md': '# A\n' });
+  fs.writeFileSync(path.join(tmpRoot, 'creds.env'), 'SECRET=hunter2\n', 'utf8');
+  let threw = null;
+  try { readDeck(dir, { deck: { source: '../creds.env' } }); } catch (e) { threw = e; }
+  ok(threw, 'a deck source outside the repository must be refused');
+  includes(threw.message, 'outside the repository');
+});
+
+test('planning · a source outside the repository is refused', () => {
+  const dir = fixture('plan-escape', { 'docs/A.md': '# A\n' });
+  let threw = null;
+  try { readPlanning(dir, { planning: { source: '../creds.env' } }); } catch (e) { threw = e; }
+  ok(threw, 'a planning source outside the repository must be refused');
+  includes(threw.message, 'outside the repository');
+});
+
+test('views · a view id that is a path is refused, so nothing is written outside the output', () => {
+  // A view id becomes `view-<id>.html` under the output directory. Verified: "x/../../../ESCAPED" wrote a file
+  // above the repository root.
+  let threw = null;
+  try { resolveViews({ views: [{ id: 'x/../../../ESCAPED', title: 'X', panels: ['tiles'] }] }); } catch (e) { threw = e; }
+  ok(threw, 'a path-shaped view id must be refused');
+  includes(threw.message, 'becomes a filename');
+  // The ordinary case keeps working.
+  eq(resolveViews({ views: [{ id: 'my-view', title: 'X', panels: ['tiles'] }] }).length, 1);
+});
+
+test('tokens · the refusal to publish survives a case change and a symlink', () => {
+  // `assertNotPublishable` is the ONLY mechanism keeping transcript-derived data out of a published wiki, and
+  // it was a case-sensitive string prefix check. Both bypasses below were verified.
+  const dir = fixture('tokens-bypass', { 'docs/A.md': '# A\n' });
+  const cfg = resolveConfig(dir);
+  fs.mkdirSync(path.join(dir, 'docs', '_wiki'), { recursive: true });
+
+  const refuses = (dest) => {
+    try { assertNotPublishable(dir, cfg, dest); return false; } catch { return true; }
+  };
+
+  // A symlink pointing into the output directory. The lexical path never mentions it.
+  fs.symlinkSync(path.join(dir, 'docs', '_wiki'), path.join(dir, 'sneaky'));
+  ok(refuses('sneaky/tokens.txt'), 'a symlink into the published directory must be refused');
+
+  // A case change, on the platforms whose filesystem is case-insensitive by default. On a case-sensitive
+  // filesystem DOCS/_WIKI genuinely is a different directory, so this is asserted where it is true.
+  if (process.platform === 'darwin' || process.platform === 'win32') {
+    ok(refuses('DOCS/_WIKI/tokens.txt'), 'a case change must not walk past the refusal');
+  }
+  // Still permits everywhere legitimate.
+  assertNotPublishable(dir, cfg, 'reports/tokens.txt');
+});
+
+/* ================================================================== a check that could not run */
+
+console.log('\ndegrading honestly');
+
+test('scan · a git failure that is not "no repository" is raised, never degraded to a filesystem walk', () => {
+  // `trackedOnly` is the quiet safety feature: a file has to be committed before it can be published. A bare
+  // catch turned ANY git failure into a filesystem walk, which publishes untracked files. Verified with a
+  // corrupt .git/index: one tracked document became three, including an untracked secret-notes.md.
+  const dir = fixture('git-corrupt', { 'docs/A.md': '# A\n' });
+  fs.writeFileSync(path.join(dir, 'docs', 'secret-notes.md'), '# Secret\n', 'utf8');   // untracked
+  fs.writeFileSync(path.join(dir, '.git', 'index'), 'GARBAGE-NOT-AN-INDEX', 'utf8');
+
+  const cfg = resolveConfig(dir);
+  let threw = null;
+  let index = null;
+  try { index = buildIndex(dir, cfg); } catch (e) { threw = e; }
+  ok(threw, `a corrupt index must be raised, not walked around (got ${index && index.documents.length} documents)`);
+  includes(threw.message, 'git ls-files failed');
+});
+
+test('scan · discovery that fell back to a filesystem walk says so under Not checked', () => {
+  // Degrading is allowed. Degrading quietly is not: the corpus now contains files that are not in any
+  // repository, and every downstream report is about a different set of documents than it claims.
+  const dir = path.join(tmpRoot, 'walk-fallback');
+  fs.mkdirSync(path.join(dir, 'docs'), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'docs', 'A.md'), '# A\n', 'utf8');
+  const cfg = resolveConfig(dir);
+  eq(cfg.trackedOnly, true);
+  const index = buildIndex(dir, cfg, { withGit: false });
+  const health = runHealth(index, cfg, dir);
+  ok(health.notChecked.some((n) => n.includes('walking the filesystem')),
+    `expected a stated fallback, got:\n  ${health.notChecked.join('\n  ')}`);
+});
+
+test('git · a non-ASCII document gets its metadata, instead of silently getting none', () => {
+  // git quotes any path with a byte over 0x7F under its default core.quotePath, so `--name-only` returned
+  // "docs/\346\227\245..." while `ls-files -z` returned the path unquoted. The keys never matched: every
+  // non-ASCII document had NO date, and H6 skipped it while the report claimed every check ran.
+  const dir = fixture('git-quotepath', { 'docs/A.md': '# A\n', 'docs/日本語.md': '# CJK\n' });
+  const { index, health } = analyse(dir, {});
+  const cjk = index.documents.find((d) => d.path.includes('日本語'));
+  ok(cjk, 'the non-ASCII document must be discovered');
+  ok(cjk.git, 'the non-ASCII document must carry git metadata');
+  ok(cjk.git.date, 'and a date');
+  ok(!health.notChecked.some((n) => n.includes('no git history')),
+    'nothing should be reported as missing history when every document has it');
+});
+
+test('git · documents with no history are counted under Not checked, not left to look clean', () => {
+  const dir = fixture('git-partial', { 'docs/A.md': '# A\n' });
+  fs.writeFileSync(path.join(dir, 'docs', 'B.md'), '# B\n', 'utf8');
+  execFileSync('git', ['add', '-A'], { cwd: dir, stdio: 'ignore' });   // tracked, never committed
+  const { health } = analyse(dir, {});
+  ok(health.notChecked.some((n) => n.includes('no git history')),
+    `a document with no history must be declared, got:\n  ${health.notChecked.join('\n  ')}`);
+});
+
+test('contrib · a non-ASCII path is attributed to its commit rather than to a quoted string', () => {
+  const dir = fixture('contrib-quotepath', { 'docs/日本語.md': '# CJK\n' });
+  const k = readContrib(dir, {});
+  ok(k.available);
+  const paths = k.commits.flatMap((c) => c.files.map((f) => f.path));
+  ok(paths.includes('docs/日本語.md'), `expected the real path, got ${JSON.stringify(paths)}`);
+});
+
+test('health · a cited file that could not be read is named, not treated as verified', () => {
+  // H2 has two halves: "no such file" and "a line past its end". The second was skipped by a bare catch, so a
+  // citation into an unreadable file came out looking checked.
+  const dir = fixture('h2-unreadable', {
+    'docs/A.md': '# A\n\nSee src/thing.ts:9999 for the detail.\n',
+    'src/thing.ts': 'export const a = 1;\n',
+  });
+  // A directory where a file is expected: readFileSync raises EISDIR, which is a real failure and not a
+  // missing file. The citation resolves, so the line check is the only thing that can run — and cannot.
+  fs.rmSync(path.join(dir, 'src', 'thing.ts'));
+  fs.mkdirSync(path.join(dir, 'src', 'thing.ts'));
+  const { health } = analyse(dir, {});
+  ok(health.notChecked.some((n) => n.includes('could not be read')),
+    `an unreadable citation target must be declared, got:\n  ${health.notChecked.join('\n  ')}`);
+});
+
+test('dashboard · a changes panel that could not be built says so, instead of reading as "no data"', () => {
+  // changes.mjs re-raises deliberately — its docblock names the failure mode. dashboard.mjs caught it and
+  // returned null, which lists the panel under "Not shown on this page", whose stated meaning is "omitted
+  // because there is no data behind them". The error became "nothing changed", one indirection later.
+  const dir = fixture('changes-broken', { 'docs/A.md': '# A\n\nSee src/thing.ts:1 today.\n', 'src/thing.ts': 'x\n' });
+  const cfg = resolveConfig(dir);
+  const index = buildIndex(dir, cfg);
+  const health = runHealth(index, cfg, dir);
+  fs.writeFileSync(path.join(dir, '.git', 'index'), 'GARBAGE-NOT-AN-INDEX', 'utf8');
+
+  const view = { id: 'developer', title: 'Developer', panels: ['changes'] };
+  const html = viewPage(view, { index, health, plan: null, cfg: { ...cfg, __root: dir }, contrib: null, nav: [] },
+    (o) => o.body);
+  includes(html, 'could not be built');
+  ok(!html.includes('Not shown on this page'),
+    'a panel that failed must not be reported as one that had no data');
+});
+
+test('publish · a clone that failed for any reason other than "no wiki" aborts, taking the drift check with it', () => {
+  // Any clone failure was read as "the wiki does not exist yet", so BOTH drift branches were skipped and the
+  // user was told "Staged N pages" with nothing to say the human-edit protection had not run. That protection
+  // is the only thing between a colleague's typo fix in the web UI and a force-overwrite.
+  const dir = fixture('wiki-unreachable', { 'docs/A.md': '# A\n' });
+  const cfg = { ...resolveConfig(dir), publish: { wiki: { slug: 'owner/repo' } } };
+  const index = buildIndex(dir, cfg);
+  const health = runHealth(index, cfg, dir);
+  const built = buildWikiPages(index, health, null, cfg, dir);
+  let threw = null;
+  try {
+    // Port 1 on the loopback refuses instantly: a failure to REACH the wiki, not evidence about it.
+    stageWiki(dir, cfg, built, { host: { kind: 'github', wikiGit: 'http://127.0.0.1:1/x.wiki.git' } });
+  } catch (e) { threw = e; }
+  ok(threw, 'an unreachable wiki must abort the publish');
+  includes(threw.message, 'not the same as');
+});
+
+test('publish · a first publish states that the drift check did not run', () => {
+  const dir = fixture('wiki-first', { 'docs/A.md': '# A\n' });
+  const cfg = { ...resolveConfig(dir), publish: { wiki: { slug: 'owner/repo' } } };
+  const index = buildIndex(dir, cfg);
+  const health = runHealth(index, cfg, dir);
+  const built = buildWikiPages(index, health, null, cfg, dir);
+  const r = stageWiki(dir, cfg, built, {
+    host: { kind: 'github', wikiGit: path.join(tmpRoot, 'no-such-wiki.wiki.git') },
+  });
+  eq(r.staged, true);
+  eq(r.driftChecked, false, 'there is no wiki yet, so the drift check cannot have run — and must say so');
+});
+
+/* ================================================================== injection and containment */
+
+console.log('\ninjection');
+
+test('render · a filename cannot terminate an href attribute', () => {
+  // Stored XSS from nothing but a committed filename. The link TEXT was escaped; the href was not, and the old
+  // flatName stripped only / and \. Verified live in wiki.html and health.html.
+  const evil = 'z"><img src=x onerror=alert(document.domain)>".md';
+  const dir = fixture('xss-filename', { 'docs/A.md': '# A\n', [`docs/${evil}`]: '# Evil\n' });
+  const { cfg, index, health } = analyse(dir, {});
+  const out = renderSite(index, health, cfg, dir);
+
+  // Every generated page, not just the three listed in the report. The document page carries a second
+  // interpolation the flatName restriction does not cover — the "Source:" banner links the raw repository
+  // path — so this loop is what keeps the escaping at each href site load-bearing.
+  const pagesDir = path.join(out.outDir, 'pages');
+  const generated = [
+    ...['wiki.html', 'index.html', 'health.html'].map((f) => path.join(out.outDir, f)),
+    ...fs.readdirSync(pagesDir).map((f) => path.join(pagesDir, f)),
+  ];
+  for (const file of generated) {
+    const html = fs.readFileSync(file, 'utf8');
+    ok(!html.includes('<img src=x'), `${path.basename(file)} carries a live payload from a filename`);
+    ok(!html.includes('onerror=alert(document.domain)>"'), `${path.basename(file)} carries an unescaped href`);
+  }
+  // Every generated filename is restricted to characters that are also legal on Windows.
+  for (const f of fs.readdirSync(path.join(out.outDir, 'pages'))) {
+    ok(/^[A-Za-z0-9._-]+$/.test(f), `page filename is not restricted: ${f}`);
+  }
+});
+
+test('render · two documents that flatten to one page name are both written, and the count is the truth', () => {
+  // `docs/a/b.md` and `docs/a__b.md` both produced docs__a__b.html; the second write won, and the reported
+  // count came from the index, so it could never notice.
+  const dir = fixture('page-collide', { 'docs/a/b.md': '# One\n', 'docs/a__b.md': '# Two\n' });
+  const { cfg, index, health } = analyse(dir, {});
+  const out = renderSite(index, health, cfg, dir);
+  const written = fs.readdirSync(path.join(out.outDir, 'pages'));
+  eq(written.length, 2, 'both documents must get their own page');
+  eq(out.pages, 2, 'the reported count must come from the writes, not from the index');
+  eq(new Set(written).size, 2);
+});
+
+test('render · a data: URL is not passed through into a published page', () => {
+  const dir = fixture('data-url', {
+    'docs/A.md': '# A\n\n[click](data:text/html,<script>alert(1)</script>)\n\n![px](data:image/gif;base64,R0lGOD)\n',
+  });
+  const { cfg, index, health } = analyse(dir, {});
+  const out = renderSite(index, health, cfg, dir);
+  const page = fs.readFileSync(path.join(out.outDir, 'pages', 'docs__A.html'), 'utf8');
+  ok(!/href="data:/i.test(page), 'a data: href must not survive into the page');
+  ok(!/src="data:/i.test(page), 'a data: image must not survive into the page');
+});
+
+test('markdown · an image src is subject to the same scheme policy as a link', () => {
+  // `<img src>` had NO scheme checking at all.
+  const html = inline('![x](javascript:alert(1)) ![y](data:image/gif;base64,AA) ![ok](docs/a.png)');
+  includes(html, 'src="#"');
+  ok(!/src="javascript:/i.test(html), 'javascript: must not reach an src');
+  ok(!/src="data:/i.test(html), 'data: must not reach an src');
+  includes(html, 'src="docs/a.png"', 'an ordinary relative image must still render');
+});
+
+test('dashboard · a tone from outside the known set cannot escape its class attribute', () => {
+  // planning.statusBands[].tone is interpolated into a quoted class attribute. Config validation refuses an
+  // unknown tone; this is the second lock, for a plan object built any other way.
+  const dir = fixture('tone-escape', {
+    'docs/TASKS.md': '# Tasks\n\n**A-1 · Thing** — **P1 · High**\n\n| A-1 | 50 |\n|---|---|\n',
+  });
+  const plan = readPlanning(dir, {
+    planning: { source: 'docs/TASKS.md', statusBands: [{ max: 100, label: 'X', tone: 'x" onmouseover="alert(1)' }] },
+  });
+  const cfg = resolveConfig(dir);
+  const index = buildIndex(dir, cfg);
+  const health = runHealth(index, cfg, dir);
+  const html = viewPage({ id: 'product', title: 'Product', panels: ['items', 'status'] },
+    { index, health, plan, cfg, contrib: null, nav: [] }, (o) => o.body);
+  ok(!html.includes('onmouseover'), 'a configured tone must never become an event handler');
+  includes(html, 't-unknown', 'an unrecognised tone falls back to the unknown class');
+});
+
+test('scan · a citation extension containing a regex metacharacter does not crash the scan', () => {
+  // `e.replace('.', '\\.')` is a STRING replace: it escaped the first dot and nothing else, so
+  // citationExtensions: ["("] built an unterminated group and took the whole scan down.
+  const dir = fixture('cite-meta', { 'docs/A.md': '# A\n\nSee thing.ts:12 and other(:3 text.\n', 'thing.ts': 'x\n' });
+  const { index } = analyse(dir, { citationExtensions: ['(', '.ts', '.tar.gz'] });
+  eq(index.documents.length, 1, 'the scan must complete');
+  ok(index.documents[0].citations.some((c) => c.path === 'thing.ts'), 'ordinary citations still resolve');
+});
+
+test('publish · a manifest page name that is a path is refused, not read', () => {
+  // The manifest lives in the wiki, which anyone with write access can edit, and its keys are joined onto a
+  // path. Verified: an entry of "../victim-notes" made stageWiki read outside the staging directory and
+  // surface the contents as drift — which is then published back in the report.
+  const remote = path.join(tmpRoot, 'wiki-remote');
+  fs.mkdirSync(remote, { recursive: true });
+  fs.writeFileSync(path.join(remote, 'Home.md'), '# Home\n', 'utf8');
+  fs.writeFileSync(path.join(remote, '.atlas-manifest.json'), JSON.stringify({
+    generatedBy: 'project-atlas', source: 'owner/repo',
+    pages: { '../victim-notes': { source: 'docs/A.md', hash: 'deadbeef' } },
+  }), 'utf8');
+  execFileSync('git', ['init', '-q'], { cwd: remote, stdio: 'ignore' });
+  execFileSync('git', ['add', '-A'], { cwd: remote, stdio: 'ignore' });
+  execFileSync('git', ['-c', 'user.email=t@example.com', '-c', 'user.name=Test', 'commit', '-qm', 'wiki'],
+    { cwd: remote, stdio: 'ignore' });
+
+  // The staging directory is os.tmpdir()/atlas-wiki-<hash>, so `../victim-notes.md` is this file. With the bug
+  // its contents were read and surfaced as "drift", which `--import` then writes out and the report prints.
+  const victim = path.join(os.tmpdir(), 'victim-notes.md');
+  fs.writeFileSync(victim, 'PRIVATE-NOTES-MARKER\n', 'utf8');
+
+  const dir = fixture('wiki-manifest', { 'docs/A.md': '# A\n' });
+  const cfg = { ...resolveConfig(dir), publish: { wiki: { slug: 'owner/repo' } } };
+  const index = buildIndex(dir, cfg);
+  const health = runHealth(index, cfg, dir);
+  const built = buildWikiPages(index, health, null, cfg, dir);
+  const r = stageWiki(dir, cfg, built, { host: { kind: 'github', wikiGit: remote } });
+
+  eq(r.staged, false, 'a manifest this tool did not write must stop the publish');
+  const unsafe = r.drift.filter((d) => d.kind === 'unsafe-name');
+  eq(unsafe.length, 1, `expected the unsafe name to be reported, got ${JSON.stringify(r.drift.map((d) => d.kind))}`);
+  ok(!r.drift.some((d) => (d.content || '').includes('PRIVATE-NOTES-MARKER')),
+    'nothing outside the staging directory may be read into the drift report');
+  fs.rmSync(victim, { force: true });
 });
 
 /* ================================================================== done */

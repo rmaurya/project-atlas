@@ -15,24 +15,49 @@ const US = '\x1f';
 
 /* ------------------------------------------------------------------ discovery */
 
-/** Every tracked file, not just markdown — needed to resolve code citations. */
-export function allFiles(root) {
+/**
+ * `git ls-files`, or `null` when this genuinely is not a repository.
+ *
+ * The distinction is the whole function. The previous bare `catch` treated **every** git failure as "no
+ * repository" and fell through to a filesystem walk — which publishes untracked files. Verified: a corrupt
+ * `.git/index` turned a corpus of one tracked document into three, one of them an untracked `secret-notes.md`,
+ * and nothing in the report mentioned that discovery had changed mode. `trackedOnly` is described in the
+ * configuration reference as "the quiet safety feature… a file has to be committed before it can be
+ * published", and a bare catch is exactly how a safety feature turns off without telling anyone.
+ *
+ * Same shape as `gitHistory` below, for the same reason: a missing repository is a legitimate state, and
+ * anything else is our bug — a bug that returns "no data" looks exactly like "no findings".
+ */
+function gitLsFiles(root) {
   try {
-    const out = execFileSync('git', ['ls-files', '-z'], { cwd: root, encoding: 'utf8', maxBuffer: 1 << 28 });
-    return out.split(NUL).filter(Boolean).map(posix);
-  } catch {
-    return walk(root, root).map(posix);
+    const out = execFileSync('git', ['ls-files', '-z'], { cwd: root, encoding: 'utf8', maxBuffer: 1 << 28, stdio: ['ignore', 'pipe', 'pipe'] });
+    return out.split(NUL).filter(Boolean);
+  } catch (err) {
+    const msg = String(err?.stderr || err?.message || err);
+    if (/not a git repository|does not have any commits|ENOENT/i.test(msg)) return null;
+    throw new Error(`git ls-files failed while discovering documents: ${msg.split('\n')[0]}`);
   }
 }
 
-export function discover(root, cfg) {
+/** Every tracked file, not just markdown — needed to resolve code citations. */
+export function allFiles(root) {
+  const tracked = gitLsFiles(root);
+  return (tracked || walk(root, root)).map(posix);
+}
+
+/**
+ * `notes` collects anything the caller must state in "Not checked". Discovery can degrade — that is allowed —
+ * but it may never degrade quietly.
+ */
+export function discover(root, cfg, notes = []) {
   let files = [];
   if (cfg.trackedOnly) {
-    try {
-      const out = execFileSync('git', ['ls-files', '-z'], { cwd: root, encoding: 'utf8', maxBuffer: 1 << 28 });
-      files = out.split(NUL).filter(Boolean);
-    } catch {
+    const tracked = gitLsFiles(root);
+    if (tracked) files = tracked;
+    else {
       files = walk(root, root);          // not a git repository, or git unavailable
+      notes.push('trackedOnly is on, but this is not a git repository — documents were discovered by walking the ' +
+        'filesystem instead, so the corpus may include untracked files that are not in the repository.');
     }
   } else {
     files = walk(root, root);
@@ -181,7 +206,10 @@ function extractLinks(text, from) {
  * line number, so ordinary prose containing a colon and a digit does not become a false positive.
  */
 function extractCitations(text, cfg) {
-  const exts = (cfg.citationExtensions || []).map((e) => e.replace('.', '\\.')).join('|');
+  // Every metacharacter, not just the first dot. `String.prototype.replace` with a string pattern replaces one
+  // occurrence, so `.tar.gz` kept its second dot live and `citationExtensions: ["("]` crashed the whole scan
+  // with an unterminated group. A configured extension is data, and data is escaped before it becomes syntax.
+  const exts = (cfg.citationExtensions || []).map((e) => String(e).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
   if (!exts) return [];
   const re = new RegExp(`([A-Za-z0-9_./@-]+(?:${exts})):(\\d+)(?:[-–](\\d+))?`, 'g');
   const out = [];
@@ -235,7 +263,13 @@ export function gitHistory(root, paths) {
   // `%ad --date=short` is what gets displayed; `%aI` is what gets compared. Comparing on the short form
   // cannot order two changes made on the same day, so a document edited this morning would never register as
   // stale against code changed this afternoon.
-  const args = ['log', '--format=%x00%H%x1f%ad%x1f%aI%x1f%s', '--name-only', '--date=short', '--', ...paths];
+  // `-c core.quotePath=false` is load-bearing, not tidiness. git quotes any path with a byte over 0x7F by
+  // default, so `docs/étude.md` comes back from `--name-only` as `"docs/\303\251tude.md"` — while `ls-files -z`
+  // hands `discover()` the same path unquoted. The two keys never matched, so every non-ASCII document got NO
+  // git metadata: no date on its page, and H6 skipped it entirely while the report claimed every check ran.
+  // That is the exact bug the comment above describes, in a second disguise.
+  const args = ['-c', 'core.quotePath=false',
+    'log', '--format=%x00%H%x1f%ad%x1f%aI%x1f%s', '--name-only', '--date=short', '--', ...paths];
   let out;
   try {
     out = execFileSync('git', args, { cwd: root, encoding: 'utf8', maxBuffer: 1 << 28, stdio: ['ignore', 'pipe', 'pipe'] });
@@ -263,11 +297,21 @@ export function gitHistory(root, paths) {
 /* ------------------------------------------------------------------ index */
 
 export function buildIndex(root, cfg, { withGit = true } = {}) {
-  const files = discover(root, cfg);
+  const notes = [];
+  const files = discover(root, cfg, notes);
   const documents = files.map((f) => parseDocument(root, f, cfg));
 
   const docGit = withGit ? gitHistory(root, files) : new Map();
   for (const d of documents) d.git = docGit.get(d.path) || null;
+
+  // Metadata that is missing for *some* documents is the dangerous shape: the run looks successful, H6
+  // evaluates the documents it can see, and the ones it could not are indistinguishable from the ones it
+  // cleared. Counted here, stated in "Not checked".
+  const withoutGit = withGit ? documents.filter((d) => !d.git).length : 0;
+  if (withoutGit) {
+    notes.push(`${withoutGit} of ${documents.length} document(s) have no git history — they are tracked but not ` +
+      `yet committed, or their history could not be read. H6 (staleness) was not evaluated for them, and they carry no date.`);
+  }
 
   resolveCitations(root, documents);
 
@@ -306,6 +350,7 @@ export function buildIndex(root, cfg, { withGit = true } = {}) {
     root,
     generated: { tool: 'llm-wiki', head: gitHead(root) },
     siteTitle: cfg.siteTitle,
+    notes,
     documents,
     clusters: clusters.filter((c) => c.documents.length),
     codeGit: Object.fromEntries(codeGit),

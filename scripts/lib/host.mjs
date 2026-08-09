@@ -159,10 +159,14 @@ function writeCache(root, caps) {
  * because a network call failed would be worse than the obscure error this exists to prevent.
  */
 export function gateTarget(target, host, caps) {
+  // Export first, before anything asks about the remote. It writes one HTML file to the local filesystem and
+  // never talks to a host — but this check sat below the no-remote refusal, so the one target that works
+  // offline in a repository with no origin was the one target refused there.
+  if (target === 'export') return { ok: true };
+
   if (host.kind === 'none') {
     return { ok: false, reason: 'This directory has no git remote named origin.', hint: 'Add one, or set publish.remote in the config.' };
   }
-  if (target === 'export') return { ok: true };
 
   if (target === 'wiki') {
     if (host.kind === 'unknown') return { ok: true, warn: 'Unrecognised host — the wiki URL is a guess.' };

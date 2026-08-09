@@ -7,15 +7,15 @@ disable-model-invocation: true
 
 # Changed documents
 
-!`git diff --stat HEAD -- '*.md' 2>/dev/null | tail -20; echo "--- staged ---"; git diff --cached --stat -- '*.md' 2>/dev/null | tail -20`
+!`out=$(git diff --stat HEAD -- '*.md' 2>/dev/null); st=$?; if [ -n "$out" ]; then printf '%s\n' "$out" | tail -20; elif [ $st -ne 0 ]; then echo "(git diff did not run — not a git repository, or no commits yet)"; else echo "(no unstaged markdown changes)"; fi; echo "--- staged ---"; out=$(git diff --cached --stat -- '*.md' 2>/dev/null); st=$?; if [ -n "$out" ]; then printf '%s\n' "$out" | tail -20; elif [ $st -ne 0 ]; then echo "(git diff --cached did not run)"; else echo "(nothing staged)"; fi`
 
 # Health now
 
-!`atlas health --no-color 2>/dev/null | head -16`
+!`out=$(atlas health --no-color 2>/dev/null); if [ -n "$out" ]; then printf '%s\n' "$out" | head -16; else echo "(atlas health produced nothing — no config, not a git repository, or no atlas on PATH. Nothing below has been checked.)"; fi`
 
 # Branch
 
-!`atlas branch 2>/dev/null | head -4`
+!`out=$(atlas branch 2>/dev/null); if [ -n "$out" ]; then printf '%s\n' "$out" | head -4; else echo "(atlas branch produced nothing — no atlas on PATH, or not a git repository)"; fi`
 
 ---
 

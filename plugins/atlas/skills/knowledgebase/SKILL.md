@@ -2,7 +2,7 @@
      re-run the script. `node scripts/sync-runtimes.mjs --check` fails if this has drifted. -->
 ---
 name: project-atlas
-description: Index, audit and generate a knowledgebase from a repository's own markdown — taxonomy, backlinks, search, dashboard, and mechanical rot detection. Use when asked to create, audit, index or reorganise documentation, write a developer manual or architecture overview, or when doc drift is suspected: stale docs, dead links, duplicate or forked documents, broken code citations, or no index at all.
+description: "Index, audit and generate a knowledgebase from a repository's own markdown — taxonomy, backlinks, search, dashboard, and mechanical rot detection. Use when asked to create, audit, index or reorganise documentation, write a developer manual or architecture overview, or when doc drift is suspected: stale docs, dead links, duplicate or forked documents, broken code citations, or no index at all."
 ---
 
 # project-atlas — skill instructions
@@ -29,7 +29,7 @@ difference is reviewability, and it is the whole safety argument.
 
 | Layer | Who | What | Fails how |
 |---|---|---|---|
-| **Mechanical** | `scripts/llm-wiki.mjs` | Index, taxonomy, backlinks, staleness, rot signals, search, HTML | Loudly, with an exit code |
+| **Mechanical** | `scripts/atlas.mjs` | Index, taxonomy, backlinks, staleness, rot signals, search, HTML | Loudly, with an exit code |
 | **Editorial** | You, in a session | Classification, overview pages, acting on signals, source-grounded authoring | Silently — so it needs the discipline below |
 
 ## Workflow
@@ -180,7 +180,10 @@ Load on demand — do not read these unless the task calls for them.
 - `references/health-signals.md` — full signal catalogue, tuning, suppression
 - `references/maintenance.md` — the ongoing loop, triggers, and the abandonment criterion
 - `references/configuration.md` — every config key
-- `assets/templates/` — page skeletons for the index, an overview, and a developer manual
+- `references/branching.md` — how work reaches `main`, and the trailers `atlas contrib` reads
+
+The page skeletons — an index, a cluster overview, a developer manual, an architecture document — are section
+3 of `references/authoring.md`. There is no separate templates directory.
 
 ## Failure modes to refuse
 

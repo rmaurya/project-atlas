@@ -12,19 +12,11 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { matchesAny, suppressionFor } from './config.mjs';
+import { matchesAny, suppressionFor, compileRule } from './config.mjs';
+import { SIGNALS } from './signals.mjs';
 
-export const SIGNALS = {
-  H1: { id: 'H1', title: 'Dead internal link', why: 'A relative link points at a file that does not exist.' },
-  H2: { id: 'H2', title: 'Unresolvable code citation', why: 'A path:line citation names a file that is gone, or a line past its end.' },
-  H3: { id: 'H3', title: 'Duplicate title', why: 'Two documents claim the same H1 — the classic signature of a forked document.' },
-  H4: { id: 'H4', title: 'Orphan', why: 'No other document links to it, so it is reachable only by knowing it exists.' },
-  H5: { id: 'H5', title: 'Unclassified', why: 'Matched no cluster rule and fell through to the fallback.' },
-  H6: { id: 'H6', title: 'Stale against its citations', why: 'Code it cites was committed after the document was last touched.' },
-  H7: { id: 'H7', title: 'Forbidden term', why: 'Contains a term the project has retired (an old name, old branding).' },
-  H8: { id: 'H8', title: 'Missing title', why: 'No H1 heading, so it has no name in any index.' },
-  H9: { id: 'H9', title: 'Cross-reference asymmetry', why: 'An identifier appears in one of a paired set of documents but not the other.' },
-};
+export { SIGNALS };
+
 
 const DAY = 86400000;
 
@@ -38,10 +30,19 @@ export function runHealth(index, cfg, root) {
 
   /* H1 · dead internal links, and H2 · unresolvable citations */
   const lineCache = new Map();
+  // A file whose length could not be read. H2's second half — "a line past its end" — is skipped for these,
+  // and skipping it silently is the same defect as every other one in this file: the citation then looks
+  // verified. The reasons are collected and stated rather than swallowed by the bare catch that was here.
+  const unreadable = new Map();
   const lineCount = (p) => {
     if (lineCache.has(p)) return lineCache.get(p);
     let n = null;
-    try { n = fs.readFileSync(path.join(root, p), 'utf8').split('\n').length; } catch { n = null; }
+    try {
+      n = fs.readFileSync(path.join(root, p), 'utf8').split('\n').length;
+    } catch (err) {
+      n = null;
+      unreadable.set(p, err?.code || String(err?.message || err).split('\n')[0]);
+    }
     lineCache.set(p, n);
     return n;
   };
@@ -116,9 +117,21 @@ export function runHealth(index, cfg, root) {
     }
   }
 
+  // A configured pattern the tool declined to run. Collected here and stated in "Not checked" — the rule is
+  // dropped, never quietly downgraded to "found nothing". See config.mjs::unsafeRegexReason for why a screen
+  // and not a timeout.
+  const refusedPatterns = [];
+  const unevaluated = new Set();
+
   /* H7 · forbidden terms */
   for (const rule of cfg.forbiddenTerms || []) {
-    const re = new RegExp(rule.pattern || `\\b${escapeRe(rule.term)}\\b`, rule.flags || 'g');
+    const src = rule.pattern || `\\b${escapeRe(rule.term)}\\b`;
+    const { re, error } = compileRule(src, rule.flags || 'g');
+    if (!re) {
+      unevaluated.add('H7');
+      refusedPatterns.push(`H7 was NOT evaluated for "${rule.term || src}" — the configured pattern \`${src}\` was declined because ${error}. No document was checked for that term.`);
+      continue;
+    }
     for (const d of index.documents) {
       if (rule.ignore && matchesAny(d.path, rule.ignore)) continue;
       const hits = d.body.match(re);
@@ -134,7 +147,12 @@ export function runHealth(index, cfg, root) {
     const a = index.documents.find((d) => d.path === rule.a);
     const b = index.documents.find((d) => d.path === rule.b);
     if (!a || !b) continue;
-    const re = new RegExp(rule.pattern, 'g');
+    const { re, error } = compileRule(rule.pattern, 'g');
+    if (!re) {
+      unevaluated.add('H9');
+      refusedPatterns.push(`H9 was NOT evaluated for the pair ${rule.a} ↔ ${rule.b} — the configured pattern \`${rule.pattern}\` was declined because ${error}.`);
+      continue;
+    }
     const idsA = new Set((a.body.match(re) || []).map((s) => s.trim()));
     const idsB = new Set((b.body.match(re) || []).map((s) => s.trim()));
     const onlyA = [...idsA].filter((x) => !idsB.has(x));
@@ -158,7 +176,8 @@ export function runHealth(index, cfg, root) {
     counts,
     suppressed: findings.filter((f) => f.suppressed).length,
     blockingCount: findings.filter((f) => f.blocking).length,
-    notChecked: notChecked(index, cfg),
+    unevaluated: [...unevaluated],
+    notChecked: notChecked(index, cfg, refusedPatterns, unreadable),
   };
 }
 
@@ -166,8 +185,14 @@ export function runHealth(index, cfg, root) {
  * What this run could NOT check, and why. Stated explicitly: a report that silently skips work reads as
  * "everything is fine" when it is not.
  */
-function notChecked(index, cfg) {
-  const out = [];
+function notChecked(index, cfg, refusedPatterns = [], unreadable = new Map()) {
+  // Everything discovery already knows it could not do — degraded git discovery, documents with no history.
+  const out = [...refusedPatterns, ...(index.notes || [])];
+  if (unreadable.size) {
+    const shown = [...unreadable.entries()].slice(0, 5).map(([p, why]) => `${p} (${why})`).join(', ');
+    out.push(`${unreadable.size} cited file(s) could not be read, so their line numbers were not verified: ${shown}` +
+      `${unreadable.size > 5 ? `, and ${unreadable.size - 5} more` : ''}.`);
+  }
   if (!index.stats.withGit) out.push('Git metadata unavailable — H6 (staleness) was not evaluated, and no document carries a last-modified date.');
   if (!(cfg.forbiddenTerms || []).length) out.push('No forbiddenTerms configured — H7 checked nothing. Add retired product or persona names to enable it.');
   if (!(cfg.crossref || []).length) out.push('No crossref pairs configured — H9 checked nothing. Pair your backlog and task list to enable it.');
@@ -194,6 +219,11 @@ export function formatReport(health, index, { verbose = false, color = true } = 
   const rows = Object.values(SIGNALS).map((s) => {
     const n = health.counts[s.id] || 0;
     const isBlocking = health.findings.some((f) => f.signal === s.id && f.blocking);
+    // A signal whose configured pattern was declined has a count of zero and is not clean. Drawing it green
+    // here would be exactly the failure the "Not checked" section exists to prevent, one line higher up.
+    if ((health.unevaluated || []).includes(s.id)) {
+      return `  ${s.id}  ${c.yellow('   —')}  ${s.title}${c.dim('  (not evaluated — see Not checked)')}`;
+    }
     const mark = n === 0 ? c.green('  ok') : isBlocking ? c.red(String(n).padStart(4)) : c.yellow(String(n).padStart(4));
     return `  ${s.id}  ${mark}  ${s.title}`;
   });

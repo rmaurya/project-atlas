@@ -5,6 +5,95 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Security
+- **A configured `output` was passed unvalidated to a recursive delete.** `{"output":"../PRECIOUS"}` removed a
+  directory outside the repository; `{"output":"."}` removed the repository including `.git` — and both
+  reported success. The path is now confined to the repository through `realpath` on both sides, and a
+  directory holding files but none of this tool's build markers is refused rather than cleared.
+- **Stored XSS from a committed filename.** A file named
+  `z"><img src=x onerror=alert(document.domain)>".md` terminated the `href` attribute on five interpolation
+  sites and went live in `wiki.html` and `health.html`. The link *text* was escaped; the href was not.
+  Generated page filenames are now restricted to `[A-Za-z0-9._-]` with the remainder hashed — which also makes
+  them legal on Windows — and every href is escaped at the point of use.
+- **Two documents could silently overwrite each other's page.** `docs/a/b.md` and `docs/a__b.md` both flattened
+  to `docs__a__b.html`; the second write won, and the reported page count came from the index, so it could
+  never notice. Names are now injective, collisions are resolved and reported, and the count comes from the
+  writes.
+- **`deck.source` and `planning.source` read any path on disk** and rendered it into pages that
+  `publish --target pages` force-pushes. `{"deck":{"source":"../../creds.env"}}` put `SECRET=hunter2` on the
+  web. Both are confined to the repository.
+- **A view id was interpolated into a write path.** `{"id":"x/../../../ESCAPED"}` wrote a file above the
+  repository root. Ids are constrained to `[A-Za-z0-9-]+`.
+- **`assertNotPublishable` was a case-sensitive string prefix check** — the only mechanism keeping
+  transcript-derived data out of a published wiki. `DOCS/_WIKI/t.txt` walked past it on macOS and Windows, and
+  so did a symlink. Both sides are now resolved through `realpath` and compared the way the filesystem does.
+- **Wiki drift manifest names were joined onto a path unchecked.** An entry of `"../victim-notes"` made
+  `stageWiki` read outside its staging directory and surface the contents as drift. The manifest lives in a
+  repository other people can write to; unsafe names are refused and reported.
+- **A tone from `planning.statusBands` was interpolated into a quoted class attribute**, so
+  `"tone": "x\" onmouseover=\"alert(1)"` produced a live event handler. Rejected by config validation and
+  allow-listed at the point of use.
+- **`data:` URLs were allow-listed in links, and `<img src>` was not scheme-checked at all.** A published page
+  could carry arbitrary embedded content. One scheme policy now covers both.
+- **Stored XSS in the standalone export.** `search-index.js` was written with `JSON.stringify`, which does not
+  escape `<`, and `publish --target export` inlines that file into a `<script>` element. A document containing
+  the literal text `</script>` closed the element early and anything after it ran — in the single-file export,
+  which is the artifact this tool tells people to publish. JSON bound for a page now goes through
+  `jsonForScript`, and the inliner escapes `</script` again on the way in.
+
+### Fixed
+- **The config was untyped input the tool trusted.** `{"blocking":"H1"}` became the character set `{'H','1'}`,
+  so no signal ever matched and `atlas health` exited 0 with a dead link present — the CI gate inverted
+  silently. `{"include":null}` discovered zero documents and wrote an empty site over the previous one;
+  `{"searchBodyLimit":"lots"}` indexed zero characters under a page claiming full-text search;
+  `{"staleDays":"ninety"}` made the H6 grace period NaN. Every known key is now type-checked, `blocking` ids
+  are checked against the signal list, unknown top-level keys are refused rather than ignored, and every
+  message names the config file.
+- **Any git failure during discovery degraded to a filesystem walk**, which publishes untracked files. A
+  corrupt `.git/index` turned one tracked document into three, including an untracked `secret-notes.md`, and
+  nothing said discovery had changed mode — `trackedOnly` is the safety feature that a bare `catch` turned off.
+  Only a genuinely missing repository degrades now, and when it does it is stated under "Not checked".
+- **Non-ASCII documents got no git metadata at all.** git quotes paths with bytes over 0x7F by default, so
+  `--name-only` returned `"docs/\303\251tude.md"` while `ls-files -z` returned it unquoted; the keys never
+  matched. Every affected document had no date and was skipped by H6 while the report claimed every check ran.
+  `-c core.quotePath=false` on the history, contribution and change queries. Documents that still have no
+  history are counted and declared.
+- **The dashboard swallowed the error `changes.mjs` deliberately re-raises**, then listed the panel under
+  "Not shown on this page" — whose stated meaning is "omitted because there is no data behind them". A failed
+  panel now says it failed.
+- **A cited file that could not be read had its line-number check skipped silently**, so the citation came out
+  looking verified. Unreadable targets are named under "Not checked".
+- **Any wiki clone failure was read as "the wiki does not exist yet"** — no network, bad credentials, a proxy —
+  so both drift branches were skipped and the user was told "Staged N pages" with nothing to say the
+  human-edit protection had not run. Unreachable is now distinguished from absent and aborts, and every
+  publish reports whether the drift check ran.
+- **`citationExtensions` was escaped with a string `replace`**, which substitutes one occurrence: only the
+  first dot was escaped, and `citationExtensions:["("]` crashed the whole scan.
+- **The commit hook never blocked.** `… && atlas branch >&2 || exit 0` swallowed the guard's exit status, so
+  it printed eleven lines of refusal and exited 0 — and only exit 2 makes a `PreToolUse` hook's stderr reach
+  Claude or stop the call. It now exits 2 on a protected branch, and also when the guard cannot run at all
+  rather than waving the commit through unchecked. A missing `jq` no longer disables it silently.
+- **`skills/knowledgebase/SKILL.md` frontmatter was invalid YAML.** An unquoted `description` containing `": "`
+  made the whole block unparseable, so `name` and `description` were both dropped and model invocation never
+  matched. The value is quoted, and the test suite now parses every skill's frontmatter strictly.
+- **A configured regex could hang the build forever.** `forbiddenTerms[].pattern`, `crossref[].pattern` and
+  `planning.*Pattern` are user-supplied; `(a+)+$` against one 40-character line never returned. Patterns whose
+  shape can backtrack exponentially are now declined, and the affected signal is reported as *not evaluated*
+  with the pattern named under "Not checked" — never as clean.
+- **`publish --target export` refused without a git remote**, although it writes a local file and contacts no
+  host. The remote check now applies only to the targets that need one.
+- **`head` and `sed` swallowed exit status in the typed skills**, so `cmd | head -3 || echo FALLBACK` never
+  printed the fallback and a missing `atlas` rendered an empty section that read as "nothing to report".
+  `/atlas:diff` also reported "(no file given)" when a file *had* been given.
+- **`SECURITY.md` claimed the tool makes no network requests.** `atlas caps` makes one. It is now named,
+  scoped and described.
+- Dead references inside the flagship skill: `scripts/llm-wiki.mjs` (renamed to `scripts/atlas.mjs`) and an
+  `assets/templates/` directory that does not exist.
+
+### Changed
+- `.claude-plugin/plugin.json` no longer declares `"skills": ["."]` — it failed manifest validation before
+  Claude Code 2.1.221 and was redundant, since `skills/` is always scanned.
+
 ### Planned
 - Selectable light/dark themes with a one-click toggle, defaulting to the system setting.
 - Role-scoped views (QC, product, delivery, architecture, developer, executive).

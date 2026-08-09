@@ -30,6 +30,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import readline from 'node:readline';
+import { isAtOrInside } from './paths.mjs';
 
 export const DEFAULT_TOKENS = {
   transcriptRoot: null,          // defaults to ~/.claude/projects
@@ -48,11 +49,21 @@ export function transcriptDir(root, cfg = {}) {
 /**
  * Refuse to write a report anywhere the tool publishes from. The output directory is pushed to wikis and
  * Pages branches; a token report there is a prompt log there.
+ *
+ * **This is the only mechanism enforcing rule 2 above**, which is why it is no longer a string comparison.
+ * `abs.startsWith(out + sep)` was walked past two ways, both verified:
+ *
+ *  - `DOCS/_WIKI/t.txt` on macOS or Windows. The filesystem resolves it to the published directory; a
+ *    case-sensitive `startsWith` says it is somewhere else entirely.
+ *  - A symlink whose target is inside the output directory. The lexical path never mentions it.
+ *
+ * `isAtOrInside` resolves both sides through `realpath` and folds case where the platform does. A refusal that
+ * can be sidestepped by holding down shift is not a refusal.
  */
 export function assertNotPublishable(root, cfg, dest) {
   const out = path.resolve(root, cfg.output || 'docs/_wiki');
   const abs = path.resolve(root, dest);
-  if (abs === out || abs.startsWith(out + path.sep)) {
+  if (isAtOrInside(out, abs)) {
     throw new Error(
       `Refusing to write a token report into ${cfg.output} — that directory is published to wikis and Pages ` +
       `branches, and this report is derived from session transcripts. Choose a path outside it.`);

@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "jq -r '.tool_input.command // \"\"' | grep -qE '^[[:space:]]*git[[:space:]]+commit' && \"${CLAUDE_PLUGIN_ROOT}/bin/atlas\" branch >&2 || exit 0"
+            "command": "payload=$(cat); if command -v jq >/dev/null 2>&1; then cmd=$(printf '%s' \"$payload\" | jq -r '.tool_input.command // \"\"'); else cmd=$payload; fi; printf '%s' \"$cmd\" | grep -qE '(^|[^[:alnum:]_./-])git[[:space:]]+commit' || exit 0; command -v jq >/dev/null 2>&1 || echo 'project-atlas: jq was not found, so the branch guard matched the raw hook payload instead of .tool_input.command. Install jq for exact matching.' >&2; \"${CLAUDE_PLUGIN_ROOT}/bin/atlas\" branch >&2; st=$?; [ $st -eq 0 ] && exit 0; [ $st -ne 1 ] && echo \"project-atlas: the branch guard could not run (exit $st). This commit was NOT checked.\" >&2; exit 2"
           }
         ]
       }

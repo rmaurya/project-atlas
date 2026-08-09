@@ -27,7 +27,11 @@ import { execFileSync } from 'node:child_process';
  * was never created. There, a non-zero exit is the answer, not an error.
  */
 function run(root, args) {
-  return execFileSync('git', args, { cwd: root, encoding: 'utf8', maxBuffer: 1 << 28, stdio: ['ignore', 'pipe', 'pipe'] });
+  // `-c core.quotePath=false` on every invocation: `--numstat` paths are matched against citation targets that
+  // came from `ls-files -z`, and git quotes non-ASCII paths by default. Without it, changing `docs/étude.md`
+  // matched no document and "no document cites any of the changed files" was reported for a document that did.
+  return execFileSync('git', ['-c', 'core.quotePath=false', ...args],
+    { cwd: root, encoding: 'utf8', maxBuffer: 1 << 28, stdio: ['ignore', 'pipe', 'pipe'] });
 }
 
 const git = (root, args) => {

@@ -8,7 +8,7 @@ disable-model-invocation: true
 
 # Diff
 
-!`test -n "$ARGUMENTS" && atlas diff "$ARGUMENTS" 2>/dev/null || echo "(no file given — run atlas changes to list them)"`
+!`if [ -z "$ARGUMENTS" ]; then echo "(no file given — run atlas changes to list them)"; else out=$(atlas diff "$ARGUMENTS" 2>&1); if [ -n "$out" ]; then printf '%s\n' "$out"; else echo "(no changes to $ARGUMENTS — it matches HEAD, or the path is wrong)"; fi; fi`
 
 ---
 

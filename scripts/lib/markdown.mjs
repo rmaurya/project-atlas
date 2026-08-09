@@ -17,6 +17,48 @@ export function escapeHtml(s) {
     .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
+/**
+ * For a value going into a quoted attribute — an `href`, a `src` — where the value may *already* be partly
+ * entity-escaped.
+ *
+ * `escapeHtml` is the right tool for raw text and the wrong one here. Link targets in this renderer are a
+ * mixture: the part that came out of the document body has been through `escapeHtml` already (the whole line
+ * is escaped before links are matched), while the part `resolveLink` builds from a repository path has not.
+ * Running `escapeHtml` over the mixture turns a legitimate `&amp;` in a URL into `&amp;amp;`. Leaving `&`
+ * alone is idempotent over both provenances, and `&` is not what breaks out of an attribute — `"`, `'`, `<`
+ * and `>` are, and all four are escaped here.
+ *
+ * This exists because the link *text* was escaped and the `href` was not, on five separate interpolation
+ * sites. See render-shared.mjs::flatName for what a filename could do through that gap.
+ */
+export function escapeAttr(s) {
+  return String(s)
+    .replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+/**
+ * The schemes a document is allowed to point at. Everything else becomes `#`.
+ *
+ * `data:` is deliberately absent, and its absence is the fix for two things at once. As an `href` it was
+ * explicitly allow-listed; as an `<img src>` **nothing was checked at all**, so any document in the corpus
+ * could plant `<img src="https://tracker.example/p.gif">` or a `data:` payload that fires for every viewer of
+ * a published site. This tool's output is pushed to GitHub Pages with `--force`; a document is not entitled to
+ * make a request on a reader's behalf.
+ *
+ * A target with no scheme is a relative path and passes through — that is the overwhelmingly common case, and
+ * it is resolved against the corpus elsewhere.
+ */
+const ALLOWED_SCHEME = /^(?:https?:|mailto:|tel:|#)/i;
+const HAS_SCHEME = /^[a-z][a-z0-9+.-]*:/i;
+
+export function safeUrl(u) {
+  // Control characters are stripped first: `java\nscript:` is a scheme to a browser and is not one to a regex.
+  const s = String(u).replace(/[\u0000-\u001F\u007F]/g, '').trim();
+  if (!HAS_SCHEME.test(s)) return s;
+  return ALLOWED_SCHEME.test(s) ? s : '#';
+}
+
 /* ------------------------------------------------------------------ inline */
 
 export function inline(src, ctx = {}) {
@@ -30,13 +72,14 @@ export function inline(src, ctx = {}) {
   s = escapeHtml(s);
 
   s = s.replace(/!\[([^\]]*)\]\(([^)\s]+)(?:\s+&quot;[^&]*&quot;)?\)/g,
-    (_, alt, src2) => `<img src="${src2}" alt="${alt}" loading="lazy">`);
+    (_, alt, src2) => `<img src="${escapeAttr(safeUrl(src2))}" alt="${alt}" loading="lazy">`);
 
   s = s.replace(/\[([^\]]*)\]\(([^)\s]+)(?:\s+&quot;[^&]*&quot;)?\)/g, (_, text, href) => {
     const resolved = ctx.resolveLink ? ctx.resolveLink(href) : { href, cls: '' };
-    const cls = resolved.cls ? ` class="${resolved.cls}"` : '';
+    const target = escapeAttr(safeUrl(resolved.href));
+    const cls = resolved.cls ? ` class="${escapeAttr(resolved.cls)}"` : '';
     const ext = /^https?:/i.test(resolved.href) ? ' target="_blank" rel="noopener noreferrer"' : '';
-    return `<a href="${resolved.href}"${cls}${ext}>${text || resolved.href}</a>`;
+    return `<a href="${target}"${cls}${ext}>${text || target}</a>`;
   });
 
   s = s.replace(/&lt;(https?:\/\/[^\s&]+)&gt;/g, '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>');

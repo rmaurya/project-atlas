@@ -13,6 +13,8 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { compileRule } from './config.mjs';
+import { confine } from './paths.mjs';
 
 export const DEFAULT_PLANNING = {
   source: null,                       // e.g. "docs/TASKS.md" — null disables the dashboard's planning half
@@ -35,19 +37,31 @@ export function readPlanning(root, cfg) {
   const p = { ...DEFAULT_PLANNING, ...(cfg.planning || {}) };
   if (!p.source) return null;
 
-  const file = path.join(root, p.source);
+  // Confined to the repository for the same reason as the deck: whatever this reads is charted, tabled and
+  // published. `path.join` would happily have read `../../creds.env` and put its lines in the item table.
+  const file = confine(root, p.source, 'planning.source', cfg.__configPath);
   if (!fs.existsSync(file)) return { source: p.source, missing: true, items: [], tracks: [], notes: [`${p.source} not found`] };
 
   const raw = fs.readFileSync(file, 'utf8');
   const lines = raw.split('\n');
 
-  const itemRe = new RegExp(p.itemPattern);
-  const trackRe = new RegExp(p.trackPattern);
+  // All three patterns are configurable, so all three can arrive unusable. A pattern that is declined is
+  // dropped and named in `notes` — which the dashboard prints under "What this dashboard does not show" —
+  // rather than allowed to hang the build. See config.mjs::unsafeRegexReason.
+  const refused = [];
+  const compiled = {};
+  for (const key of ['itemPattern', 'trackPattern', 'percentCellPattern']) {
+    const { re, error } = compileRule(p[key], key === 'percentCellPattern' ? 'g' : '');
+    compiled[key] = re;
+    if (!re) refused.push(`planning.${key} was NOT applied — the configured pattern \`${p[key]}\` was declined because ${error}.`);
+  }
+  const itemRe = compiled.itemPattern;
+  const trackRe = compiled.trackPattern;
 
   const items = [];
   let track = null;
-  for (let i = 0; i < lines.length; i++) {
-    const t = trackRe.exec(lines[i]);
+  for (let i = 0; itemRe && i < lines.length; i++) {
+    const t = trackRe && trackRe.exec(lines[i]);
     if (t) { track = t[1].trim(); continue; }
     const m = itemRe.exec(lines[i]);
     if (!m) continue;
@@ -63,10 +77,10 @@ export function readPlanning(root, cfg) {
   // Completion percentages live in a grid table of `| ID | NN |` pairs, which is how a compact dashboard is
   // written by hand. An asterisk after the number means "estimated from documents, not read from the source" —
   // that distinction is load-bearing and must survive into the chart.
-  const pctRe = new RegExp(p.percentCellPattern, 'g');
+  const pctRe = compiled.percentCellPattern;
   const byId = new Map(items.map((it) => [it.id, it]));
   let pm;
-  while ((pm = pctRe.exec(raw))) {
+  while (pctRe && (pm = pctRe.exec(raw))) {
     const it = byId.get(pm[1]);
     if (!it) continue;
     it.percent = Number(pm[2]);
@@ -77,7 +91,7 @@ export function readPlanning(root, cfg) {
     it.status = bandFor(it.percent, p.statusBands);
   }
 
-  const notes = [];
+  const notes = [...refused];
   const missingPct = items.filter((i) => i.percent === null);
   if (missingPct.length) notes.push(`${missingPct.length} item(s) carry no completion figure and are charted as unknown, not as zero.`);
   const est = items.filter((i) => i.estimated);

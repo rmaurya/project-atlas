@@ -12,6 +12,12 @@ Before any `git commit`, `atlas branch` runs and exits non-zero when the working
 assistant sees the refusal and the fix — `atlas branch <type> <slug>` — before the commit happens rather than
 after review.
 
+**The hook exits 2, and that number is the whole mechanism.** Claude Code only feeds a `PreToolUse` hook's
+stderr back to the model, and only blocks the call, on exit code 2; on exit 0 the same text goes to the debug
+log and the tool call proceeds. This hook shipped as `... && atlas branch >&2 || exit 0`, where `A && B ||
+exit 0` swallows B's status — the guard printed eleven lines of refusal and exited 0, so nothing was ever
+blocked and nothing ever reached the assistant.
+
 It exists because this project's own first five commits went straight to `main` while its contributing guide
 preached discipline. A rule nobody notices being broken is not a rule.
 
@@ -26,8 +32,14 @@ belongs at the point of commit — where a person is already pausing — not aft
 
 ## Requirements
 
-`jq`, which ships with macOS and most Linux distributions. Without it the hook exits 0 and the guard is simply
-absent — it never blocks work because a dependency is missing.
+`jq`, which ships with macOS and most Linux distributions. **Without it the guard still runs**, matching the
+raw hook payload instead of `.tool_input.command` and saying so on stderr. That is coarser — a commit command
+quoted inside another string can match — but it fails towards checking rather than towards a guard that is
+silently absent, which is the same rule the reports follow: a check that did not run is never reported as
+having passed.
+
+For the same reason, an `atlas branch` that cannot run at all — a half-installed plugin, a missing `bin/atlas`
+— exits 2 and names the exit code rather than waving the commit through unchecked.
 
 ## Turning it off
 

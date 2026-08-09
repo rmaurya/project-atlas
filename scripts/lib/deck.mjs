@@ -16,10 +16,14 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { renderMarkdown, escapeHtml } from './markdown.mjs';
+import { confine } from './paths.mjs';
 
 export function readDeck(root, cfg) {
   const src = (cfg.deck && cfg.deck.source) || 'docs/atlas/DECK.md';
-  const file = path.join(root, src);
+  // The deck is rendered into `deck.html`, which `publish --target pages` force-pushes to a public branch.
+  // `path.join` accepted anything: `{"deck":{"source":"../../creds.env"}}` put `SECRET=hunter2` on the web.
+  // Confined to the repository — and to the repository as the filesystem sees it, so a symlink is no route out.
+  const file = confine(root, src, 'deck.source', cfg.__configPath);
   if (!fs.existsSync(file)) return null;
 
   const raw = fs.readFileSync(file, 'utf8');

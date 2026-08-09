@@ -42,6 +42,15 @@ const sha = (s) => crypto.createHash('sha256').update(s, 'utf8').digest('hex').s
  */
 export const RESERVED = new Set(['Home', '_Sidebar', '_Footer', 'Project-Dashboard', 'Documentation-Health']);
 
+/**
+ * A wiki page name that may be joined onto a filesystem path. `wikiPageName` only ever produces these; the
+ * manifest, which is read back out of a repository other people can write to, does not.
+ */
+export function isSafePageName(name) {
+  return typeof name === 'string' && name !== '' && name !== '.' && name !== '..' &&
+         !/[/\\]/.test(name) && !name.includes('..') && !/^[.]/.test(name.replace(/^_/, ''));
+}
+
 export function wikiPageName(relPath, cfg) {
   const stripped = relPath.replace(/\.md$/i, '');
   const roots = (cfg.publish?.wiki?.stripPrefixes) || ['docs/'];
@@ -211,11 +220,25 @@ export function stageWiki(root, cfg, built, { push = false, force = false, impor
   const work = path.join(os.tmpdir(), `atlas-wiki-${sha(root + slug)}`);
   fs.rmSync(work, { recursive: true, force: true });
 
+  // A clone that fails because the wiki does not exist yet is the normal first publish. A clone that fails for
+  // any other reason — no network, bad credentials, a proxy in the way — is NOT that, and reading it as that
+  // was the whole bug: `cloned` stayed false, both drift branches were skipped, and the user was told
+  // "Staged N pages" with nothing to say that the human-edit protection had not run. The protection is the
+  // only thing standing between a colleague's typo fix in the web UI and a force-overwrite.
   let cloned = false;
   try {
-    execFileSync('git', ['clone', '--depth', '1', url, work], { stdio: 'ignore' });
+    execFileSync('git', ['clone', '--depth', '1', url, work], { stdio: ['ignore', 'ignore', 'pipe'] });
     cloned = true;
-  } catch {
+  } catch (err) {
+    const msg = String(err?.stderr || err?.message || err);
+    // GitHub answers a wiki that was never created with "remote: Repository not found." and a matching fatal.
+    // GitLab answers with "not found". Anything else is a failure to *reach* the wiki, not evidence about it.
+    if (!/repository not found|not found|does not exist/i.test(msg)) {
+      throw new Error(
+        `Could not reach the wiki at ${url}: ${msg.split('\n').filter(Boolean).slice(-1)[0] || msg}\n` +
+        `  This is not the same as "the wiki does not exist yet". Publishing would skip the drift check that ` +
+        `protects pages edited by hand, so it is refused instead.`);
+    }
     fs.mkdirSync(work, { recursive: true });
     execFileSync('git', ['init', '-q'], { cwd: work, stdio: 'ignore' });
   }
@@ -226,6 +249,16 @@ export function stageWiki(root, cfg, built, { push = false, force = false, impor
   const prior = cloned && fs.existsSync(manifestPath) ? JSON.parse(fs.readFileSync(manifestPath, 'utf8')) : null;
   if (prior) {
     for (const [name, rec] of Object.entries(prior.pages || {})) {
+      // The manifest lives in the wiki, which anyone with write access can edit. A page name is joined onto a
+      // path, so a name is not a label — it is an instruction. Verified: an entry of `"../victim-notes"` made
+      // this loop read a file outside the staging directory and surface its contents as "drift", which is
+      // published back into the report. Refused and reported rather than skipped: a manifest this tool did not
+      // write is exactly the condition the drift check exists to catch.
+      if (!isSafePageName(name)) {
+        drift.push({ page: String(name), source: rec?.source ?? null, kind: 'unsafe-name',
+          detail: 'The manifest names a page that is not a plain page name. It was not read, and nothing here was overwritten.' });
+        continue;
+      }
       const f = path.join(work, `${name}.md`);
       if (!fs.existsSync(f)) { drift.push({ page: name, source: rec.source, kind: 'deleted' }); continue; }
       const now = fs.readFileSync(f, 'utf8');
@@ -248,11 +281,14 @@ export function stageWiki(root, cfg, built, { push = false, force = false, impor
       fs.mkdirSync(importDir, { recursive: true });
       for (const d of drift) {
         if (!d.content) continue;
+        // Second gate on the same untrusted name: this one is a write, and `--import` is the path a user takes
+        // precisely when the wiki contains something unexpected.
+        if (!isSafePageName(d.page)) continue;
         fs.writeFileSync(path.join(importDir, `${d.page}.md`), d.content, 'utf8');
       }
       fs.writeFileSync(path.join(importDir, 'MAPPING.json'), JSON.stringify(drift.map(({ content, ...r }) => r), null, 2), 'utf8');
     }
-    return { staged: false, drift, importDir, work, url, slug };
+    return { staged: false, drift, importDir, work, url, slug, driftChecked: cloned };
   }
 
   // --- write ---
@@ -282,7 +318,10 @@ export function stageWiki(root, cfg, built, { push = false, force = false, impor
     pushed = true;
   }
 
-  return { staged: true, pushed, drift: [], work, url, slug, count: built.pages.size, collisions: built.collisions };
+  // `driftChecked` is reported, not inferred by the caller. A publish where it is false is a publish where the
+  // human-edit protection did not run, and the only honest reason for that is that there is no wiki yet.
+  return { staged: true, pushed, drift: [], work, url, slug, count: built.pages.size,
+    collisions: built.collisions, driftChecked: cloned };
 }
 
 function sourceFor(name, built) {
@@ -357,6 +396,19 @@ pages:
 
 /* ------------------------------------------------------------------ single-file export */
 
+/**
+ * The last gate before a separate file becomes the body of a `<script>` element.
+ *
+ * `render-shared.mjs::jsonForScript` already escapes `<` out of the search index, so for correct input this
+ * is a no-op. It exists because inlining is the sink: the escape lives in the writer and this is the reader,
+ * and a future writer that forgets — or a hand-edited `search-index.js` — would otherwise put a live
+ * `</script>` into the one artifact this project publishes as an Artifact. `<\/` is valid JavaScript inside a
+ * string literal and inside a regex literal, and `</script` cannot legitimately appear anywhere else in JS.
+ */
+function inlineScript(js) {
+  return js.replace(/<\/(script)/gi, '<\\/$1');
+}
+
 /** Inline the stylesheet and search index into one HTML file, for anywhere that takes a single document. */
 export function exportSingleFile(root, cfg, which = 'dashboard') {
   const outDir = path.resolve(root, cfg.output);
@@ -368,7 +420,7 @@ export function exportSingleFile(root, cfg, which = 'dashboard') {
   html = html.replace(/<link rel="stylesheet" href="[^"]*atlas\.css">/, `<style>\n${css}\n</style>`);
   html = html.replace(/<script src="[^"]*search-index\.js"><\/script>/, () => {
     const p = path.join(outDir, 'search-index.js');
-    return fs.existsSync(p) ? `<script>${fs.readFileSync(p, 'utf8')}</script>` : '';
+    return fs.existsSync(p) ? `<script>${inlineScript(fs.readFileSync(p, 'utf8'))}</script>` : '';
   });
   // Sibling pages do not exist beside a standalone file, so every cross-page link would be dead. Strip the
   // navigation and demote the brand to plain text rather than shipping links that go nowhere.

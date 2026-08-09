@@ -9,11 +9,11 @@ disable-model-invocation: true
 
 # What it produces
 
-!`atlas scan 2>/dev/null | head -16`
+!`out=$(atlas scan 2>/dev/null); if [ -n "$out" ]; then printf '%s\n' "$out" | head -16; else echo "(atlas scan produced nothing — no config, not a git repository, or no atlas on PATH)"; fi`
 
 # What is unchecked
 
-!`atlas health --no-color 2>/dev/null | sed -n '/Not checked/,$p' | head -8`
+!`out=$(atlas health --no-color 2>/dev/null); if [ -z "$out" ]; then echo "(atlas health produced nothing — so NOTHING here is known to have been checked)"; else section=$(printf '%s\n' "$out" | sed -n '/Not checked/,$p' | head -8); if [ -n "$section" ]; then printf '%s\n' "$section"; else echo "(the report declared nothing unchecked)"; fi; fi`
 
 ---
 

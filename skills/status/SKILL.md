@@ -9,15 +9,15 @@ disable-model-invocation: true
 
 # Health
 
-!`atlas health --no-color 2>/dev/null | head -20`
+!`out=$(atlas health --no-color 2>/dev/null); if [ -n "$out" ]; then printf '%s\n' "$out" | head -20; else echo "(atlas health produced nothing — NOT_CONFIGURED. Nothing here has been checked.)"; fi`
 
 # Plan
 
-!`atlas tasks 2>/dev/null | tail -6 || echo "no planning source configured"`
+!`out=$(atlas tasks 2>/dev/null); if [ -n "$out" ]; then printf '%s\n' "$out" | tail -6; else echo "no planning source configured"; fi`
 
 # Branch
 
-!`atlas branch --json 2>/dev/null | head -20`
+!`out=$(atlas branch --json 2>/dev/null); if [ -n "$out" ]; then printf '%s\n' "$out" | head -20; else echo "(atlas branch produced nothing — no atlas on PATH, or not a git repository)"; fi`
 
 ---
 

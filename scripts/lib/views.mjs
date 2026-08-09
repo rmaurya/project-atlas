@@ -81,6 +81,14 @@ export const DEFAULT_VIEWS = [
   },
 ];
 
+/**
+ * A view id becomes a filename: `path.join(outDir, 'view-' + id + '.html')`. That makes it a path, and a path
+ * from a config file is untrusted input — verified with `{"id":"x/../../../ESCAPED"}`, which wrote a file
+ * above the repository root. Constrained rather than sanitised: an id is also a URL fragment and a nav key, so
+ * anything outside this set is a mistake worth reporting by name, not something to quietly rewrite.
+ */
+const VIEW_ID = /^[A-Za-z0-9-]+$/;
+
 export function resolveViews(cfg) {
   const configured = cfg.views;
   const views = Array.isArray(configured) && configured.length ? configured : DEFAULT_VIEWS;
@@ -88,6 +96,7 @@ export function resolveViews(cfg) {
   const problems = [];
   for (const v of views) {
     if (!v.id) problems.push('a view has no id');
+    else if (!VIEW_ID.test(v.id)) problems.push(`view id ${JSON.stringify(v.id)} is not allowed — an id becomes a filename, so it must match ${VIEW_ID}`);
     if (seen.has(v.id)) problems.push(`duplicate view id: ${v.id}`);
     seen.add(v.id);
     for (const p of v.panels || []) {

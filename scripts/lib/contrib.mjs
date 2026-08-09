@@ -45,7 +45,11 @@ export function readContrib(root, cfg) {
     '%(trailers:key=Co-Authored-By,valueonly,separator=%x1e)',
     '%(trailers:key=Desk,valueonly)'].join('%x1f');
 
-  const args = ['log', `--format=${fmt}`, '--numstat', '--no-merges'];
+  // `-c core.quotePath=false`: git quotes any path containing a byte over 0x7F, so `docs/étude.md` arrives
+  // from `--numstat` as `"docs/\303\251tude.md"`. Every path here is compared against paths that came from
+  // `ls-files -z`, which does not quote — so a non-ASCII file silently belonged to no document, no cluster and
+  // no coverage row. See scan.mjs::gitHistory, where the same mismatch cost the staleness signal.
+  const args = ['-c', 'core.quotePath=false', 'log', `--format=${fmt}`, '--numstat', '--no-merges'];
   if (c.since) args.push(`--since=${c.since}`);
 
   let out;

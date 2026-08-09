@@ -54,6 +54,58 @@ published — a half-written draft in your working tree cannot leak into a wiki 
 ]
 ```
 
+### Every key is type-checked, and unknown keys are refused
+
+The config is hand-written JSON, and until recently the tool trusted every value in it. It does not any more:
+each key is checked against the type it is documented as, unknown top-level keys are rejected rather than
+ignored, and every message names the file you have to open.
+
+This is a correctness feature, not a strictness one. Each of these was verified producing a **confident, wrong
+report** rather than an error:
+
+| Written | What actually happened |
+|---|---|
+| `"blocking": "H1"` | `new Set("H1")` is `{'H','1'}` — no signal matched, and `atlas health` exited **0 with a dead link present** |
+| `"blocking": ["H10"]` | Names no signal, so the gate never fires. Ids are checked against the signal list |
+| `"include": null` | Zero documents discovered, and the build wrote an **empty site over the previous one** |
+| `"searchBodyLimit": "lots"` | `slice(0, "lots")` is zero characters, under a page saying "Full text of every document is indexed" |
+| `"staleDays": "ninety"` | Every comparison NaN, so the H6 grace period silently became zero |
+| `"output": 123` | Accepted by `health`, threw much later inside `build` |
+| `"blockng": ["H1"]` | A typo is a setting that silently did nothing. Unknown keys are now named and refused |
+
+**Paths in the config are confined to the repository.** `output`, `planning.source` and `deck.source` are
+resolved through `realpath` on both sides and refused if they land outside — including the repository root
+itself. `output` is *deleted recursively* on every build, and `{"output":"."}` removed a repository including
+its `.git`. `deck.source` and `planning.source` are rendered into pages that `publish --target pages`
+force-pushes, so `"../../creds.env"` was a published secret.
+
+**The output directory must also look like ours before it is deleted.** A directory that holds files but none
+of the markers a build leaves behind (`README.md`, `.gitattributes`) is refused — `docs` is one keystroke from
+`docs/_wiki`, and the difference between them is a day's work.
+
+### Patterns you supply are screened before they run
+
+`forbiddenTerms[].pattern`, `crossref[].pattern` and the three `planning.*Pattern` keys hand the tool a raw
+regular expression. A pattern whose *shape* can backtrack exponentially — a repeated group that contains
+another quantifier, or whose alternatives can match the same text — is **declined rather than run**:
+
+```
+(a+)+$        declined — the group (a+) is repeated by +, and it already contains a quantifier
+(a|ab)*       declined — two of its alternatives can match the same text
+(?:GET|POST)+ fine — distinct alternatives are not a hazard
+```
+
+This is not tidiness. A `forbiddenTerms` pattern of `(a+)+$` against a single 40-character line never returns,
+and `atlas health` hung with no output at all. A JavaScript regex cannot be interrupted once it has started, so
+the only way to guarantee the run finishes is to decline to start it.
+
+**A declined pattern is never quietly skipped.** Its rule is dropped, the signal is reported as `—` rather than
+`ok`, and the reason appears by name under **Not checked** — because a check that could not run is never
+reported as passing. An invalid regular expression is handled the same way instead of crashing the run.
+
+The screen is conservative and will occasionally decline a pattern that would have been fine. Rewrite it
+(`(?:…)` for grouping, distinct alternatives, one quantifier not two) and the check comes back.
+
 ```json
 "suppress": [
   { "signal": "H6", "path": "docs/logs/**",

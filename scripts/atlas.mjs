@@ -291,6 +291,9 @@ async function main() {
       }
 
       say(`Staged ${r.count} wiki page(s) → ${r.work}`);
+      say(r.driftChecked
+        ? `  Drift check ran against the live wiki — no page there was edited by hand since the last publish.`
+        : `  Drift check did NOT run: there is no wiki at ${r.url} yet, so there was nothing to compare against.`);
       if (r.collisions?.length) {
         say(`  ${r.collisions.length} page-name collision(s) resolved by suffixing; both documents are published:`);
         for (const c of r.collisions.slice(0, 5)) say(`    ${c.renamed} → ${c.to}`);
@@ -403,10 +406,16 @@ function doBuild(root, cfg, withGit, withReport, { stamp = false } = {}) {
   const index = buildIndex(root, cfg, { withGit });
   const health = runHealth(index, cfg, root);
   if (withReport) say(formatReport(health, index, { verbose: !!flag('verbose'), color }), '\n');
-  const { outDir, pages, truncated, plan, deck } = renderSite(index, health, cfg, root);
+  const { outDir, pages, truncated, plan, deck, collisions } = renderSite(index, health, cfg, root);
   if (stamp || flag('watch')) writeBuildStamp(root, cfg, new Date().toISOString().slice(11, 19));
 
+  // `pages` is counted from the files actually written, not from the index — see render.mjs. A collision that
+  // had to be renamed is stated rather than left to look like an ordinary build.
   say(`Built ${pages} page(s) → ${path.relative(root, outDir) || outDir}`);
+  if (collisions?.length) {
+    say(`  ${collisions.length} page-name collision(s) resolved by suffixing; both documents are written:`);
+    for (const c of collisions.slice(0, 5)) say(`    ${c.renamed} → ${c.to}`);
+  }
   if (truncated) say(`  ${truncated} long document(s) indexed to the first ${(cfg.searchBodyLimit || 6000).toLocaleString()} characters for search.`);
   say(plan && !plan.missing
     ? `  Dashboard: ${plan.stats.total} item(s) from ${plan.source}${plan.stats.unknown ? `, ${plan.stats.unknown} without a figure` : ''}.`

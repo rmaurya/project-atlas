@@ -11,7 +11,7 @@ disable-model-invocation: true
 
 # What would be published
 
-!`atlas scan 2>/dev/null | head -4`
+!`out=$(atlas scan 2>/dev/null); if [ -n "$out" ]; then printf '%s\n' "$out" | head -4; else echo "(atlas scan produced nothing — no config, not a git repository, or no atlas on PATH)"; fi`
 
 ---
 

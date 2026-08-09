@@ -16,7 +16,7 @@
  *    that flattens that distinction is lying quietly.
  */
 
-import { escapeHtml } from './markdown.mjs';
+import { escapeHtml, escapeAttr } from './markdown.mjs';
 import { SIGNALS } from './health.mjs';
 import { taskCoverage } from './contrib.mjs';
 import { PANELS } from './views.mjs';
@@ -54,6 +54,18 @@ export const STATUS = {
  * two sets are declared once in the stylesheet below.
  */
 const st = (role) => `var(--st-${role})`;
+
+/**
+ * A tone names a CSS class, and a tone reaches here from `planning.statusBands[].tone` in the configuration
+ * file — which is to say, from outside. It was interpolated straight into a quoted `class` attribute, and
+ * `{"tone":"x\" onmouseover=\"alert(1)"}` produced exactly the element you would expect.
+ *
+ * Allow-listed rather than escaped, because there is a fixed set of tones and anything else is a
+ * configuration error, not a value to render. Config validation rejects an unknown tone outright; this is the
+ * second lock, for the paths that build a tone rather than read one.
+ */
+const TONES = new Set(['none', 'mid', 'high', 'done', 'unknown']);
+const toneClass = (t) => (TONES.has(t) ? t : 'unknown');
 
 /**
  * One page per view. The view supplies an ordered list of panel ids; every panel is written once and
@@ -94,9 +106,12 @@ ${omitted.length ? `<section class="card muted"><h2>Not shown on this page</h2>
 }
 
 /** Returns the panel's HTML, or null when it has nothing to say. */
-function panel(id, { index, health, plan, cfg, contrib, view }) {
+function panel(id, { index, health, plan, cfg, contrib, view, nameFor }) {
   const hasPlan = plan && !plan.missing;
   const hasContrib = contrib && contrib.available;
+  // Falls back to the plain mapping when a caller has not supplied the collision-resolved map — the two agree
+  // for every path that does not collide, which is all of them in the common case.
+  const pageOf = nameFor || flatName;
 
   switch (id) {
     case 'tiles': return tiles(index, health, plan);
@@ -111,8 +126,8 @@ function panel(id, { index, health, plan, cfg, contrib, view }) {
     case 'people': return hasContrib ? peopleTable(contrib) : null;
     case 'desks': return hasContrib ? desksChart(contrib) : null;
     case 'coverage': return hasContrib && hasPlan ? coverageChart(contrib, plan) : null;
-    case 'changes': return changesPanel(cfg, index);
-    case 'documents': return documentsPanel(index, health, view);
+    case 'changes': return changesPanel(cfg, index, pageOf);
+    case 'documents': return documentsPanel(index, health, view, pageOf);
     case 'recent': return hasContrib ? recentPanel(contrib, plan) : null;
     case 'caveats': return caveats(plan, health, contrib);
     default: return null;
@@ -179,9 +194,14 @@ function healthChart(health, cfg) {
     blocking: (cfg.blocking || []).includes(s.id), why: s.why,
   })).filter((r) => r.count > 0);
 
+  // "Every signal reports clean" is a claim about signals that RAN. A signal whose configured pattern was
+  // declined has a count of zero and has not reported anything at all — see health.mjs::runHealth.
+  const skipped = health.unevaluated || [];
   if (!rows.length) {
     return `<figure class="card"><figcaption><h2>Documentation health</h2></figcaption>
-      <p class="empty"><span class="dot" style="background:${st('good')}"></span> No findings. Every signal reports clean.</p></figure>`;
+      <p class="empty">${skipped.length
+        ? `<span class="dot" style="background:${st('warning')}"></span> No findings from the signals that ran — but ${escapeHtml(skipped.join(', '))} could not be evaluated. See what this dashboard does not show.`
+        : `<span class="dot" style="background:${st('good')}"></span> No findings. Every signal reports clean.`}</p></figure>`;
   }
   const max = Math.max(...rows.map((r) => r.count));
   return `
@@ -215,7 +235,7 @@ function hbar(rows) {
   return `<div class="bars">${rows.map((r) => `
     <div class="bar">
       <span class="bl">${escapeHtml(r.label)}</span>
-      <span class="bt"><span class="bf t-${r.tone}${r.estimated ? ' est' : ''}" style="width:${Math.max(2, (r.value / (r.max || 1)) * 100)}%"></span></span>
+      <span class="bt"><span class="bf t-${toneClass(r.tone)}${r.estimated ? ' est' : ''}" style="width:${Math.max(2, (r.value / (r.max || 1)) * 100)}%"></span></span>
       <span class="bv">${r.value}${r.suffix || ''}<span class="bh">${escapeHtml(r.hint || '')}</span></span>
     </div>`).join('')}</div>`;
 }
@@ -254,10 +274,10 @@ function itemTable(plan) {
         ${plan.items.map((i) => `<tr data-percent="${i.percent === null ? -1 : i.percent}">
           <td class="mono">${escapeHtml(i.id)}</td>
           <td class="num">
-            <span class="mini"><span class="mf t-${i.status.tone}${i.estimated ? ' est' : ''}" style="width:${i.percent === null ? 0 : i.percent}%"></span></span>
+            <span class="mini"><span class="mf t-${toneClass(i.status.tone)}${i.estimated ? ' est' : ''}" style="width:${i.percent === null ? 0 : i.percent}%"></span></span>
             <span class="pct">${i.percent === null ? '—' : i.percent + '%'}${i.estimated ? '<abbr title="estimated in the source, not measured against the code">*</abbr>' : ''}</span>
           </td>
-          <td><span class="pill t-${i.status.tone}">${escapeHtml(i.status.label)}</span></td>
+          <td><span class="pill t-${toneClass(i.status.tone)}">${escapeHtml(i.status.label)}</span></td>
           <td><strong>${escapeHtml(i.title)}</strong><span class="sum">${escapeHtml(i.summary || '')}</span></td>
           <td class="mono">${escapeHtml(i.priority)}</td>
           <td>${escapeHtml(i.criticality)}</td>
@@ -410,9 +430,22 @@ function coverageChart(contrib, plan) {
  * The developer panel. A changed file is uninteresting alone; a changed file that an old document cites is
  * the finding, and the corpus index already knows which documents those are.
  */
-function changesPanel(cfg, index) {
+function changesPanel(cfg, index, nameFor) {
   let k;
-  try { k = readChanges(cfg.__root || process.cwd(), cfg, index); } catch { return null; }
+  try {
+    k = readChanges(cfg.__root || process.cwd(), cfg, index);
+  } catch (err) {
+    // `changes.mjs` re-raises deliberately: its docblock says a git command that silently returns nothing
+    // looks exactly like a repository with no changes, which is the failure this project cares about most.
+    // Catching it and returning null threw that away — the panel then appeared under "Not shown on this page",
+    // whose stated meaning is "omitted because there is no data behind them". The error became "nothing
+    // changed", one level of indirection later. It is rendered instead: the build still finishes, and the page
+    // says which check did not run.
+    return `<figure class="card muted"><figcaption><h2>Changes</h2></figcaption>
+      <p class="empty"><span class="dot" style="background:${st('warning')}"></span>
+      This panel could not be built — <code>${escapeHtml(String(err.message || err))}</code>.
+      That is not the same as "nothing changed": no comparison was made, so no document is listed here as safe.</p></figure>`;
+  }
   if (!k.available) return null;
   const total = k.staged.length + k.unstaged.length + k.committed.length;
   if (!total) return `<figure class="card muted"><figcaption><h2>Changes</h2></figcaption>
@@ -428,14 +461,14 @@ function changesPanel(cfg, index) {
   <p class="cap">Oldest first. These are not necessarily wrong — they are the ones whose ground just moved.</p>
   <ul class="doclist">
     ${k.docsAtRisk.slice(0, 10).map((d) => `<li>
-      <a href="pages/${flatName(d.doc)}">${escapeHtml(d.title || d.doc)}</a>
+      <a href="pages/${escapeAttr(nameFor(d.doc))}">${escapeHtml(d.title || d.doc)}</a>
       <span class="dm">${d.date || 'undated'} · cites ${escapeHtml(d.cites.slice(0, 3).join(', '))}${d.cites.length > 3 ? ` and ${d.cites.length - 3} more` : ''}</span>
     </li>`).join('')}
   </ul>` : '<p class="cap">No document cites any of the changed files.</p>'}
 </section>`;
 }
 
-function documentsPanel(index, health, view) {
+function documentsPanel(index, health, view, nameFor) {
   const want = view.clusters || [];
   if (!want.length) return null;
   const clusters = index.clusters.filter((c) => want.includes(c.id));
@@ -459,7 +492,7 @@ function documentsPanel(index, health, view) {
     ${docs.map((d) => {
       const flags = flagsFor(d.path);
       return `<li>
-        <a href="pages/${flatName(d.path)}">${escapeHtml(d.title || d.path)}</a>
+        <a href="pages/${escapeAttr(nameFor(d.path))}">${escapeHtml(d.title || d.path)}</a>
         <span class="dm">${d.git ? d.git.date : 'undated'} · ${d.lines.toLocaleString()} lines${d.status ? ` · ${escapeHtml(d.status)}` : ''}</span>
         ${flags.length ? `<span class="dflags">${flags.map((f) =>
           `<span class="sig ${f.blocking ? 'block' : 'adv'}" title="${escapeHtml(f.detail || '')}">${f.signal}</span>`).join('')}</span>` : ''}
