@@ -24,7 +24,7 @@ import { renderMarkdown, inline } from '../scripts/lib/markdown.mjs';
 import { readPlanning } from '../scripts/lib/planning.mjs';
 import { readDeck } from '../scripts/lib/deck.mjs';
 import { RAMP, STATUS } from '../scripts/lib/dashboard.mjs';
-import { buildWikiPages, wikiPageName, exportSingleFile, RESERVED } from '../scripts/lib/publish.mjs';
+import { buildWikiPages, wikiPageName, exportSingleFile, RESERVED, gitlabPagesJob } from '../scripts/lib/publish.mjs';
 import { readContrib, estimateHours, taskCoverage } from '../scripts/lib/contrib.mjs';
 import { readTokens, formatTokens, formatSessions, assertNotPublishable, transcriptDir } from '../scripts/lib/tokens.mjs';
 import { branchStatus, createBranch, TYPES } from '../scripts/lib/branch.mjs';
@@ -975,6 +975,26 @@ test('host · no remote is reported, not guessed', () => {
   const h = detectHost(dir, {});
   eq(h.kind, 'none');
   eq(gateTarget('wiki', h, { checked: false }).ok, false);
+});
+
+test('host · GitLab Pages refuses a branch push instead of silently doing nothing', () => {
+  // GitLab publishes a `public/` artifact from a CI job. Pushing a gh-pages branch there succeeds and
+  // achieves nothing, which is worse than a refusal that names the real mechanism.
+  const dir = fixture('host-gl-pages', { 'docs/A.md': '# A\n' }, { remote: 'git@gitlab.com:group/proj.git' });
+  const g = gateTarget('pages', detectHost(dir, {}), { checked: true, pages: false, slug: 'group/proj' });
+  eq(g.ok, false);
+  includes(g.reason, 'does not deploy from a branch');
+  includes(g.hint, 'public/');
+  // GitHub is the opposite: pushing the branch is how you enable it, so it warns and proceeds.
+  const gh = fixture('host-gh-pages', { 'docs/A.md': '# A\n' }, { remote: 'git@github.com:acme/widget.git' });
+  eq(gateTarget('pages', detectHost(gh, {}), { checked: true, pages: false, slug: 'acme/widget' }).ok, true);
+});
+
+test('host · the GitLab CI job publishes from public/, not a branch', () => {
+  const job = gitlabPagesJob({ output: 'docs/_wiki' });
+  includes(job, 'pages:');
+  includes(job, 'mv docs/_wiki public');
+  includes(job, 'paths: [public]');
 });
 
 test('host · an unchecked capability does NOT block a publish target', () => {

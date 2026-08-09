@@ -258,6 +258,12 @@ atlas publish --target export     # one self-contained HTML file
 **Nothing pushes without an explicit `--push`.** The default stages to a temp directory and prints what would
 go where.
 
+**GitHub and GitLab differ in two ways that matter**, and the tool handles both rather than assuming GitHub:
+wiki repositories default to `master` on GitHub and `main` on GitLab — pushing to the wrong one silently
+creates a branch the wiki UI never shows, which looks exactly like a push that did nothing. And **GitLab Pages
+is a CI artifact, not a branch**: `--target pages --push` refuses there and points at `--ci`, which writes the
+`pages` job that publishes `public/`.
+
 GitHub offers no pull-request review on wiki repositories, so every push there is immediately live. Each page
 therefore carries a do-not-edit banner, and each publish records a content hash per page. When a hash no
 longer matches, publish **refuses** — `--import` copies the hand-edited pages out for review rather than

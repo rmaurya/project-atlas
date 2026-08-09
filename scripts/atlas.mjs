@@ -28,7 +28,7 @@ import { buildIndex, discover } from './lib/scan.mjs';
 import { readPlanning } from './lib/planning.mjs';
 import { runHealth, formatReport } from './lib/health.mjs';
 import { renderSite, writeBuildStamp } from './lib/render.mjs';
-import { buildWikiPages, stageWiki, stagePages, exportSingleFile } from './lib/publish.mjs';
+import { buildWikiPages, stageWiki, stagePages, exportSingleFile, gitlabPagesJob } from './lib/publish.mjs';
 import { readContrib, formatContrib } from './lib/contrib.mjs';
 import { detectHost, probeCapabilities, gateTarget, formatCapabilities } from './lib/host.mjs';
 import { communityAssets, writeCommunity } from './lib/community.mjs';
@@ -253,7 +253,7 @@ async function main() {
 
     if (target === 'wiki') {
       const built = buildWikiPages(index, health, plan, cfg, root);
-      const r = stageWiki(root, cfg, built, { push, force: !!flag('force'), importDrift: !!flag('import') });
+      const r = stageWiki(root, cfg, built, { push, force: !!flag('force'), importDrift: !!flag('import'), host });
 
       if (!r.staged) {
         console.error(`\nRefusing to publish — the wiki at ${r.url} has ${r.drift.length} change(s) not written by project-atlas.\n`);
@@ -278,6 +278,13 @@ async function main() {
     }
 
     if (target === 'pages') {
+      if (host.kind === 'gitlab' && flag('ci')) {
+        const dest = path.resolve(root, '.gitlab-ci.yml');
+        say(fs.existsSync(dest)
+          ? `.gitlab-ci.yml already exists — add this job to it:\n\n${gitlabPagesJob(cfg)}`
+          : (fs.writeFileSync(dest, gitlabPagesJob(cfg), 'utf8'), 'Wrote .gitlab-ci.yml with a pages job.'));
+        return;
+      }
       const r = stagePages(root, cfg, { push });
       say(`Staged the site → ${r.work}`);
       say(r.pushed
@@ -492,6 +499,7 @@ function usage() {
     --target wiki            GitHub Wiki — flattened markdown, links rewritten, drift-guarded
     --target pages           the full site to a gh-pages branch (dashboard + deck survive)
     --target export          one self-contained HTML file (--page dashboard|index|health)
+    --ci                     (GitLab, pages) write the .gitlab-ci.yml job instead — Pages is an artifact there
 
 Flags
   --root <dir>       repository root (default: git toplevel, else cwd)

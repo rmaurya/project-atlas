@@ -202,10 +202,11 @@ function dashboardMd(plan, index, health) {
 
 /* ------------------------------------------------------------------ wiki staging + drift */
 
-export function stageWiki(root, cfg, built, { push = false, force = false, importDrift = false } = {}) {
+export function stageWiki(root, cfg, built, { push = false, force = false, importDrift = false, host = null } = {}) {
+  host = host || { kind: 'github' };
   const slug = cfg.publish?.wiki?.slug || slugFromRemote(root);
   if (!slug) throw new Error('Cannot determine the GitHub repository. Set publish.wiki.slug ("owner/repo") in the config.');
-  const url = `https://github.com/${slug}.wiki.git`;
+  const url = host.wikiGit || `https://github.com/${slug}.wiki.git`;
 
   const work = path.join(os.tmpdir(), `atlas-wiki-${sha(root + slug)}`);
   fs.rmSync(work, { recursive: true, force: true });
@@ -274,7 +275,10 @@ export function stageWiki(root, cfg, built, { push = false, force = false, impor
         'commit', '-qm', `project-atlas: publish ${built.pages.size} page(s)`], { cwd: work, stdio: 'ignore' });
     } catch { /* nothing changed */ }
     if (!cloned) execFileSync('git', ['remote', 'add', 'origin', url], { cwd: work, stdio: 'ignore' });
-    execFileSync('git', ['push', 'origin', 'HEAD:master'], { cwd: work, stdio: 'inherit' });
+    // GitHub wikis default to `master`; GitLab wikis to `main`. Pushing to the wrong one silently creates a
+    // second branch that the wiki UI never shows, which looks exactly like a push that did nothing.
+    const branch = host.kind === 'gitlab' ? 'main' : 'master';
+    execFileSync('git', ['push', 'origin', `HEAD:${branch}`], { cwd: work, stdio: 'inherit' });
     pushed = true;
   }
 
@@ -330,6 +334,25 @@ function copyDir(from, to) {
     if (e.isDirectory()) copyDir(s, d);
     else fs.copyFileSync(s, d);
   }
+}
+
+/**
+ * GitLab Pages is a CI artifact, not a branch: a job named `pages` must leave the site in `public/`. There is
+ * no push to make, so the useful output is the job itself.
+ */
+export function gitlabPagesJob(cfg) {
+  return `# Added by project-atlas. GitLab Pages publishes the \`public/\` artifact of a job named \`pages\`;
+# there is no branch to push, which is why \`atlas publish --target pages --push\` refuses on GitLab.
+pages:
+  image: node:20
+  script:
+    - node scripts/atlas.mjs build
+    - mv ${cfg.output || 'docs/_wiki'} public
+  artifacts:
+    paths: [public]
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+`;
 }
 
 /* ------------------------------------------------------------------ single-file export */

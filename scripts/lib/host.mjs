@@ -203,12 +203,19 @@ function wikiRepoExists(host) {
 }
 
   if (target === 'pages') {
+    // GitLab Pages is published by a CI job that emits a `public/` artifact — there is no branch to push, so
+    // pushing one would do nothing at all. Refusing is more useful than a silent no-op.
+    if (host.kind === 'gitlab') {
+      return {
+        ok: false,
+        reason: 'GitLab Pages does not deploy from a branch — it publishes a `public/` artifact from a CI job.',
+        hint: 'Run `atlas publish --target pages` without --push to stage the site, then have .gitlab-ci.yml copy it to public/. `atlas init` can write that job for you.',
+      };
+    }
     if (caps.checked && caps.pages === false) {
       return {
         ok: true,                          // pushing the branch is exactly how you enable it, so this is a note
-        warn: host.kind === 'github'
-          ? 'Pages is not configured yet. Pushing the branch is harmless; enable it at Settings → Pages → Source: Deploy from a branch → gh-pages.'
-          : 'GitLab Pages deploys from CI, not a branch. The staged site is still usable as a CI artifact.',
+        warn: 'Pages is not configured yet. Pushing the branch is harmless; enable it at Settings → Pages → Source: Deploy from a branch → gh-pages.',
       };
     }
     if (!caps.checked) return { ok: true, warn: `Capabilities unchecked (${caps.reason}).` };
