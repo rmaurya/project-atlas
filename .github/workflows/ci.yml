@@ -2,12 +2,30 @@ name: CI
 on: [push, pull_request]
 jobs:
   test:
-    runs-on: ubuntu-latest
+    # Windows path handling was unverified for nineteen releases. The code normalises to posix separators
+    # throughout and every path check folds case on win32 — but neither claim had ever been executed there,
+    # and an untested claim about paths is exactly the kind that turns out to be false.
+    #
+    # macOS earns its place separately: it is case-insensitive by default, which is the property
+    # `isAtOrInside` exists to defend against, and the only runner where that guard is actually exercised.
+    strategy:
+      fail-fast: false        # a Windows-only failure must not hide whether Linux passed
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        node: ['20', '22']
+    runs-on: ${{ matrix.os }}
+    # Windows defaults `run:` to PowerShell, where a multi-line POSIX block is not a script but a syntax
+    # error. Every step here is written for a POSIX shell, so say so once rather than per step.
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v4
         with: { fetch-depth: 0 }   # the tool reads git history; a shallow clone would hide it
       - uses: actions/setup-node@v4
-        with: { node-version: '20' }
+        with: { node-version: '${{ matrix.node }}' }
+      - name: Git must not rewrite line endings, or every hash and diff differs by platform
+        run: git config --global core.autocrlf false
       - name: Runtime packages are in sync
         run: node scripts/sync-runtimes.mjs --check
       # Runs on push as well as on pull_request: the commit that motivated this gate went straight to main,

@@ -13,6 +13,23 @@ versions follow [Semantic Versioning](https://semver.org/).
 - `atlas plan` — propose the git route for the working tree and wait for approval, rather than only refusing a
   commit once it is attempted.
 
+## [0.1.20] — 2026-08-10
+
+### Added
+- **CI runs on a matrix** — ubuntu, macOS and Windows against Node 20 and 22, `fail-fast: false`. Windows
+  path handling had been unverified for nineteen releases: the code normalises to posix separators
+  throughout and folds case on win32, and neither claim had ever been executed there. macOS earns its own
+  row because it is case-insensitive by default, which is the exact property `isAtOrInside` defends against.
+- Windows needs `shell: bash` and `core.autocrlf false`, or every `run:` block is a PowerShell syntax error
+  and every hash differs by platform for reasons unrelated to the code.
+- **Tests that need a POSIX shell are skipped by name and counted**, not dropped. A suite quietly running
+  202 of 206 on one platform reports a green tick for coverage it did not have.
+
+### Fixed
+- `I-3` was marked 40% in the roadmap table after shipping at 0.1.19 — the edit that was meant to update it
+  matched a row shape that no longer existed, and failed silently. The figure was wrong on the dashboard for
+  one release.
+
 ## [0.1.19] — 2026-08-10
 
 ### Added

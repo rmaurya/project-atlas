@@ -48,12 +48,23 @@ const filter = (() => {
   return i === -1 ? null : process.argv[i + 1];
 })();
 
+// The hook tests execute the shell blocks the plugin ships, which are POSIX. Windows has no `sh`, so they
+// cannot run there — and a suite that silently drops four tests on one platform is a suite that reports a
+// green tick for coverage it did not have. They are skipped by name and counted.
+const POSIX_SHELL = process.platform !== 'win32';
+let skipped = 0;
+
 let pass = 0, fail = 0;
 const failures = [];
 
 const pendingAsync = [];
-function test(name, fn) {
+function test(name, fn, { needsPosixShell = false } = {}) {
   if (filter && !name.toLowerCase().includes(filter.toLowerCase())) return;
+  if (needsPosixShell && !POSIX_SHELL) {
+    skipped++;
+    process.stdout.write(`  \x1b[33m-\x1b[0m ${name}  (skipped: no POSIX shell on ${process.platform})\n`);
+    return;
+  }
   try {
     const r = fn();
     if (r && typeof r.then === 'function') { pendingAsync.push({ name, p: r }); return; }
@@ -1515,7 +1526,7 @@ test('runtimes · the hook fires on git commit and ignores everything else', () 
   ok(run('npm test').status === 0);
   const onCommit = run('git commit -m "x"');
   includes(onCommit.stderr + onCommit.stdout, 'Types:', 'a git commit must invoke the branch guard');
-});
+}, { needsPosixShell: true });
 
 test('runtimes · the branch guard exits 2 on a protected branch and 0 everywhere else', () => {
   // The hook shipped as `… && "$ROOT/bin/atlas" branch >&2 || exit 0`. `A && B || exit 0` swallows B's
@@ -1543,7 +1554,7 @@ test('runtimes · the branch guard exits 2 on a protected branch and 0 everywher
   const onBranch = fixture('hook-branch', { 'docs/A.md': '# A\n' });
   execFileSync('git', ['switch', '-c', 'fix/thing'], { cwd: onBranch, stdio: 'ignore' });
   eq(run(onBranch, 'git commit -m "x"').status, 0, 'a commit on a conventional branch must pass');
-});
+}, { needsPosixShell: true });
 
 test('runtimes · a guard that cannot run at all blocks and says so, rather than passing silently', () => {
   // Same rule as every report in this tool: a check that could not run is never reported as having passed.
@@ -1557,7 +1568,7 @@ test('runtimes · a guard that cannot run at all blocks and says so, rather than
   });
   eq(r.status, 2, 'a missing bin/atlas must not wave the commit through');
   includes(r.stderr, 'NOT checked');
-});
+}, { needsPosixShell: true });
 
 test('runtimes · each runtime manifest is where that runtime looks for it', () => {
   const root = path.join(HERE, '..');
@@ -1598,7 +1609,7 @@ test('skills · every embedded shell block produces output, so a missing atlas n
     }
   }
   ok(checked >= 12, `expected to exercise every block, ran ${checked}`);
-});
+}, { needsPosixShell: true });
 
 test('skills · /atlas:diff is one command, because the permission checker splits compound ones', () => {
   // Claude Code splits a compound Bash command on its operators and asks approval for each fragment. So
@@ -2721,7 +2732,7 @@ for (const { name, p } of pendingAsync) {
 for (const d of made) fs.rmSync(d, { recursive: true, force: true });
 fs.rmSync(tmpRoot, { recursive: true, force: true });
 
-console.log(`\n${pass} passed, ${fail} failed\n`);
+console.log(`\n${pass} passed, ${fail} failed${skipped ? `, ${skipped} skipped on ${process.platform}` : ''}\n`);
 if (fail) {
   console.log('Failures:');
   for (const f of failures) console.log(`  ✗ ${f.name}`);

@@ -1,6 +1,6 @@
 # Roadmap — project-atlas
 
-**Last updated:** 2026-08-10 · **Version:** 0.1.19 · **Status:** pre-release, dogfooding
+**Last updated:** 2026-08-10 · **Version:** 0.1.20 · **Status:** pre-release, dogfooding
 
 Open work, with an honest completion figure against each item. A figure marked `*` is estimated rather than
 measured against the code — the same distinction the tool preserves everywhere else, applied to itself.
@@ -16,12 +16,12 @@ measured against the code — the same distinction the tool preserves everywhere
 | C-1 | 100 | C-2 | 100 | C-3 | 100 |
 | C-4 | 100 | C-5 | 0* | C-6 | 0 |
 | P-1 | 100 | P-2 | 90 | P-3 | 70* |
-| Q-1 | 100 | Q-2 | 30* | Q-3 | 0 |
+| Q-1 | 100 | Q-2 | 30* | Q-3 | 100 |
 | D-1 | 100 | D-2 | 100 | D-3 | 100 |
 | D-4 | 100 | D-5 | 100 | D-6 | 100 |
 | D-7 | 100 | D-8 | 100 | D-9 | 100 |
 | D-10 | 100 | I-1 | 100 | | |
-| I-3 | 40* | D-11 | 100 | I-2 | 100 |
+| I-3 | 100 | D-11 | 100 | I-2 | 100 |
 
 ---
 
@@ -85,9 +85,17 @@ Every bug the tool has shipped is pinned by a test that fails without its fix.
 Running `init` on this repository matched 1 of 9 default clusters. Found by dogfooding.
 
 **Q-3 · CI on a matrix** — **P2 · Low**
-*CI runs on Node 20 and Linux only.*
-Windows path handling is unverified: the code normalises to posix separators throughout, but no test has run
-there.
+*Shipped in 0.1.20.* Six combinations: ubuntu, macOS and Windows against Node 20 and 22, `fail-fast: false`
+so a Windows-only failure cannot hide whether Linux passed.
+
+macOS earns its place separately from Linux: it is case-insensitive by default, which is precisely the
+property `isAtOrInside` exists to defend against and the only runner where that guard is exercised. Windows
+gets `core.autocrlf false`, or every hash and diff differs by platform for reasons that have nothing to do
+with the code.
+
+The four hook tests execute POSIX shell blocks and cannot run on Windows. They are **skipped by name and
+counted in the summary** rather than dropped — a suite that quietly runs 202 of 206 on one platform reports a
+green tick for coverage it did not have.
 
 ## Track 4 — Delivery
 
