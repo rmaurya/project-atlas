@@ -25,6 +25,8 @@ import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { execFileSync } from 'node:child_process';
+import { escapeHtml } from './markdown.mjs';
+import { compare as compareVersions } from './version.mjs';
 
 const MANIFEST = '.atlas-manifest.json';
 const sha = (s) => crypto.createHash('sha256').update(s, 'utf8').digest('hex').slice(0, 16);
@@ -408,6 +410,256 @@ pages:
 function inlineScript(js) {
   return js.replace(/<\/(script)/gi, '<\\/$1');
 }
+
+/**
+ * Every generated page in one self-contained file, with the navigation working.
+ *
+ * `exportSingleFile` strips the nav because its links point at sibling files that do not travel with it. That
+ * is right for one page and wrong as a destination: the site is nine pages and a menu, and exporting the
+ * dashboard alone ships the least useful nine-hundredths of it. Published as an Artifact — which is what this
+ * project tells people to do with the export — the reader gets one view and no way to reach the others.
+ *
+ * So: each page's `<main>` becomes a `<section>`, the nav switches between them in the document, and nothing
+ * is fetched.
+ *
+ * **The reason this is not a concatenation.** Ten pages carry `id="themeToggle"`, seven carry `id="stamp"`,
+ * and `dashboard` and `view-product` both carry the items table — `itbl`, `items`, `tq`, `tcount`,
+ * `tfilters`. Duplicate ids are invalid HTML and `getElementById` returns the first match, so the second
+ * page's script would silently drive the first page's table. Chrome ids are rendered once; colliding content
+ * ids are prefixed per page, and that page's own script and CSS are rewritten to match. Anything appearing on
+ * exactly one page keeps its name.
+ */
+export function exportBundle(root, cfg, pages = null, about = {}) {
+  const outDir = path.resolve(root, cfg.output);
+  const all = pages || BUNDLE_PAGES.filter((p) => fs.existsSync(path.join(outDir, `${p.file}.html`)));
+  if (!all.length) throw new Error(`No generated pages found in ${cfg.output}. Run \`atlas build\` first.`);
+
+  // Ids carried by more than one page. Chrome is deduplicated; the rest are prefixed.
+  const seen = new Map();
+  for (const p of all) {
+    const html = fs.readFileSync(path.join(outDir, `${p.file}.html`), 'utf8');
+    for (const id of new Set([...html.matchAll(/id="([\w-]+)"/g)].map((m) => m[1]))) {
+      seen.set(id, (seen.get(id) || 0) + 1);
+    }
+  }
+  const collides = new Set([...seen].filter(([id, n]) => n > 1 && !CHROME_IDS.has(id)).map(([id]) => id));
+
+  const sections = all.map((p, i) => {
+    let html = fs.readFileSync(path.join(outDir, `${p.file}.html`), 'utf8');
+    const body = /<main>([\s\S]*?)<\/main>/.exec(html);
+    const scripts = [...html.matchAll(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/g)].map((m) => m[1]);
+    let inner = body ? body[1] : '';
+    let js = scripts.join('\n');
+
+    for (const id of collides) {
+      const to = `${p.file}--${id}`;
+      inner = inner.split(`id="${id}"`).join(`id="${to}"`);
+      // The page's own script and any selector it uses. Both quote styles, and `#id` inside CSS or a query.
+      js = js.split(`'${id}'`).join(`'${to}'`).split(`"${id}"`).join(`"${to}"`)
+             .split(`#${id}`).join(`#${to}`);
+      inner = inner.split(`#${id}`).join(`#${to}`);
+    }
+    // The build-stamp poll has nothing to poll against, and only one stamp is rendered.
+    js = js.replace(/poll\(\); setInterval\(poll, \d+\);/, '/* live reload disabled in bundle */');
+    return { ...p, inner, js, first: i === 0 };
+  });
+
+  const css = fs.readFileSync(path.join(outDir, 'atlas.css'), 'utf8');
+  const searchPath = path.join(outDir, 'search-index.js');
+  const search = fs.existsSync(searchPath) ? inlineScript(fs.readFileSync(searchPath, 'utf8')) : '';
+  const title = escapeHtml(cfg.siteTitle || 'project-atlas');
+  sections.push({ file: 'about', label: 'About', inner: aboutSection(about, title), js: '', first: false });
+
+  return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${title}</title>
+<style>
+${css}
+[data-page] { display:none; }
+[data-page].on { display:block; }
+.topbar nav a.on { color:var(--ink); font-weight:620; }
+.built-by { font-size:12.5px; color:var(--mut); white-space:nowrap; }
+.built-by .sep { opacity:.5; }
+.updbar {
+  display:flex; gap:12px; align-items:baseline; flex-wrap:wrap;
+  padding:9px max(3%, calc((100% - var(--maxw)) / 2));
+  background:var(--surface-3); border-bottom:1px solid var(--bd); font-size:13.5px; color:var(--fg-soft);
+}
+.updbar strong { color:var(--fg); }
+.about-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:16px; margin:18px 0; }
+@media (max-width:700px) { .built-by { display:none; } }
+</style>
+</head>
+<body>
+${updateBar(about)}
+<header class="topbar">
+  <span class="brand">${title}</span>
+  <span class="built-by">${escapeHtml(about.tool || 'project-atlas')} ${escapeHtml(about.version || '')}${
+    about.model ? ` <span class="sep">·</span> ${escapeHtml(about.model)}` : ''}</span>
+  <nav>
+${sections.map((s) => `    <a href="#${s.file}" data-go="${s.file}"${s.first ? ' class="on" aria-current="page"' : ''}>${escapeHtml(s.label)}</a>`).join('\n')}
+  </nav>
+  <button type="button" class="theme-toggle" id="themeToggle" aria-label="Theme: system"></button>
+</header>
+${sections.map((s) => `<main data-page="${s.file}"${s.first ? ' class="on"' : ''}>\n${s.inner}\n</main>`).join('\n')}
+<footer>Generated by <strong>${title}</strong>. This page is derived — edit the markdown, not this file.</footer>
+${search ? `<script>${search}</script>` : ''}
+${sections.map((s) => `<script>${inlineScript(s.js)}</script>`).join('\n')}
+<script>(function(){
+  var links = document.querySelectorAll('[data-go]');
+  function show(name){
+    var found = false;
+    document.querySelectorAll('[data-page]').forEach(function(m){
+      var on = m.getAttribute('data-page') === name; m.classList.toggle('on', on); if (on) found = true;
+    });
+    if (!found) return false;
+    links.forEach(function(a){
+      var on = a.getAttribute('data-go') === name;
+      a.classList.toggle('on', on);
+      if (on) a.setAttribute('aria-current','page'); else a.removeAttribute('aria-current');
+    });
+    return true;
+  }
+  links.forEach(function(a){
+    a.addEventListener('click', function(e){ e.preventDefault(); var n = a.getAttribute('data-go');
+      if (show(n)) { try { history.replaceState(null,'','#'+n); } catch(err){} } });
+  });
+  // An unknown or absent fragment leaves the first page showing rather than a blank document.
+  if (location.hash) show(location.hash.slice(1));
+  window.addEventListener('hashchange', function(){ show(location.hash.slice(1)); });
+})();</script>
+<script>(function(){
+  var KEY='atlas-theme', root=document.documentElement, btn=document.getElementById('themeToggle');
+  if(!btn) return;
+  var order=['auto','light','dark'], glyph={auto:'\\u25D0',light:'\\u2600',dark:'\\u263E'};
+  var name={auto:'system',light:'light',dark:'dark'}, cur='auto';
+  try{ var v=localStorage.getItem(KEY); if(v==='light'||v==='dark') cur=v; }catch(e){}
+  function paint(){
+    if(cur==='auto') root.removeAttribute('data-theme'); else root.setAttribute('data-theme',cur);
+    btn.textContent=glyph[cur];
+    btn.setAttribute('aria-label','Theme: '+name[cur]+'. Click to change.');
+  }
+  paint();
+  btn.addEventListener('click',function(){
+    cur=order[(order.indexOf(cur)+1)%order.length];
+    try{ localStorage.setItem(KEY,cur); }catch(e){}
+    paint();
+  });
+})();</script>
+</body>
+</html>
+`;
+}
+
+/**
+ * The update row, rendered only when the build already knew an update existed.
+ *
+ * **A static file cannot check anything.** It is generated once and then read, possibly weeks later, and an
+ * Artifact runs under a policy that blocks every outbound request anyway. So this states what was true at
+ * build time and dates it, rather than implying it is live. When the build had no answer — offline, never
+ * checked — there is no row at all: a page that cannot know must not reassure.
+ */
+function updateBar(about) {
+  // Ordering, not inequality. `latest !== version` also fires when the build is *ahead* of the last published
+  // release — which is the normal state on a machine that just cut one — and told the reader to upgrade 0.1.5
+  // to 0.1.3. Only an actually-newer published version earns a row.
+  if (!about.latest || !about.version || compareVersions(about.version, about.latest) !== -1) return '';
+  const help = about.help || 'https://github.com/rmaurya/project-atlas#updating';
+  return `<div class="updbar" role="status">
+  <span><strong>${escapeHtml(about.tool || 'project-atlas')} ${escapeHtml(about.latest)}</strong> was available when this page was generated — it was built with ${escapeHtml(about.version)}.</span>
+  <a href="${escapeHtml(help)}" rel="noopener">How to update</a>
+  ${about.checkedAt ? `<span class="cap">checked ${escapeHtml(about.checkedAt)}</span>` : ''}
+</div>
+`;
+}
+
+/** The About page. Everything a reader needs to know about what made this, and what it refuses to claim. */
+function aboutSection(about, title) {
+  const rows = [
+    ['Tool', `${escapeHtml(about.tool || 'project-atlas')} ${escapeHtml(about.version || 'unknown')}`],
+    ['Generated', escapeHtml(about.generatedAt || 'unknown')],
+    ['Commit', about.commit ? `<code>${escapeHtml(about.commit)}</code>` : '<span class="cap">not a git checkout</span>'],
+    ['Assisted by', about.model ? escapeHtml(about.model) : '<span class="cap">no model trailer found in history</span>'],
+    ['Latest known', about.latest
+      ? escapeHtml(about.latest)
+        + (about.checkedAt ? ` <span class="cap">(checked ${escapeHtml(about.checkedAt)})</span>` : '')
+        // Saying "latest 0.1.3" beside "tool 0.1.5" reads as a contradiction unless the page explains it.
+        + (compareVersions(about.version, about.latest) === 1
+            ? ' <span class="cap">— this build is ahead of the published release</span>' : '')
+      : '<span class="cap">not checked — this file makes no network request</span>'],
+  ];
+  const links = (about.links || []).map((l) =>
+    `<li><a href="${escapeHtml(l.href)}" rel="noopener">${escapeHtml(l.label)}</a>${l.note ? ` <span class="cap">— ${escapeHtml(l.note)}</span>` : ''}</li>`).join('\n      ');
+  const people = (about.people || []).map((p) =>
+    `<li>${escapeHtml(p.name)} <span class="cap">${p.commits} commit(s)${p.ai ? ` · ${p.ai} AI-assisted` : ''}</span></li>`).join('\n      ');
+
+  return `
+<h1>About</h1>
+<p class="lede">What generated this page, what it is derived from, and what it deliberately does not claim.</p>
+
+<section class="card">
+  <h2>Version</h2>
+  <div class="table-wrap"><table class="mini-table"><tbody>
+    ${rows.map(([k, v]) => `<tr><td>${k}</td><td>${v}</td></tr>`).join('\n    ')}
+  </tbody></table></div>
+</section>
+
+<div class="about-grid">
+  <section class="card">
+    <h2>Links</h2>
+    <ul class="linklist">
+      ${links || '<li><span class="cap">No repository remote was configured.</span></li>'}
+    </ul>
+  </section>
+
+  <section class="card">
+    <h2>Contributors</h2>
+    <p class="cap">From <code>git log</code>. Listed, not ranked — there is deliberately no contribution score.</p>
+    <ul class="linklist">
+      ${people || '<li><span class="cap">No commit history available.</span></li>'}
+    </ul>
+  </section>
+</div>
+
+<section class="card muted">
+  <h2>What this is</h2>
+  <p>Every page here is <strong>derived</strong> from the markdown committed in this repository. Delete the
+  output directory, rebuild, and you get the same bytes back. Nothing on this site is the only copy of
+  anything — to change a page, change the document behind it.</p>
+  <p>The figures come from the files and from <code>git log</code>. None of them is a measure of prompt
+  quality or of difficulty: a repository cannot see a prompt, and a turn on a hard problem and a turn on a
+  typo count the same.</p>
+  <p class="cap">Generated by ${title}. Licensed MIT.</p>
+</section>
+`;
+}
+
+/** The pages a bundle carries, in the order the nav shows them. Absent ones are skipped, never faked. */
+export const BUNDLE_PAGES = [
+  { file: 'index', label: 'Home' },
+  { file: 'dashboard', label: 'Overview' },
+  { file: 'view-qc', label: 'Quality' },
+  { file: 'view-product', label: 'Product' },
+  { file: 'view-delivery', label: 'Delivery' },
+  { file: 'view-architecture', label: 'Architecture' },
+  { file: 'view-developer', label: 'Developer' },
+  { file: 'view-executive', label: 'Executive' },
+  { file: 'wiki', label: 'Wiki' },
+  { file: 'health', label: 'Health' },
+];
+
+/**
+ * Rendered once for the whole bundle, so ten copies do not fight over one name.
+ *
+ * Only the toggle qualifies, and only because it lives in the topbar, which is rebuilt here rather than
+ * carried over from any page. `stamp` looked like chrome and is not: it sits inside each page's `<main>`, so
+ * exempting it left seven elements sharing an id and six of them unreachable. Chrome means *outside the body
+ * this bundle copies* — not *looks like furniture*.
+ */
+const CHROME_IDS = new Set(['themeToggle']);
 
 /** Inline the stylesheet and search index into one HTML file, for anywhere that takes a single document. */
 export function exportSingleFile(root, cfg, which = 'dashboard') {

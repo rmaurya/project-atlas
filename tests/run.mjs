@@ -24,7 +24,7 @@ import { renderMarkdown, inline } from '../scripts/lib/markdown.mjs';
 import { readPlanning, DEFAULT_PLANNING } from '../scripts/lib/planning.mjs';
 import { readDeck } from '../scripts/lib/deck.mjs';
 import { RAMP, STATUS, viewPage } from '../scripts/lib/dashboard.mjs';
-import { buildWikiPages, wikiPageName, exportSingleFile, RESERVED, gitlabPagesJob, stageWiki } from '../scripts/lib/publish.mjs';
+import { buildWikiPages, wikiPageName, exportSingleFile, exportBundle, RESERVED, gitlabPagesJob, stageWiki } from '../scripts/lib/publish.mjs';
 import { readContrib, estimateHours, taskCoverage } from '../scripts/lib/contrib.mjs';
 import { readTokens, formatTokens, formatSessions, assertNotPublishable, transcriptDir } from '../scripts/lib/tokens.mjs';
 import { readChanges, fileDiff, formatChanges } from '../scripts/lib/changes.mjs';
@@ -1087,6 +1087,73 @@ test('publish · the export keeps same-page controls and drops only the dead lin
   ok(!/<a\b/.test(nav[1]), 'a cross-page link in a single file goes nowhere and must be stripped');
   includes(nav[1], 'themeToggle', 'the toggle acts on this page alone, so it stays');
   ok(!/href="[^"]*view-\w+\.html"/.test(html), 'no sibling page link may remain anywhere');
+});
+
+test('bundle · every page becomes a reachable section, and no id is duplicated', () => {
+  // Ten pages concatenated share ids: themeToggle ten times, and dashboard and view-product both carry the
+  // items table. Duplicate ids are invalid HTML and getElementById returns the first match, so the second
+  // page's script would silently drive the first page's table.
+  const cfg = resolveConfig(pubRepo);
+  const index = buildIndex(pubRepo, cfg);
+  renderSite(index, runHealth(index, cfg, pubRepo), cfg, pubRepo);
+  const html = exportBundle(pubRepo, cfg);
+
+  const ids = [...html.matchAll(/id="([\w-]+)"/g)].map((m) => m[1]);
+  const dupes = ids.filter((id, i) => ids.indexOf(id) !== i);
+  eq(dupes.length, 0, `duplicate id(s): ${[...new Set(dupes)].join(', ')}`);
+
+  const pages = [...html.matchAll(/data-page="([\w-]+)"/g)].map((m) => m[1]);
+  for (const p of pages) ok(html.includes(`data-go="${p}"`), `${p} has a section but no way to reach it`);
+  ok(pages.includes('about'), 'the About page is always present');
+  ok(pages.length > 1, 'a bundle of one page is just an export');
+});
+
+test('bundle · a namespaced id is renamed in that page\'s script too, not only in its markup', () => {
+  // Renaming the element and leaving the script pointing at the old name is the same bug in a new place:
+  // no error, the control simply stops working.
+  const cfg = resolveConfig(pubRepo);
+  const index = buildIndex(pubRepo, cfg);
+  renderSite(index, runHealth(index, cfg, pubRepo), cfg, pubRepo);
+  const html = exportBundle(pubRepo, cfg);
+
+  for (const m of html.matchAll(/getElementById\(\s*['"]([\w-]+)['"]\s*\)/g)) {
+    ok(html.includes(`id="${m[1]}"`) || /--/.test(m[1]) === false,
+       `script reaches for #${m[1]}, which no element in the bundle carries`);
+  }
+  for (const m of html.matchAll(/id="([\w-]+--[\w-]+)"/g)) {
+    ok(html.includes(`'${m[1]}'`) || html.includes(`"${m[1]}"`) || html.includes(`#${m[1]}`),
+       `${m[1]} was renamed in the markup but nothing references the new name`);
+  }
+});
+
+test('bundle · the update row appears only when the published version is genuinely newer', () => {
+  // `latest !== version` also fires when the build is AHEAD of the last release — the normal state on the
+  // machine that just cut one — and told the reader to upgrade 0.1.5 to 0.1.3.
+  const cfg = resolveConfig(pubRepo);
+  const index = buildIndex(pubRepo, cfg);
+  renderSite(index, runHealth(index, cfg, pubRepo), cfg, pubRepo);
+
+  const ahead = exportBundle(pubRepo, cfg, null, { version: '0.1.5', latest: '0.1.3' });
+  ok(!ahead.includes('class="updbar"'), 'a build ahead of the release must not advertise a downgrade');
+  includes(ahead, 'ahead of the published release');
+
+  const behind = exportBundle(pubRepo, cfg, null, { version: '0.1.3', latest: '0.1.5' });
+  includes(behind, 'class="updbar"');
+  includes(behind, 'How to update');
+
+  const unknown = exportBundle(pubRepo, cfg, null, { version: '0.1.5', latest: null });
+  ok(!unknown.includes('class="updbar"'), 'not knowing is not the same as being behind');
+  includes(unknown, 'not checked', 'and the About page must say so rather than imply currency');
+});
+
+test('bundle · About states unknowns instead of inventing plausible defaults', () => {
+  const cfg = resolveConfig(pubRepo);
+  const index = buildIndex(pubRepo, cfg);
+  renderSite(index, runHealth(index, cfg, pubRepo), cfg, pubRepo);
+  const html = exportBundle(pubRepo, cfg, null, {});
+  includes(html, 'not a git checkout');
+  includes(html, 'no model trailer found in history');
+  includes(html, 'No repository remote was configured');
 });
 
 /* ================================================================== branching */

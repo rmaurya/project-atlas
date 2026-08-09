@@ -32,7 +32,7 @@ import { buildIndex, discover } from './lib/scan.mjs';
 import { readPlanning } from './lib/planning.mjs';
 import { runHealth, formatReport } from './lib/health.mjs';
 import { renderSite, writeBuildStamp } from './lib/render.mjs';
-import { buildWikiPages, stageWiki, stagePages, exportSingleFile, gitlabPagesJob } from './lib/publish.mjs';
+import { buildWikiPages, stageWiki, stagePages, exportSingleFile, exportBundle, gitlabPagesJob } from './lib/publish.mjs';
 import { readContrib, formatContrib } from './lib/contrib.mjs';
 import { detectHost, probeCapabilities, gateTarget, formatCapabilities } from './lib/host.mjs';
 import { communityAssets, writeCommunity } from './lib/community.mjs';
@@ -113,6 +113,55 @@ function readRegistrations() {
   } catch {
     return [];                       // not installed as a plugin, which is a normal way to run this
   }
+}
+
+/**
+ * What the About page and the update row state. Every field is read, never assumed: an unknown stays unknown
+ * rather than becoming a plausible default, because this page is the one a reader trusts about provenance.
+ *
+ * The update figure comes from the **cached** check — a generated file cannot poll, and an Artifact runs under
+ * a policy that blocks outbound requests anyway. So the row says what was true at build time and dates it.
+ */
+async function aboutFacts(root, cfg) {
+  const running = runningBuild();
+  let manifest = {};
+  try { manifest = JSON.parse(fs.readFileSync(path.join(running.pluginRoot, '.claude-plugin', 'plugin.json'), 'utf8')); } catch {}
+
+  let latest = null, checkedAt = null;
+  if (!flag('offline')) {
+    try { ({ latest, checkedAt } = await checkForUpdate({ repository: manifest.repository })); } catch {}
+  }
+
+  // The assisting model is read from the Co-Authored-By trailers already in history, not guessed from the
+  // process generating the file — the page describes the repository, not whoever happened to run the build.
+  const contrib = readContrib(root, cfg);
+  const model = contrib?.available
+    ? (contrib.agents || []).slice().sort((a, b) => b.commits - a.commits)[0]?.agent || null
+    : null;
+
+  const repo = String(manifest.repository || '').replace(/\.git$/, '');
+  const links = [];
+  if (repo) {
+    links.push({ label: 'Repository', href: repo });
+    links.push({ label: 'Changelog', href: `${repo}/blob/main/CHANGELOG.md`, note: 'every release, and why' });
+    links.push({ label: 'Issues', href: `${repo}/issues` });
+    links.push({ label: 'Releases', href: `${repo}/releases` });
+  }
+
+  return {
+    tool: manifest.name === 'atlas' ? 'project-atlas' : (manifest.name || 'project-atlas'),
+    version: running.version,
+    commit: running.commit,
+    model,
+    latest,
+    checkedAt,
+    generatedAt: new Date().toISOString().slice(0, 16).replace('T', ' ') + ' UTC',
+    help: repo ? `${repo}#install` : null,
+    links,
+    people: contrib?.available
+      ? contrib.people.map((p) => ({ name: p.name, commits: p.commits, ai: p.aiAssisted || 0 }))
+      : [],
+  };
 }
 
 async function main() {
@@ -402,7 +451,11 @@ async function main() {
 
     if (target === 'export') {
       const which = String(flag('page', 'dashboard'));
-      const html = exportSingleFile(root, cfg, which);
+      // `--page all` carries every generated page with the navigation working in-document. It is the right
+      // default for anywhere the file travels alone — publishing one page of a nine-page site as an Artifact
+      // gives the reader a view and no way out of it.
+      const html = which === 'all' ? exportBundle(root, cfg, null, await aboutFacts(root, cfg))
+                                   : exportSingleFile(root, cfg, which);
       const dest = path.resolve(root, String(flag('out', `${cfg.output}/${which}.standalone.html`)));
       fs.mkdirSync(path.dirname(dest), { recursive: true });
       fs.writeFileSync(dest, html, 'utf8');

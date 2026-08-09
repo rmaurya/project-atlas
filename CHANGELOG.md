@@ -13,6 +13,30 @@ versions follow [Semantic Versioning](https://semver.org/).
 - `atlas plan` — propose the git route for the working tree and wait for approval, rather than only refusing a
   commit once it is attempted.
 
+## [0.1.6] — 2026-08-10
+
+### Added
+- **`atlas publish --target export --page all` — every page in one file, with the menu working.** Exporting
+  one page of a ten-page site shipped the least useful nine-tenths of it: published as an Artifact, the reader
+  got a single view and no way to reach the others. Each page's `<main>` becomes a section and the nav
+  switches between them in-document. 265 KB, no request made.
+- **An About page**, always present: version, build commit, the assisting model read from `Co-Authored-By`
+  trailers, repository links, contributors from `git log` — listed, never ranked — and a plain statement that
+  every page is derived from the markdown.
+- **The header names the build and the model**, e.g. `project-atlas 0.1.6 · Claude Opus 5 (1M context)`.
+- **An update row**, shown only when a newer release was known *at build time*. A generated file cannot poll
+  and an Artifact's policy blocks outbound requests, so it states what was true when it was made and dates it.
+  When the build had no answer there is no row: a page that cannot know must not reassure.
+
+### Fixed
+- **The update row fired when the build was *ahead* of the last release**, telling the reader to upgrade
+  `0.1.5` to `0.1.3`. It compared `latest !== version` where it needed ordering. About now also explains an
+  ahead build rather than printing a figure that reads as a contradiction.
+- **`stamp` was treated as chrome and deduplicated**, leaving seven elements sharing one id with six
+  unreachable. Chrome means *outside the body the bundle copies* — the toggle, which the bundle rebuilds — not
+  *looks like furniture*. Ids that collide across pages are prefixed per page, and that page's own script and
+  selectors are rewritten with them.
+
 ## [0.1.5] — 2026-08-10
 
 ### Fixed
