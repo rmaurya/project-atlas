@@ -13,6 +13,20 @@ versions follow [Semantic Versioning](https://semver.org/).
 - `atlas plan` — propose the git route for the working tree and wait for approval, rather than only refusing a
   commit once it is attempted.
 
+## [0.1.16] — 2026-08-10
+
+### Fixed
+- **`install.sh` reported success without checking what was installed.** `claude plugin install` prints
+  "already installed" and exits 0 without comparing versions, and the installer printed "Done." underneath
+  it. A user-scope plugin sat five releases behind for a full day while the installer, the updater and the
+  reload each reported success at a different layer — the same silent-gate shape the release gate fixed in
+  CI, live in the thing people run first.
+
+  It now reads every registration, reads the published manifest, prints them side by side, and **exits 1
+  when anything is behind**. Disagreeing scopes are called out, because updating one leaves the others.
+  Without `node`, or when the manifest cannot be fetched, it says the check did not run rather than
+  implying it passed.
+
 ## [0.1.15] — 2026-08-10
 
 ### Added

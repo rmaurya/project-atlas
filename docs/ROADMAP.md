@@ -1,6 +1,6 @@
 # Roadmap — project-atlas
 
-**Last updated:** 2026-08-10 · **Version:** 0.1.15 · **Status:** pre-release, dogfooding
+**Last updated:** 2026-08-10 · **Version:** 0.1.16 · **Status:** pre-release, dogfooding
 
 Open work, with an honest completion figure against each item. A figure marked `*` is estimated rather than
 measured against the code — the same distinction the tool preserves everywhere else, applied to itself.
@@ -18,7 +18,7 @@ measured against the code — the same distinction the tool preserves everywhere
 | P-1 | 100 | P-2 | 90 | P-3 | 70* |
 | Q-1 | 100 | Q-2 | 30* | Q-3 | 0 |
 | D-1 | 100 | D-2 | 100 | D-3 | 100 |
-| D-4 | 0 | D-5 | 30* | D-6 | 0 |
+| D-4 | 100 | D-5 | 30* | D-6 | 0 |
 | D-7 | 0 | D-8 | 100 | D-9 | 100 |
 | D-10 | 100 | I-1 | 100 | | |
 | I-3 | 40* | D-11 | 100 | I-2 | 100 |
@@ -111,6 +111,7 @@ Shipped. `atlas version` reports the running build, its path, whether it is a wo
 plugin, and every registration. A session-start notice prints one line when the install is behind.
 
 **D-4 · `install.sh` compares versions** — **P0 · Critical**
+*Shipped in 0.1.16.*
 *It prints "already installed" and exits without checking what is installed.*
 The same silent-gate shape D-1 fixed in CI, still live in the installer — and it is why the user-scope plugin
 sat five releases behind while every command reported success. **Nothing else in this track reaches a user
