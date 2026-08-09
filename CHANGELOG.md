@@ -13,6 +13,24 @@ versions follow [Semantic Versioning](https://semver.org/).
 - `atlas plan` — propose the git route for the working tree and wait for approval, rather than only refusing a
   commit once it is attempted.
 
+## [0.1.9] — 2026-08-10
+
+### Fixed
+- **`/atlas:diff` failed before it started, on a permission prompt for a call that would never run.** The
+  block was `test -n "$ARGUMENTS" && atlas diff "$ARGUMENTS" || echo "(no file given …)"`. Claude Code splits
+  a compound command on its operators and asks approval per fragment, so it asked for `atlas diff ""` — the
+  invocation the guard existed to prevent. A trailing `|| echo` fallback is fine; a guard that *constructs* a
+  second, nonsense invocation is not.
+
+### Changed
+- **`atlas diff` with no path lists the changed files** instead of printing usage and exiting 1. It is more
+  useful on its own, and it is what lets the skill drop the guard: the tool handles the empty case, so the
+  shell does not have to. On a branch that has not diverged it says "in the last commit(s)" rather than the
+  previous "on main since main".
+- Two tests: the skill block must contain exactly one `atlas diff` invocation and no guard around it, and
+  `atlas diff` with no path must list files rather than error. The existing guarantee — that no skill block
+  renders blank when `atlas` is missing — still holds and still has its test.
+
 ## [0.1.8] — 2026-08-10
 
 ### Fixed

@@ -1595,18 +1595,40 @@ test('skills · every embedded shell block produces output, so a missing atlas n
   ok(checked >= 12, `expected to exercise every block, ran ${checked}`);
 });
 
-test('skills · /atlas:diff does not claim "no file given" when a file was given', () => {
-  const dir = fs.mkdtempSync(path.join(tmpRoot, 'skill-diff-'));
+test('skills · /atlas:diff is one command, because the permission checker splits compound ones', () => {
+  // Claude Code splits a compound Bash command on its operators and asks approval for each fragment. So
+  //   test -n "$ARGUMENTS" && atlas diff "$ARGUMENTS" 2>/dev/null || echo "(no file given …)"
+  // prompted for `atlas diff ""` — a call the guard existed to prevent from running — and the skill failed
+  // before it started. The fallback belongs in the tool, which degrades honestly on its own, not in a shell
+  // wrapper whose only other effect was to hide a missing `atlas` behind a friendly message.
+  // A trailing `|| echo` fallback is fine and is required elsewhere: the checker is asked to approve exactly
+  // the command that will run. What is not fine is a *guard* that constructs a second, different invocation —
+  // there must be one `atlas` call in the block, and it must be the one the user asked for.
   const cmd = [...fs.readFileSync(path.join(HERE, '..', 'skills', 'diff', 'SKILL.md'), 'utf8')
     .matchAll(/^!`([\s\S]*?)`\s*$/gm)][0][1];
-  const env = { ...process.env, PATH: '/usr/bin:/bin' };
+  eq((cmd.match(/\batlas\s+diff\b/g) || []).length, 1,
+     `exactly one atlas invocation, or the checker prompts for a call that will never run: ${cmd}`);
+  ok(!/\btest\s+-[nz]\b|\bif\s+\[/.test(cmd),
+     `no guard around the invocation — atlas already handles an empty path: ${cmd}`);
+});
 
-  const given = spawnSync('sh', ['-c', cmd], { cwd: dir, encoding: 'utf8', env: { ...env, ARGUMENTS: 'docs/A.md' } });
-  ok(!given.stdout.includes('no file given'), `a file WAS given:\n${given.stdout}`);
-  ok(given.stdout.trim().length > 0, 'and something must still be said about why there is no diff');
+test('cli · diff with no path lists what there is to ask about', () => {
+  // Printing usage and exiting 1 made the caller run a second command to learn the answer, and made the
+  // skill need shell logic to cover the empty case. Listing is both more useful and what lets the skill be
+  // one word.
+  const dir = fixture('diff-nolist', { 'docs/A.md': '# A\n' });
+  fs.writeFileSync(path.join(dir, 'docs', 'A.md'), '# A\n\nchanged\n', 'utf8');
+  const r = cli(dir, ['diff']);
+  eq(r.code, 0, 'no path is a question, not an error');
+  includes(r.stdout, 'docs/A.md');
+  includes(r.stdout, 'uncommitted');
+});
 
-  const missing = spawnSync('sh', ['-c', cmd], { cwd: dir, encoding: 'utf8', env: { ...env, ARGUMENTS: '' } });
-  includes(missing.stdout, 'no file given', 'with no argument, that IS the message');
+test('cli · diff with no path and nothing changed says so, rather than listing nothing', () => {
+  const dir = fixture('diff-clean', { 'docs/A.md': '# A\n' });
+  const r = cli(dir, ['diff']);
+  eq(r.code, 0);
+  includes(r.stdout, 'Nothing has changed');
 });
 
 /* ================================================================== cli */

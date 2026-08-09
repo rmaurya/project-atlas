@@ -285,7 +285,31 @@ async function main() {
 
   if (cmd === 'diff') {
     const file = positionals[0];
-    if (!file) { console.error('Which file? Usage: atlas diff <path>   (atlas changes lists them)'); process.exitCode = 1; return; }
+    // No path? List what there is to ask about, rather than printing usage and making the caller run a
+    // second command. This is also what lets `/atlas:diff` be a single `atlas diff "$ARGUMENTS"` with no
+    // shell operators: Claude Code's permission checker splits a compound command and asks about each part,
+    // so `test -n "" && atlas diff ""` prompted for approval of a call that was never going to run.
+    if (!file) {
+      const k = readChanges(root, cfg);
+      if (!k.available) { console.error(`Cannot list changes: ${k.reason}`); process.exitCode = 1; return; }
+      // Uncommitted work first — it is what someone asking "what changed?" almost always means. The branch's
+      // committed files are listed after, and labelled, so the two are never silently merged into one list.
+      const local = [...(k.unstaged || []), ...(k.staged || [])].map((f) => f.path);
+      const onBranch = (k.committed || []).map((f) => f.path).filter((p) => !local.includes(p));
+      if (!local.length && !onBranch.length) { say('Nothing has changed — the working tree matches HEAD.'); return; }
+      if (local.length) {
+        say(`${local.length} uncommitted file(s):\n`);
+        for (const f of local.slice(0, 30)) say(`  atlas diff ${f}`);
+      }
+      if (onBranch.length) {
+        // `readChanges` falls back to the last two commits when the branch has not diverged, so on `main`
+        // there is no "since main" to speak of. Say which it is rather than printing "on main since main".
+        const where = k.scope === 'branch' ? `on ${k.branch} since ${k.main}` : 'in the last commit(s)';
+        say(`${local.length ? '\n' : ''}${onBranch.length} more changed ${where}:\n`);
+        for (const f of onBranch.slice(0, 30)) say(`  atlas diff ${f}`);
+      }
+      return;
+    }
     const d = fileDiff(root, file, { scope: String(flag('scope', 'auto')), cfg });
     if (!d.diff) { say(`No changes to ${file} in ${d.from}.`); return; }
     // Printed whole only when asked for; the skill summarises rather than pasting it back.
