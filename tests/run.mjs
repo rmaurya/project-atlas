@@ -1108,6 +1108,21 @@ test('runtimes · the Codex package has not drifted from skills/', () => {
   eq(r.status, 0, `Codex package is out of sync:\n${r.stderr || r.stdout}`);
 });
 
+test('runtimes · the hook fires on git commit and ignores everything else', () => {
+  const root = path.join(HERE, '..');
+  const hooks = JSON.parse(fs.readFileSync(path.join(root, 'hooks', 'hooks.json'), 'utf8'));
+  const cmd = hooks.hooks.PreToolUse[0].hooks[0].command;
+  const run = (input) => spawnSync('sh', ['-c', cmd], {
+    input: JSON.stringify({ tool_input: { command: input } }),
+    encoding: 'utf8', env: { ...process.env, CLAUDE_PLUGIN_ROOT: root },
+  });
+  // On a feature branch a commit is allowed through; the guard only refuses on a protected branch.
+  ok(run('ls -la').status === 0, 'a non-commit Bash call must never be blocked');
+  ok(run('npm test').status === 0);
+  const onCommit = run('git commit -m "x"');
+  includes(onCommit.stderr + onCommit.stdout, 'Types:', 'a git commit must invoke the branch guard');
+});
+
 test('runtimes · each runtime manifest is where that runtime looks for it', () => {
   const root = path.join(HERE, '..');
   ok(fs.existsSync(path.join(root, '.claude-plugin', 'plugin.json')), 'Claude Code: .claude-plugin/plugin.json');

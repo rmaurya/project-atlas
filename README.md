@@ -263,6 +263,19 @@ therefore carries a do-not-edit banner, and each publish records a content hash 
 longer matches, publish **refuses** — `--import` copies the hand-edited pages out for review rather than
 destroying them.
 
+## The one hook
+
+Everything else this tool asks of an assistant is prose — advisory, and any session can drift from it. The
+plugin ships **one hook**, executed by the harness rather than by the model:
+
+**Before any `git commit`, the branch guard runs** and refuses when the working branch is protected, showing
+the fix before the commit rather than after review. It exists because this project's own first five commits
+went straight to `main` while its contributing guide preached discipline.
+
+Every other Bash call exits immediately, so the cost is one `jq` and one `grep`. There is deliberately no
+second hook — a `PostToolUse` running health after every markdown edit was written and removed, because a
+check that makes every edit slower is a check people disable. See [`hooks/README.md`](hooks/README.md).
+
 ## Host capabilities
 
 Wiki, Pages, Issues and Discussions can each be off, and a publish target aimed at a disabled feature fails

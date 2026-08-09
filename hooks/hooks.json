@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq -r '.tool_input.command // \"\"' | grep -qE '^[[:space:]]*git[[:space:]]+commit' && \"${CLAUDE_PLUGIN_ROOT}/bin/atlas\" branch >&2 || exit 0"
+          }
+        ]
+      }
+    ]
+  }
+}
