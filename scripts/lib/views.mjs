@@ -30,6 +30,7 @@ export const PANELS = {
   coverage: 'Spec-to-build — items named by a commit',
   documents: 'The documents this role owns, with dates, status and signals',
   recent: 'Recent commits — what changed, and when',
+  changes: 'What changed, and which documents cite the files you touched',
   caveats: 'What this page does not show, and why',
 };
 
@@ -66,6 +67,12 @@ export const DEFAULT_VIEWS = [
     blurb: 'The design record — HLD, LLD, specifications — and where it has drifted from the code it cites.',
     clusters: ['engineering', 'specs'],
     panels: ['documents', 'health', 'coverage', 'clusters', 'progress', 'caveats'],
+  },
+  {
+    id: 'developer', title: 'Developer', nav: true,
+    blurb: 'What you changed, what cites it, and where the corpus is about to disagree with the code.',
+    clusters: ['engineering', 'references'],
+    panels: ['changes', 'health', 'documents', 'recent', 'caveats'],
   },
   {
     id: 'executive', title: 'Executive', nav: true,

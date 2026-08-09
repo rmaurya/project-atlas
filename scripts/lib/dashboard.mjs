@@ -20,6 +20,7 @@ import { escapeHtml } from './markdown.mjs';
 import { SIGNALS } from './health.mjs';
 import { taskCoverage } from './contrib.mjs';
 import { PANELS } from './views.mjs';
+import { readChanges } from './changes.mjs';
 import { flatName } from './render-shared.mjs';
 
 /**
@@ -110,6 +111,7 @@ function panel(id, { index, health, plan, cfg, contrib, view }) {
     case 'people': return hasContrib ? peopleTable(contrib) : null;
     case 'desks': return hasContrib ? desksChart(contrib) : null;
     case 'coverage': return hasContrib && hasPlan ? coverageChart(contrib, plan) : null;
+    case 'changes': return changesPanel(cfg, index);
     case 'documents': return documentsPanel(index, health, view);
     case 'recent': return hasContrib ? recentPanel(contrib, plan) : null;
     case 'caveats': return caveats(plan, health, contrib);
@@ -404,6 +406,35 @@ function coverageChart(contrib, plan) {
  * to open. Which clusters a view claims is declared on the view, so an architect gets HLD, LLD and the
  * specifications while QC gets the procedures and the manuals — from the same taxonomy, not a second list.
  */
+/**
+ * The developer panel. A changed file is uninteresting alone; a changed file that an old document cites is
+ * the finding, and the corpus index already knows which documents those are.
+ */
+function changesPanel(cfg, index) {
+  let k;
+  try { k = readChanges(cfg.__root || process.cwd(), cfg, index); } catch { return null; }
+  if (!k.available) return null;
+  const total = k.staged.length + k.unstaged.length + k.committed.length;
+  if (!total) return `<figure class="card muted"><figcaption><h2>Changes</h2></figcaption>
+    <p class="empty">Nothing changed on <code>${escapeHtml(k.branch)}</code>.</p></figure>`;
+
+  return `
+<section class="card">
+  <h2>Changes on ${escapeHtml(k.branch)} <span class="count">${total}</span></h2>
+  <p class="cap">${k.unstaged.length} uncommitted · ${k.staged.length} staged · ${k.committed.length} committed
+  across ${k.commits.length} commit(s), compared against ${k.scope === 'branch' ? `the merge-base with ${escapeHtml(k.main)}` : 'the last two commits'}.</p>
+  ${k.docsAtRisk.length ? `
+  <h3>Documents citing what changed</h3>
+  <p class="cap">Oldest first. These are not necessarily wrong — they are the ones whose ground just moved.</p>
+  <ul class="doclist">
+    ${k.docsAtRisk.slice(0, 10).map((d) => `<li>
+      <a href="pages/${flatName(d.doc)}">${escapeHtml(d.title || d.doc)}</a>
+      <span class="dm">${d.date || 'undated'} · cites ${escapeHtml(d.cites.slice(0, 3).join(', '))}${d.cites.length > 3 ? ` and ${d.cites.length - 3} more` : ''}</span>
+    </li>`).join('')}
+  </ul>` : '<p class="cap">No document cites any of the changed files.</p>'}
+</section>`;
+}
+
 function documentsPanel(index, health, view) {
   const want = view.clusters || [];
   if (!want.length) return null;

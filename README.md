@@ -151,6 +151,8 @@ at any time.
 atlas branch [type slug]   # where you are, and whether it is safe to commit there
 atlas tasks [filter]       # your planning document, with progress bars
 atlas contrib              # who did what, from git history alone
+atlas changes              # what changed, and which documents cite the files you touched
+atlas diff <file>          # that file's diff — uncommitted, else across the branch
 atlas tokens               # where the tokens went — local transcripts, opt-in, never published
 atlas sessions             # how sessions went — turns, interruptions, friction, rework
 atlas caps                 # which host features are on (wiki/pages/issues/discussions)
@@ -211,6 +213,26 @@ Three things it deliberately will not do, and why they matter more than the feat
   they measure commit rhythm, not time worked. A floor, not a timesheet.
 - **Prompt quality is not measured, because a repository cannot see a prompt.** Outcome proxies ship under
   their real names.
+
+## What changed
+
+```bash
+atlas changes              # working tree, this branch, and the documentation it puts at risk
+atlas diff <file>          # one file — uncommitted changes, else across the branch
+```
+
+Two scopes, because they answer different questions. **Working** is what is not saved yet. **Branch** is the
+diff against its merge-base with the trunk — which is *not* the last few commits: a branch off an older base
+contains work the last two commits miss, and a branch with ten commits is still one change. The trunk is
+detected, not assumed to be `main`.
+
+**The third section is why this exists rather than `git status`.** A changed source file is uninteresting
+alone. A changed source file that a four-month-old architecture document cites is the finding — and the corpus
+index already knows which documents those are. They are listed oldest first, with the files they name.
+
+They are not necessarily wrong. They are the documents whose ground just moved.
+
+Typed: `/atlas:changes` and `/atlas:diff <path>`. Both summarise rather than pasting a diff back at you.
 
 ## Token accounting
 

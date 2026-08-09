@@ -73,7 +73,7 @@ export function renderSite(index, health, cfg, root) {
   fs.writeFileSync(path.join(outDir, 'health.html'), healthPage(index, health, cfg, docNav.map((n) => ({ ...n, current: n.href === 'health.html' }))), 'utf8');
   const views = views0;
   const baseNav = docNav;
-  const ctx = { index, health, plan, cfg, contrib };
+  const ctx = { index, health, plan, cfg: { ...cfg, __root: root }, contrib };
   for (const v of views) {
     const nav = baseNav.map((n) => ({ ...n, current: n.href === viewFile(v.id) }));
     fs.writeFileSync(path.join(outDir, viewFile(v.id)), viewPage(v, { ...ctx, nav }, shell), 'utf8');

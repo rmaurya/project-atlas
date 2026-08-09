@@ -27,6 +27,7 @@ import { RAMP, STATUS } from '../scripts/lib/dashboard.mjs';
 import { buildWikiPages, wikiPageName, exportSingleFile, RESERVED, gitlabPagesJob } from '../scripts/lib/publish.mjs';
 import { readContrib, estimateHours, taskCoverage } from '../scripts/lib/contrib.mjs';
 import { readTokens, formatTokens, formatSessions, assertNotPublishable, transcriptDir } from '../scripts/lib/tokens.mjs';
+import { readChanges, fileDiff, formatChanges } from '../scripts/lib/changes.mjs';
 import { branchStatus, createBranch, TYPES } from '../scripts/lib/branch.mjs';
 import { detectHost, gateTarget } from '../scripts/lib/host.mjs';
 import { resolveViews, navItems, PANELS } from '../scripts/lib/views.mjs';
@@ -669,6 +670,60 @@ test('contrib · a non-git directory degrades, and a malformed command does NOT 
   const k = readContrib(dir, {});
   eq(k.available, false);
   includes(k.reason, 'Not a git repository');
+});
+
+/* ================================================================== changes */
+
+console.log('\nchanges');
+
+test('changes · a code change surfaces the documents that cite it, oldest first', () => {
+  // The finding this tool exists to produce and git status cannot: an old document whose ground just moved.
+  const dir = fixture('changes-risk', {
+    'src/auth.ts': 'a\nb\nc\n',
+    'src/other.ts': 'x\n',
+    'docs/old.md': '# Old design\n\nSee `src/auth.ts:2`.\n',
+    'docs/newer.md': '# Newer design\n\nAlso `src/auth.ts:1`.\n',
+    'docs/unrelated.md': '# Unrelated\n\nSee `src/other.ts:1`.\n',
+  });
+  // Age the two documents differently so "oldest first" is observable.
+  const commit = (msg, date) => execFileSync('git', ['-c', 'user.email=t@e.com', '-c', 'user.name=T', 'commit', '-qm', msg],
+    { cwd: dir, stdio: 'ignore', env: { ...process.env, GIT_AUTHOR_DATE: date, GIT_COMMITTER_DATE: date } });
+  fs.appendFileSync(path.join(dir, 'docs/newer.md'), '\nrevised\n');
+  execFileSync('git', ['add', '-A'], { cwd: dir, stdio: 'ignore' });
+  commit('touch newer', '2030-06-01T12:00:00Z');
+
+  // Now change the cited source file, uncommitted.
+  fs.writeFileSync(path.join(dir, 'src/auth.ts'), 'a\nb\nc\nd\n');
+
+  const cfg = resolveConfig(dir);
+  const index = buildIndex(dir, cfg);
+  const k = readChanges(dir, cfg, index);
+
+  ok(k.available, k.reason);
+  eq(k.unstaged.map((f) => f.path), ['src/auth.ts']);
+  const docs = k.docsAtRisk.map((d) => d.doc);
+  eq(docs.includes('docs/unrelated.md'), false, 'a document citing an untouched file must not appear');
+  eq(docs.length, 2);
+  eq(docs[0], 'docs/old.md', 'oldest document first — it is the one most likely to have drifted');
+});
+
+test('changes · branch scope falls back honestly when there is no divergence', () => {
+  const dir = fixture('changes-scope', { 'a.txt': '1\n' });
+  const cfg = resolveConfig(dir);
+  const k = readChanges(dir, cfg, null);
+  ok(k.available);
+  // A fresh repo on its first commit has neither a merge-base nor HEAD~2; the scope must say so, not guess.
+  ok(['branch', 'last-2-commits'].includes(k.scope));
+  eq(k.docsAtRisk, [], 'without an index there is nothing to correlate, and it must not invent any');
+});
+
+test('changes · one file diff prefers uncommitted work over history', () => {
+  const dir = fixture('changes-diff', { 'a.txt': 'one\n' });
+  fs.writeFileSync(path.join(dir, 'a.txt'), 'one\ntwo\n');
+  const d = fileDiff(dir, 'a.txt', {});
+  eq(d.scope, 'working');
+  includes(d.diff, '+two');
+  eq(fileDiff(dir, 'nosuchfile.txt', {}).diff, '', 'a file with no changes returns nothing, not an error');
 });
 
 /* ================================================================== tokens */

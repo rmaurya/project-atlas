@@ -8,6 +8,8 @@
  *   atlas branch   where you are, and whether it is safe to commit there
  *   atlas caps     which host features are on: wiki, pages, issues, discussions (the one network call)
  *   atlas community  generate issue/PR/discussion scaffolding for whatever the host supports
+ *   atlas changes  what changed — working tree, this branch, and the docs it puts at risk
+ *   atlas diff     one file's diff, local or across the branch
  *   atlas tokens   where the tokens went, from LOCAL session transcripts (opt-in, never published)
  *   atlas sessions how sessions went — turns, interruptions, friction (NOT prompt quality)
  *   atlas contrib  who did what, from git: people, agents, desks, hours, outcomes
@@ -34,6 +36,7 @@ import { detectHost, probeCapabilities, gateTarget, formatCapabilities } from '.
 import { communityAssets, writeCommunity } from './lib/community.mjs';
 import { branchStatus, createBranch, formatBranch, TYPES } from './lib/branch.mjs';
 import { readTokens, formatTokens, formatSessions, transcriptDir, assertNotPublishable } from './lib/tokens.mjs';
+import { readChanges, formatChanges, fileDiff } from './lib/changes.mjs';
 
 const argv = process.argv.slice(2);
 
@@ -163,6 +166,25 @@ async function main() {
       say('\nNot generated, and why:');
       for (const s2 of assets.skipped) say(`  · ${s2}`);
     }
+    return;
+  }
+
+  if (cmd === 'changes') {
+    const index = flag('no-index') ? null : buildIndex(root, cfg, { withGit });
+    const k = readChanges(root, cfg, index);
+    if (flag('json')) { console.log(JSON.stringify(k, null, 2)); return; }
+    say(formatChanges(k, color));
+    return;
+  }
+
+  if (cmd === 'diff') {
+    const file = positionals[0];
+    if (!file) { console.error('Which file? Usage: atlas diff <path>   (atlas changes lists them)'); process.exitCode = 1; return; }
+    const d = fileDiff(root, file, { scope: String(flag('scope', 'auto')), cfg });
+    if (!d.diff) { say(`No changes to ${file} in ${d.from}.`); return; }
+    // Printed whole only when asked for; the skill summarises rather than pasting it back.
+    say(`${file} — ${d.from}\n`);
+    say(d.diff);
     return;
   }
 
@@ -488,6 +510,8 @@ function usage() {
   atlas branch [type slug]   branch state, or create type/short-slug carrying your changes
   atlas caps                 which host features are on (wiki/pages/issues/discussions)
   atlas community [--write]  scaffolding for the features this host actually supports
+  atlas changes [--json]     what changed, and which documents cite it
+  atlas diff <file>          that file's diff — uncommitted, else across the branch
   atlas tokens [--out FILE]  token accounting from local session transcripts — opt-in, never published
   atlas sessions [--out F]   how sessions went — turns, interruptions, friction, rework
   atlas contrib [--json]     who did what, from git history alone
