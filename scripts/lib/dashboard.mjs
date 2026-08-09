@@ -575,7 +575,14 @@ figcaption { display:block; }
 .t-high { background:var(--r-high); } .t-done { background:var(--r-done); }
 .t-unknown { background:var(--r-unknown); }
 .est { background-image:repeating-linear-gradient(45deg,transparent,transparent 3px,rgba(255,255,255,.45) 3px,rgba(255,255,255,.45) 6px); }
-.empty { color:var(--muted); font-size:14px; margin:0; display:flex; align-items:center; gap:8px; }
+/* Prose, not a flex row.
+ *
+ * display:flex here made every inline fragment a flex item, so a sentence containing an inline code span was
+ * split into three boxes laid side by side, and the paragraph rendered as narrow vertical strips of shredded
+ * text. Six of the seven .empty messages are ordinary sentences with inline code; only one opens with a
+ * status dot, and an inline-block dot aligns on its own without turning the sentence into a layout. */
+.empty { color:var(--muted); font-size:14px; margin:0; }
+.empty > .dot { margin-right:8px; }
 #tq { width:100%; padding:9px 12px; margin:0 0 12px; font-size:14px; color:var(--ink); background:var(--bg); border:1px solid var(--line); border-radius:8px; }
 /* A minimum width, so a narrow column scrolls the table rather than crushing it — squeezing wraps the id
  * onto two lines and clips the status pill, which is how you end up hiding data to make a layout fit. */
@@ -628,9 +635,23 @@ figcaption { display:block; }
 .pill { display:inline-block; padding:2px 9px; border-radius:999px; font-size:12px; color:#fff; white-space:nowrap; }
 .pill.t-none,.pill.t-unknown { color:var(--ink); }
 .sect { margin:0 0 16px; font-size:13.5px; }
+/* Masonry, not a grid.
+ *
+ * Grid lays out uniform row tracks, so one tall card — "What this dashboard does not show" runs to a dozen
+ * lines — reserves that height for every short card beside it. The architecture view had a 600px hole under
+ * three panels because one neighbour was long. align-items:start stops the cards stretching; it cannot stop
+ * the row itself from being tall.
+ *
+ * CSS columns pack each card directly under the previous one in its column, which is the Pinterest
+ * arrangement. The cost is reading order: content flows down a column before moving right, so this is only
+ * applied where the panels are peers with no narrative order between them. column-span:all keeps the tile
+ * strip and the section blurb full width. */
 .dash-single { display:grid; gap:16px; }
-@media (min-width:1180px) { .dash-single { grid-template-columns:repeat(auto-fit,minmax(360px,1fr)); align-items:start; }
-  .dash-single > .tiles, .dash-single > .sect { grid-column:1 / -1; } }
+@media (min-width:1180px) {
+  .dash-single { display:block; columns:360px 3; column-gap:16px; }
+  .dash-single > * { break-inside:avoid; page-break-inside:avoid; margin:0 0 16px; width:100%; }
+  .dash-single > .tiles, .dash-single > .sect { column-span:all; }
+}
 .mini-table { border-collapse:collapse; width:100%; font-size:13.5px; min-width:520px; }
 /* Belt and braces: every min-width table is inside a .table-wrap that scrolls, and the page body must never
  * scroll sideways regardless. A wide table that escapes its wrapper takes the whole layout with it. */

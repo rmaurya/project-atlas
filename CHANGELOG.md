@@ -13,6 +13,20 @@ versions follow [Semantic Versioning](https://semver.org/).
 - `atlas plan` — propose the git route for the working tree and wait for approval, rather than only refusing a
   commit once it is attempted.
 
+## [0.1.8] — 2026-08-10
+
+### Fixed
+- **Role-view panels left holes the size of their tallest neighbour.** The panels were a CSS grid, which lays
+  out uniform row tracks, so one long card — "What this dashboard does not show" runs to a dozen lines —
+  reserved that height for every short card beside it. `align-items:start` stops a card stretching; it cannot
+  stop the row being tall. They now pack Pinterest-style with CSS columns, `column-span:all` keeping the tile
+  strip and section blurb full width. Applied only where panels are peers, because column flow trades reading
+  order for density.
+- **A paragraph rendered as vertical strips of shredded text.** `.empty` was `display:flex`, which makes every
+  inline fragment a flex item — so "This view claims the cluster(s) `engineering, specs`, and none of them
+  exists…" became three boxes side by side. Six of the seven such messages are ordinary sentences with inline
+  code; only one opens with a status dot, and an inline-block dot needs no flex container.
+
 ## [0.1.7] — 2026-08-10
 
 ### Fixed
