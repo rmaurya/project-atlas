@@ -8,6 +8,7 @@
  *   atlas branch   where you are, and whether it is safe to commit there
  *   atlas caps     which host features are on: wiki, pages, issues, discussions (the one network call)
  *   atlas community  generate issue/PR/discussion scaffolding for whatever the host supports
+ *   atlas tokens   where the tokens went, from LOCAL session transcripts (opt-in, never published)
  *   atlas contrib  who did what, from git: people, agents, desks, hours, outcomes
  *   atlas health   report rot signals         (--verbose | --verbose=all)  exit 1 on blocking
  *   atlas build    generate the static site (index, dashboard, deck, health)
@@ -31,6 +32,7 @@ import { readContrib, formatContrib } from './lib/contrib.mjs';
 import { detectHost, probeCapabilities, gateTarget, formatCapabilities } from './lib/host.mjs';
 import { communityAssets, writeCommunity } from './lib/community.mjs';
 import { branchStatus, createBranch, formatBranch, TYPES } from './lib/branch.mjs';
+import { readTokens, formatTokens, transcriptDir, assertNotPublishable } from './lib/tokens.mjs';
 
 const argv = process.argv.slice(2);
 
@@ -160,6 +162,33 @@ async function main() {
       say('\nNot generated, and why:');
       for (const s2 of assets.skipped) say(`  · ${s2}`);
     }
+    return;
+  }
+
+  if (cmd === 'tokens') {
+    // Opt-in by construction: this is the only command that reads session transcripts, and nothing else
+    // in the tool touches them.
+    const out = typeof flag('out') === 'string' ? flag('out') : null;
+    if (out) assertNotPublishable(root, cfg, out);
+
+    say(`Reading local session transcripts from ${transcriptDir(root, cfg)}`);
+    say('  These are not part of the repository. They hold every prompt and file read of every session,');
+    say('  so this report aggregates only — no prompt text, no paths, and it is never published.\n');
+
+    // Carriage-return progress only makes sense on a terminal; piped, it smears into the output.
+    const live = !quiet && process.stderr.isTTY;
+    const k = await readTokens(root, cfg, { onProgress: (m) => live && process.stderr.write(m + '\r') });
+    if (live) process.stderr.write(' '.repeat(48) + '\r');
+
+    if (flag('json')) { console.log(JSON.stringify(k, null, 2)); return; }
+    const report = formatTokens(k, color);
+    if (out) {
+      fs.writeFileSync(path.resolve(root, out), formatTokens(k, false) + '\n', 'utf8');
+      say(`Wrote ${out}`);
+    } else {
+      say(report);
+    }
+    if (!k.available) process.exitCode = 1;
     return;
   }
 
@@ -435,6 +464,7 @@ function usage() {
   atlas branch [type slug]   branch state, or create type/short-slug carrying your changes
   atlas caps                 which host features are on (wiki/pages/issues/discussions)
   atlas community [--write]  scaffolding for the features this host actually supports
+  atlas tokens [--out FILE]  token accounting from local session transcripts — opt-in, never published
   atlas contrib [--json]     who did what, from git history alone
   atlas health [--verbose]   report rot signals; exit 1 if any blocking signal fires
   atlas build                generate the static site (index, dashboard, deck, health)

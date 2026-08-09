@@ -112,6 +112,36 @@ time worked, and are a floor: thinking that produces one commit registers `first
 
 ---
 
+## Tokens — a different source, and the only one that is not the repository
+
+| Key | Default | What it does |
+|---|---|---|
+| `tokens.transcriptRoot` | `~/.claude/projects` | Where session transcripts live |
+| `tokens.since` | `null` | ISO date; messages before it are excluded and counted as such |
+| `tokens.rates` | `null` | `{ model: { input, output, cacheWrite, cacheRead } }` — **per million tokens** |
+| `tokens.ratesAsOf` | `null` | The date those rates were correct. Printed with any cost figure |
+
+`atlas tokens` is the **only** command that reads session transcripts, and nothing else in the tool touches
+them. That separation is deliberate:
+
+- Transcripts are **not in the repository** — machine-local, unversioned, gone if cleared. Unlike every other
+  figure the tool reports, these are **not reproducible from a clone**, and the report says so.
+- They contain **every prompt, every file read and every secret** that passed through a session. The report
+  therefore aggregates only: counts, sums, model names and tool *names*. Never prompt text, never a path,
+  never a tool argument. There is a test asserting it.
+- Writing a report into the output directory is **refused** — that directory is pushed to wikis and Pages
+  branches, and a token report there is a prompt log there.
+
+**On cost:** prices are not in the transcript and they change, so no cost appears unless you configure rates,
+and the report prints the date you entered them. A model with no rate is **named and excluded**, never
+silently dropped.
+
+**On reading the numbers:** the split matters far more than the total. A turn re-reads its whole context, so
+cache reads dominate — measured at **98.7% of 11.9 billion tokens** on one real project. A single "tokens
+used" figure would treat that as equal to fresh input, which is what makes a cheap session look expensive.
+
+---
+
 ## Publishing
 
 | Key | Default | What it does |

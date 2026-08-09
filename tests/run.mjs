@@ -26,6 +26,7 @@ import { readDeck } from '../scripts/lib/deck.mjs';
 import { RAMP, STATUS } from '../scripts/lib/dashboard.mjs';
 import { buildWikiPages, wikiPageName, exportSingleFile, RESERVED } from '../scripts/lib/publish.mjs';
 import { readContrib, estimateHours } from '../scripts/lib/contrib.mjs';
+import { readTokens, formatTokens, assertNotPublishable, transcriptDir } from '../scripts/lib/tokens.mjs';
 import { branchStatus, createBranch, TYPES } from '../scripts/lib/branch.mjs';
 import { detectHost, gateTarget } from '../scripts/lib/host.mjs';
 import { resolveViews, navItems, PANELS } from '../scripts/lib/views.mjs';
@@ -41,10 +42,12 @@ const filter = (() => {
 let pass = 0, fail = 0;
 const failures = [];
 
+const pendingAsync = [];
 function test(name, fn) {
   if (filter && !name.toLowerCase().includes(filter.toLowerCase())) return;
   try {
-    fn();
+    const r = fn();
+    if (r && typeof r.then === 'function') { pendingAsync.push({ name, p: r }); return; }
     pass++;
     process.stdout.write(`  \x1b[32m✓\x1b[0m ${name}\n`);
   } catch (err) {
@@ -668,6 +671,93 @@ test('contrib · a non-git directory degrades, and a malformed command does NOT 
   includes(k.reason, 'Not a git repository');
 });
 
+/* ================================================================== tokens */
+
+console.log('\ntokens');
+
+test('tokens · refuses to write a report into the published directory', () => {
+  // The output directory is pushed to wikis and Pages branches. A token report there is a prompt log there.
+  const dir = fixture('tokens-guard', { 'docs/A.md': '# A\n' });
+  const cfg = resolveConfig(dir);
+  for (const bad of ['docs/_wiki/tokens.txt', 'docs/_wiki/nested/tokens.txt', 'docs/_wiki']) {
+    let threw = null;
+    try { assertNotPublishable(dir, cfg, bad); } catch (e) { threw = e; }
+    ok(threw, `expected refusal for ${bad}`);
+    includes(threw.message, 'published');
+  }
+  // Anywhere else is fine.
+  assertNotPublishable(dir, cfg, 'tokens.txt');
+  assertNotPublishable(dir, cfg, 'reports/tokens.txt');
+});
+
+test('tokens · a missing transcript store degrades, it does not throw', async () => {
+  const dir = fixture('tokens-none', { 'docs/A.md': '# A\n' });
+  const cfg = { ...resolveConfig(dir), tokens: { transcriptRoot: path.join(tmpRoot, 'no-such-store') } };
+  const k = await readTokens(dir, cfg);
+  eq(k.available, false);
+  includes(k.reason, 'No session transcripts');
+});
+
+test('tokens · splits the four token kinds rather than reporting one total', async () => {
+  // The split is the point: cache reads dominate every real session and are charged at a fraction of fresh
+  // input, so a single "tokens used" figure makes a cheap session look expensive.
+  const store = path.join(tmpRoot, 'tokens-store');
+  const dir = fixture('tokens-read', { 'docs/A.md': '# A\n' });
+  const slug = path.resolve(dir).split(path.sep).join('-');
+  fs.mkdirSync(path.join(store, slug), { recursive: true });
+  const lines = [
+    { timestamp: '2026-01-01T10:00:00Z', message: { model: 'test-model', usage: { input_tokens: 10, output_tokens: 100, cache_creation_input_tokens: 1000, cache_read_input_tokens: 10000 } } },
+    { timestamp: '2026-01-02T10:00:00Z', message: { model: 'test-model', usage: { input_tokens: 5, output_tokens: 50, cache_creation_input_tokens: 0, cache_read_input_tokens: 20000 },
+      content: [{ type: 'tool_use', name: 'Bash' }, { type: 'tool_use', name: 'Read' }] } },
+    'not json at all',
+  ].map((l) => (typeof l === 'string' ? l : JSON.stringify(l))).join('\n');
+  fs.writeFileSync(path.join(store, slug, 'session.jsonl'), lines + '\n');
+
+  const cfg = { ...resolveConfig(dir), tokens: { transcriptRoot: store } };
+  const k = await readTokens(dir, cfg);
+  ok(k.available, k.reason);
+  eq([k.totals.input, k.totals.output, k.totals.cacheWrite, k.totals.cacheRead], [15, 150, 1000, 30000]);
+  eq(k.totals.messages, 2);
+  eq(k.cacheHitRatio, 96.3, 'cache read share must be reported, not folded into a total');
+  eq(k.byModel.map((m) => m.model), ['test-model']);
+  eq(k.byDay.map((d) => d.day), ['2026-01-01', '2026-01-02']);
+  eq(k.tools.map((t) => t.name).sort(), ['Bash', 'Read']);
+  includes(k.notChecked.join(' '), 'unparseable', 'a skipped line must be declared');
+});
+
+test('tokens · no cost without configured rates, and unpriced models are named', async () => {
+  const store = path.join(tmpRoot, 'tokens-store');
+  const dir = path.join(tmpRoot, 'tokens-read');
+  const base = resolveConfig(dir);
+
+  const noRates = await readTokens(dir, { ...base, tokens: { transcriptRoot: store } });
+  eq(noRates.cost.available, false);
+  includes(noRates.cost.reason, 'not in the transcript');
+
+  const priced = await readTokens(dir, { ...base, tokens: { transcriptRoot: store,
+    rates: { 'other-model': { input: 1, output: 1, cacheWrite: 1, cacheRead: 1 } }, ratesAsOf: '2026-01-01' } });
+  eq(priced.cost.available, true);
+  eq(priced.cost.unpriced, ['test-model'], 'a model with no rate must be named, not silently dropped');
+  eq(priced.cost.asOf, '2026-01-01');
+});
+
+test('tokens · aggregates only — no prompt text reaches the report', async () => {
+  const store = path.join(tmpRoot, 'tokens-secret');
+  const dir = fixture('tokens-privacy', { 'docs/A.md': '# A\n' });
+  const slug = path.resolve(dir).split(path.sep).join('-');
+  fs.mkdirSync(path.join(store, slug), { recursive: true });
+  fs.writeFileSync(path.join(store, slug, 's.jsonl'), JSON.stringify({
+    timestamp: '2026-01-01T10:00:00Z',
+    message: { model: 'm', usage: { output_tokens: 1 },
+      content: [{ type: 'text', text: 'SECRET-PROMPT-TEXT' }, { type: 'tool_use', name: 'Read', input: { file_path: '/etc/SECRET-PATH' } }] },
+  }) + '\n');
+  const k = await readTokens(dir, { ...resolveConfig(dir), tokens: { transcriptRoot: store } });
+  const dump = JSON.stringify(k) + formatTokens(k, false);
+  ok(!dump.includes('SECRET-PROMPT-TEXT'), 'prompt text must never reach the report');
+  ok(!dump.includes('SECRET-PATH'), 'tool arguments must never reach the report');
+  includes(dump, 'Read', 'the tool NAME is fine — it is the argument that is not');
+});
+
 /* ================================================================== publish */
 
 console.log('\npublish');
@@ -1036,6 +1126,12 @@ test('cli · runs in a directory that is not a git repository', () => {
 });
 
 /* ================================================================== done */
+
+// Async cases resolve before the summary, so a rejected promise is a failure rather than a warning.
+for (const { name, p } of pendingAsync) {
+  try { await p; pass++; process.stdout.write(`  \x1b[32m✓\x1b[0m ${name}\n`); }
+  catch (err) { fail++; failures.push({ name, err }); process.stdout.write(`  \x1b[31m✗\x1b[0m ${name}\n    ${err.message}\n`); }
+}
 
 for (const d of made) fs.rmSync(d, { recursive: true, force: true });
 fs.rmSync(tmpRoot, { recursive: true, force: true });

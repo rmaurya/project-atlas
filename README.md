@@ -151,6 +151,7 @@ at any time.
 atlas branch [type slug]   # where you are, and whether it is safe to commit there
 atlas tasks [filter]       # your planning document, with progress bars
 atlas contrib              # who did what, from git history alone
+atlas tokens               # where the tokens went — local transcripts, opt-in, never published
 atlas caps                 # which host features are on (wiki/pages/issues/discussions)
 atlas community --write    # scaffolding for the features this host supports
 atlas watch                # rebuild on change; the open page reloads itself
@@ -209,6 +210,24 @@ Three things it deliberately will not do, and why they matter more than the feat
   they measure commit rhythm, not time worked. A floor, not a timesheet.
 - **Prompt quality is not measured, because a repository cannot see a prompt.** Outcome proxies ship under
   their real names.
+
+## Token accounting
+
+```bash
+atlas tokens               # the split; --out FILE to save, --json for the raw model
+```
+
+**The only command that reads session transcripts**, and nothing else in the tool touches them. They are not
+part of the repository — machine-local, unversioned, and holding every prompt and file read of every session.
+So the report aggregates only, never publishes, and **refuses to write into the output directory**, which is
+pushed to wikis and Pages branches.
+
+The split is the point. On one real project: **11.9 billion tokens, 98.7% of them cache reads** — context
+re-read each turn, charged at a fraction of fresh input. A single "tokens used" figure would treat those as
+equal and make a cheap session look expensive.
+
+Cost appears only when you configure rates, because prices are not in the transcript and they change; the
+report prints the date you entered them, and names any model it had no rate for.
 
 ## Publishing
 
