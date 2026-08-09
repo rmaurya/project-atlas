@@ -1,0 +1,64 @@
+{
+  "siteTitle": "docs-atlas",
+  "output": "docs/_wiki",
+  "trackedOnly": true,
+  "exclude": [
+    "node_modules/**",
+    ".git/**",
+    "**/_wiki/**",
+    "LICENSE"
+  ],
+  "clusters": [
+    {
+      "id": "start",
+      "title": "Start here",
+      "blurb": "What this is, and how to run it.",
+      "match": ["README.md"]
+    },
+    {
+      "id": "agent",
+      "title": "Agent instructions",
+      "blurb": "What an assistant loads: the Claude Code skill, and the portable equivalent for any other runtime.",
+      "match": ["SKILL.md", "AGENTS.md"]
+    },
+    {
+      "id": "references",
+      "title": "Reference guides",
+      "blurb": "Loaded on demand, one topic each. Read the one the task calls for, not all six.",
+      "match": ["references/**"]
+    },
+    {
+      "id": "planning",
+      "title": "Planning & history",
+      "blurb": "What is open, and what changed.",
+      "match": ["ROADMAP.md", "CHANGELOG.md", "**/TASKS.md"]
+    },
+    {
+      "id": "contributing",
+      "title": "Contributing",
+      "blurb": "The rules a change has to hold to. The non-negotiables are the point of the tool.",
+      "match": ["CONTRIBUTING.md"]
+    }
+  ],
+  "fallbackCluster": "uncategorised",
+  "blocking": ["H1", "H3", "H8"],
+  "staleDays": 30,
+  "planning": {
+    "source": "ROADMAP.md"
+  },
+  "crossref": [],
+  "forbiddenTerms": [
+    {
+      "term": "llm-wiki",
+      "reason": "early working name; the project is docs-atlas. The config filename is the one deliberate exception.",
+      "ignore": ["references/configuration.md", "CHANGELOG.md"]
+    }
+  ],
+  "suppress": [
+    {
+      "signal": "H6",
+      "path": "CHANGELOG.md",
+      "reason": "A changelog describes past releases. Citing code as it was at release time is correct, not rot."
+    }
+  ]
+}
