@@ -32,7 +32,7 @@
       "title": "Reference guides",
       "blurb": "Loaded on demand, one topic each. Read the one the task calls for, not all six.",
       "match": [
-        "references/**"
+        "docs/references/**"
       ]
     },
     {
@@ -40,7 +40,7 @@
       "title": "Planning & history",
       "blurb": "What is open, and what changed.",
       "match": [
-        "ROADMAP.md",
+        "docs/ROADMAP.md",
         "CHANGELOG.md",
         "**/TASKS.md"
       ]
@@ -78,7 +78,7 @@
   ],
   "staleDays": 30,
   "planning": {
-    "source": "ROADMAP.md"
+    "source": "docs/ROADMAP.md"
   },
   "crossref": [],
   "forbiddenTerms": [
@@ -87,7 +87,7 @@
       "reason": "first working name; the project is project-atlas",
       "ignore": [
         "CHANGELOG.md",
-        "references/configuration.md",
+        "docs/references/configuration.md",
         "scripts/lib/config.mjs"
       ]
     },
@@ -96,7 +96,7 @@
       "reason": "second working name; renamed once the tool outgrew documentation-only scope",
       "ignore": [
         "CHANGELOG.md",
-        "references/configuration.md",
+        "docs/references/configuration.md",
         "scripts/lib/config.mjs"
       ]
     }
@@ -109,7 +109,7 @@
     },
     {
       "signal": "H2",
-      "path": "references/**",
+      "path": "docs/references/**",
       "reason": "The reference guides use src/ai/brain.ts:301 as an illustrative citation example. It is deliberately not a real path in this repository, and resolving it would be meaningless."
     },
     {

@@ -87,7 +87,7 @@ Name tests for the behaviour, not the function: `H2 does NOT fire for ambiguous 
 
 `main` is always releasable. Every change reaches it through a branch named `type/short-slug` and a pull
 request — including small ones, especially small ones. Run `node scripts/atlas.mjs branch` to check where you
-are. Full rules, and the honest reason they exist, in [`references/branching.md`](references/branching.md).
+are. Full rules, and the honest reason they exist, in [`docs/references/branching.md`](docs/references/branching.md).
 
 ## Commits
 

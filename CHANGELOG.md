@@ -13,6 +13,19 @@ versions follow [Semantic Versioning](https://semver.org/).
 - `atlas plan` — propose the git route for the working tree and wait for approval, rather than only refusing a
   commit once it is attempted.
 
+## [0.1.2] — 2026-08-10
+
+### Changed
+- **The reference guides and the roadmap live under `docs/`.** `references/**` → `docs/references/**` and
+  `ROADMAP.md` → `docs/ROADMAP.md`, which is where a reader looks first. Twenty-six path references were
+  rewritten with them — fifteen in `skills/knowledgebase/SKILL.md` alone, where they are not links but runtime
+  instructions ("Read `docs/references/authoring.md` before writing a line"), so a missed one would have made
+  the skill silently read nothing. H1 is blocking in this repository, so `atlas health` is the proof: dead
+  internal links **ok** across 27 documents and 13 links.
+- `README.md`, `AGENTS.md`, `CHANGELOG.md`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md` and `SECURITY.md` stay at
+  the root, and `.github/` and `skills/` are unchanged — GitHub and the plugin loader both resolve those by
+  location, so moving them would break discovery rather than tidy it.
+
 ## [0.1.1] — 2026-08-10
 
 Everything below the Security heading was written for 0.1.0 and never reached anyone. `/plugin` compares

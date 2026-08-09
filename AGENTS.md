@@ -94,7 +94,7 @@ prevent.
   The delivery analytics read both, and **neither can be added to history afterwards** — a commit without them
   is permanently unattributed.
 
-Full rules: `references/branching.md`.
+Full rules: `docs/references/branching.md`.
 
 ## Honesty rules — enforced in output, and in any change you make
 

@@ -1991,7 +1991,7 @@ test('release · documentation-only changes do not require a bump', () => {
   // If a CONTRIBUTING typo demanded a version bump, every bump would become reflex rather than meaning —
   // which costs the signal the whole of its value.
   const v = versionVerdict({
-    changed: ['CONTRIBUTING.md', 'references/adoption.md', 'tests/run.mjs', '.github/workflows/ci.yml'],
+    changed: ['CONTRIBUTING.md', 'docs/references/adoption.md', 'tests/run.mjs', '.github/workflows/ci.yml'],
     before: '0.1.0', after: '0.1.0',
   });
   eq(v.ok, true);
@@ -2005,7 +2005,7 @@ test('release · every installed surface counts as shipped, including the genera
                    'plugins/atlas/skills/help/SKILL.md', '.claude-plugin/plugin.json']) {
     ok(isRuntimePath(p), `${p} ships and must count`);
   }
-  for (const p of ['README.md', 'tests/run.mjs', 'references/taxonomy.md', '.github/workflows/ci.yml',
+  for (const p of ['README.md', 'tests/run.mjs', 'docs/references/taxonomy.md', '.github/workflows/ci.yml',
                    'docs/_wiki/index.html']) {
     ok(!isRuntimePath(p), `${p} is not installed and must not count`);
   }

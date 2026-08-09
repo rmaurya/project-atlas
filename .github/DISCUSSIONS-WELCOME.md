@@ -38,6 +38,6 @@ This is the place for anything that is **not** a defect and **not** a concrete p
 
 ### Before you post
 
-Skim the [README](https://github.com/rmaurya/project-atlas) and the reference guides. The [roadmap](https://github.com/rmaurya/project-atlas/blob/main/ROADMAP.md) carries **12 open items** with honest completion figures — 3 of them marked estimated rather than measured. If something you need is on it, say so; that is how it gets prioritised.
+Skim the [README](https://github.com/rmaurya/project-atlas) and the reference guides. The [roadmap](https://github.com/rmaurya/project-atlas/blob/main/docs/ROADMAP.md) carries **12 open items** with honest completion figures — 3 of them marked estimated rather than measured. If something you need is on it, say so; that is how it gets prioritised.
 
 _This repository currently reports no blocking documentation findings, and the tool is run against itself in CI._

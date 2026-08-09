@@ -43,17 +43,17 @@ Pick the entry point that matches the request.
    This alone tells you file count, line count, clusters, and whether an index already exists. A proposal that
    ignores what is already there is a bad proposal — most repositories have more documentation than anyone
    remembers, and some of it is better than what you would write.
-2. **Read `references/adoption.md`** and generate a config with `init`.
+2. **Read `docs/references/adoption.md`** and generate a config with `init`.
 3. **Run `health`.** The first report is a *survey*, not a to-do list. Expect orphans and staleness in bulk.
    Report the counts and the two or three signals that indicate real defects (duplicate titles and dead links
    almost always do).
 4. **Write the entry point first.** If there is no `docs/README.md`, that single hand-written index is worth
-   more than the whole generated site. See `references/authoring.md`.
+   more than the whole generated site. See `docs/references/authoring.md`.
 5. **Build, then stop and show the user.** Do not proceed to reorganising documents in the same pass.
 
 ### B · Authoring knowledge ("write the developer manual", "document the architecture")
 
-**Read `references/authoring.md` before writing a line.** It carries the evidence rules, the page templates,
+**Read `docs/references/authoring.md` before writing a line.** It carries the evidence rules, the page templates,
 and the failure modes. The short version, which is not a substitute for reading it:
 
 - **Every claim about the code cites the code** — `path:line`, verified by reading it in this session.
@@ -65,14 +65,14 @@ and the failure modes. The short version, which is not a substitute for reading 
 
 ### C · Maintenance ("update the wiki", after any change to docs)
 
-Read `references/maintenance.md`. The loop is: `scan` → `health` → act on new signals → `build` → commit
+Read `docs/references/maintenance.md`. The loop is: `scan` → `health` → act on new signals → `build` → commit
 together with the source change, so the wiki and the documents are never more than one commit apart.
 
 **The trigger is: a session touched documentation.** Not a schedule. Run it the way you run tests.
 
 ### D · Audit ("is our documentation any good?", "find stale docs")
 
-Run `health --verbose`, then read `references/health-signals.md` to interpret. Lead with the *delta* since the
+Run `health --verbose`, then read `docs/references/health-signals.md` to interpret. Lead with the *delta* since the
 last run, not the absolute counts — absolutes are noise after the first run, and a report that cries wolf gets
 ignored, which is the failure mode that kills these systems.
 
@@ -141,12 +141,12 @@ prevent.
   The delivery analytics read both, and **neither can be added to history afterwards** — a commit without them
   is permanently unattributed.
 
-Full rules: `references/branching.md`.
+Full rules: `docs/references/branching.md`.
 
 ## Rot signals
 
 Nine, all mechanical. Full catalogue with detection details and legitimate exceptions in
-`references/health-signals.md`.
+`docs/references/health-signals.md`.
 
 | | Signal | Default |
 |---|---|---|
@@ -172,16 +172,16 @@ suppression is itself a defect. What is excluded is stated, never quietly droppe
 
 Load on demand — do not read these unless the task calls for them.
 
-- `references/adoption.md` — first run, config generation, what to do with an existing docs tree
-- `references/authoring.md` — **the evidence rules and page templates; read before writing any documentation**
-- `references/taxonomy.md` — the cluster model, classification, customising for a project
-- `references/health-signals.md` — full signal catalogue, tuning, suppression
-- `references/maintenance.md` — the ongoing loop, triggers, and the abandonment criterion
-- `references/configuration.md` — every config key
-- `references/branching.md` — how work reaches `main`, and the trailers `atlas contrib` reads
+- `docs/references/adoption.md` — first run, config generation, what to do with an existing docs tree
+- `docs/references/authoring.md` — **the evidence rules and page templates; read before writing any documentation**
+- `docs/references/taxonomy.md` — the cluster model, classification, customising for a project
+- `docs/references/health-signals.md` — full signal catalogue, tuning, suppression
+- `docs/references/maintenance.md` — the ongoing loop, triggers, and the abandonment criterion
+- `docs/references/configuration.md` — every config key
+- `docs/references/branching.md` — how work reaches `main`, and the trailers `atlas contrib` reads
 
 The page skeletons — an index, a cluster overview, a developer manual, an architecture document — are section
-3 of `references/authoring.md`. There is no separate templates directory.
+3 of `docs/references/authoring.md`. There is no separate templates directory.
 
 ## Failure modes to refuse
 

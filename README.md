@@ -30,7 +30,7 @@ standalone CLI. Zero dependencies, Node ≥ 18, and **one** optional network cal
 [Reference guides](#reference-guides) ·
 [Contributing](#contributing) ·
 [Changelog](CHANGELOG.md) ·
-[Roadmap](ROADMAP.md) ·
+[Roadmap](docs/ROADMAP.md) ·
 [Licence](#licence)
 
 ---
@@ -202,7 +202,7 @@ ignored within a week.
 rejected without one.
 
 Full catalogue, with detection details and legitimate exceptions:
-[`references/health-signals.md`](references/health-signals.md).
+[`docs/references/health-signals.md`](docs/references/health-signals.md).
 
 ## Contribution analytics
 
@@ -349,7 +349,7 @@ These are why the tool is worth trusting, and they are not negotiable in contrib
 `atlas init` writes `project-atlas.config.json` after inspecting your layout. Everything is overridable: the
 cluster taxonomy, which signals block, the stale window, forbidden terms, cross-reference pairs, suppressions,
 the planning source, and the deck source. Every key is documented in
-[`references/configuration.md`](references/configuration.md).
+[`docs/references/configuration.md`](docs/references/configuration.md).
 
 ## Reference guides
 
@@ -357,13 +357,13 @@ Loaded on demand, one topic each.
 
 | Guide | Answers |
 |---|---|
-| [adoption](references/adoption.md) | First run on a repository, and what to do with an existing docs tree |
-| [authoring](references/authoring.md) | The evidence rules and page shapes — **read before writing documentation** |
-| [taxonomy](references/taxonomy.md) | The cluster model, and why filename rules must precede directory rules |
-| [health-signals](references/health-signals.md) | Every signal, its detection, and its legitimate exceptions |
-| [branching](references/branching.md) | How work reaches `main`, and what an assistant must check first |
-| [maintenance](references/maintenance.md) | The loop, the trigger, and the abandonment criterion |
-| [configuration](references/configuration.md) | Every config key |
+| [adoption](docs/references/adoption.md) | First run on a repository, and what to do with an existing docs tree |
+| [authoring](docs/references/authoring.md) | The evidence rules and page shapes — **read before writing documentation** |
+| [taxonomy](docs/references/taxonomy.md) | The cluster model, and why filename rules must precede directory rules |
+| [health-signals](docs/references/health-signals.md) | Every signal, its detection, and its legitimate exceptions |
+| [branching](docs/references/branching.md) | How work reaches `main`, and what an assistant must check first |
+| [maintenance](docs/references/maintenance.md) | The loop, the trigger, and the abandonment criterion |
+| [configuration](docs/references/configuration.md) | Every config key |
 
 ## Contributing
 
