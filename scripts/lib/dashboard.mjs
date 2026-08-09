@@ -568,6 +568,10 @@ figcaption { display:block; }
 @media (min-width:1180px) { .dash-single { grid-template-columns:repeat(auto-fit,minmax(360px,1fr)); align-items:start; }
   .dash-single > .tiles, .dash-single > .sect { grid-column:1 / -1; } }
 .mini-table { border-collapse:collapse; width:100%; font-size:13.5px; min-width:520px; }
+/* Belt and braces: every min-width table is inside a .table-wrap that scrolls, and the page body must never
+ * scroll sideways regardless. A wide table that escapes its wrapper takes the whole layout with it. */
+.card, .tile, figure { min-width:0; max-width:100%; }
+.table-wrap { max-width:100%; overflow-x:auto; -webkit-overflow-scrolling:touch; }
 .mini-table th,.mini-table td { border-bottom:1px solid var(--line); padding:7px 10px; text-align:left; }
 .mini-table th.num,.mini-table td.num { text-align:right; white-space:nowrap; font-variant-numeric:tabular-nums; }
 .mini-table tbody tr:hover { background:var(--code-bg); }

@@ -496,6 +496,8 @@ const CSS = `/* project-atlas — generated. No external assets.
 * { box-sizing:border-box; }
 html { -webkit-text-size-adjust:100%; }
 body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.65 system-ui,sans-serif; }
+/* The page body never scrolls sideways. Wide content scrolls inside its own container instead. */
+html, body { max-width:100%; overflow-x:hidden; }
 
 /* Width ladder. 80% of the parent with a ceiling, per the house rule — but the ceiling rises on large
  * displays instead of stranding the content in a narrow column with two feet of empty grey either side.
