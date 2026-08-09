@@ -13,6 +13,25 @@ versions follow [Semantic Versioning](https://semver.org/).
 - `atlas plan` — propose the git route for the working tree and wait for approval, rather than only refusing a
   commit once it is attempted.
 
+## [0.1.18] — 2026-08-10
+
+### Added
+- **`atlas plan` and `/atlas:plan` — the route, before the decision.** Every other guard here is a refusal
+  that fires at `git commit`, which is after the fact. Nothing proposed a route, so the pull-request rule
+  lived as prose and was bypassed three times in one session with nothing objecting.
+
+  It prints the branch, the type, whether the change ships and therefore needs a version bump, and the way
+  to `main` — and **runs nothing without `--apply`**. `--apply` creates the branch and stops: committing and
+  pushing stay explicit, because pushing is outward-facing.
+
+  Two things it refuses to infer. The **slug** names the change, not the file, and inferring it from paths
+  produces `fix/scan-mjs` — exactly what the branching guide forbids. **`feat` versus `fix`** is not in a
+  diff: both touch the same files, and the difference is whether the old behaviour was intended. Both print
+  `?` and block `--apply` rather than guessing, because a wrong guess is accepted by a reader who trusts it.
+
+  A type is inferred only when *every* changed file agrees — a change touching `tests/` and `scripts/lib/`
+  is not a test change.
+
 ## [0.1.17] — 2026-08-10
 
 ### Added

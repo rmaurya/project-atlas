@@ -43,6 +43,7 @@ import { formatVersion, updateNotice, isPluginCache } from './lib/version.mjs';
 import { specVerdict } from './lib/spec.mjs';
 import { checkForUpdate } from './lib/update.mjs';
 import { verifySite, formatVerify } from './lib/verify.mjs';
+import { route, formatRoute } from './lib/plan.mjs';
 
 const argv = process.argv.slice(2);
 
@@ -393,6 +394,42 @@ async function main() {
       say(`  ${h.d.path}${h.d.title ? `  — ${h.d.title}` : ''}`);
     }
     if (hits.length > 20) say(`  … and ${hits.length - 20} more`);
+    return;
+  }
+
+  // Propose the route and wait. Every other guard here refuses at `git commit`, which is after the decision.
+  if (cmd === 'plan') {
+    const st = branchStatus(root, cfg);
+    const k = readChanges(root, cfg);
+    const changed = [...(k.unstaged || []), ...(k.staged || [])].map((f) => f.path);
+    const plan0 = readPlanning(root, cfg);
+    const slug = positionals[0] || null;
+    const manifest = path.join(root, '.claude-plugin', 'plugin.json');
+    let version = null;
+    try { version = JSON.parse(fs.readFileSync(manifest, 'utf8')).version; } catch {}
+    const hasRemote = gitLines(root, ['remote']).length > 0;
+
+    const r = route({
+      changed, slug,
+      branch: st.ok ? st.current : null,
+      main: cfg.branching?.main || 'main',
+      protectedBranch: st.ok && st.problems.some((p) => p.level === 'block'),
+      version, hasRemote,
+      items: plan0.missing ? [] : plan0.items,
+      namedItems: [],
+    });
+
+    say(formatRoute(r, color));
+
+    if (!flag('apply')) return;
+    if (r.blockers.length) { console.error('\nRefusing to apply: the route is not decided.'); process.exitCode = 1; return; }
+    const step = r.steps.find((s) => s.id === 'branch' && !s.done);
+    if (!step) { say('\nNothing to apply — already on the branch this change belongs on.'); return; }
+    const made = createBranch(root, r.type, r.slug);
+    if (!made.ok) { console.error(made.reason); process.exitCode = 1; return; }
+    // The branch, and only the branch. Committing and pushing stay explicit: this proposes a route, it does
+    // not drive one, and pushing is outward-facing besides.
+    say(`\nSwitched to ${made.name}. Nothing else was run.`);
     return;
   }
 

@@ -37,6 +37,7 @@ import { disagreements, updateNotice, isPluginCache } from '../scripts/lib/versi
 import { specVerdict, idsIn } from '../scripts/lib/spec.mjs';
 import { risks, summarise } from '../scripts/lib/insight.mjs';
 import { verifyPage, verifySite } from '../scripts/lib/verify.mjs';
+import { route, inferType } from '../scripts/lib/plan.mjs';
 import { manifestUrl, checkForUpdate, fetchLatest, readCache, writeCache, isFresh } from '../scripts/lib/update.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -2359,6 +2360,58 @@ test('automation · neither hook acts in a repository that never adopted the too
   eq(cli(dir, ['build', '--auto', '--quiet']).code, 0);
   ok(!fs.existsSync(path.join(dir, 'docs', '_wiki')), 'no config, no site written');
   eq(cli(dir, ['health', '--gate']).code, 0, 'no config, no gate');
+});
+
+/* ================================================================== propose the route, then wait */
+
+console.log('\nthe route');
+
+test('plan · a type is inferred only when every file agrees', () => {
+  // A change touching tests/ and scripts/lib/ is not a test change, and calling it one puts the wrong word
+  // in front of a reader who trusts it.
+  eq(inferType(['tests/run.mjs']), 'test');
+  eq(inferType(['README.md', 'docs/x.md']), 'docs');
+  eq(inferType(['.github/workflows/ci.yml']), 'chore');
+  eq(inferType(['tests/run.mjs', 'scripts/lib/scan.mjs']), null, 'mixed paths decide nothing');
+  eq(inferType(['scripts/lib/scan.mjs']), null, 'feat and fix touch the same files');
+});
+
+test('plan · a missing slug blocks apply but never stops the route printing', () => {
+  // The route is the useful part even when it cannot be executed. Refusing to print would make the tool
+  // silent exactly when someone is deciding.
+  const r = route({ changed: ['scripts/lib/scan.mjs'], branch: 'main', protectedBranch: true });
+  ok(r.steps.length, 'the route still prints');
+  ok(r.blockers.some((b) => b.includes('slug')));
+  ok(r.blockers.some((b) => b.includes('type')));
+});
+
+test('plan · a shipped change is told it needs a version bump, a docs change is not', () => {
+  const ships = route({ changed: ['scripts/lib/scan.mjs'], slug: 'x', branch: 'fix/x' });
+  eq(ships.ships, true);
+  ok(ships.steps.some((s) => s.id === 'version'));
+
+  const docs = route({ changed: ['README.md'], slug: 'x', branch: 'docs/x' });
+  eq(docs.ships, false);
+  ok(!docs.steps.some((s) => s.id === 'version'));
+});
+
+test('plan · push and the pull request are steps, never something apply does', () => {
+  // --apply creates the branch and stops. Pushing is outward-facing and irreversible.
+  const r = route({ changed: ['scripts/lib/scan.mjs'], slug: 'x', branch: 'fix/x', hasRemote: true });
+  const push = r.steps.find((s) => s.id === 'push');
+  includes(push.note, 'never part of --apply');
+  includes(r.steps.find((s) => s.id === 'pr').note, 'nothing enforces');
+});
+
+test('plan · a clean tree proposes nothing rather than an empty ceremony', () => {
+  const r = route({ changed: [], branch: 'fix/x' });
+  eq(r.empty, true);
+  includes(r.blockers[0], 'Nothing has changed');
+});
+
+test('plan · a shipped change naming no roadmap item is blocked before the commit gate sees it', () => {
+  const r = route({ changed: ['bin/atlas'], slug: 'x', branch: 'fix/x', items: [{ id: 'D-1' }], namedItems: [] });
+  ok(r.blockers.some((b) => b.includes('roadmap item')));
 });
 
 /* ================================================================== the tool audits its own output */
