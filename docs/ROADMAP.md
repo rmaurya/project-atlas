@@ -1,13 +1,15 @@
 # Roadmap — project-atlas
 
-**Last updated:** 2026-08-10 · **Version:** 0.1.6 · **Status:** pre-release, dogfooding
+**Last updated:** 2026-08-10 · **Version:** 0.1.10 · **Status:** pre-release, dogfooding
 
 Open work, with an honest completion figure against each item. A figure marked `*` is estimated rather than
 measured against the code — the same distinction the tool preserves everywhere else, applied to itself.
 
-> **This file went stale for 35 commits.** Every item in Track 1 was delivered while the table still read 0%,
-> and the dashboard said so the whole time: *Spec to build — named by a commit: 0 of 12*. Nobody read it. The
-> tool detects documentation drift and its own plan was the drifted document. Track 4 exists because of that.
+> **This file went stale for 35 commits, was rewritten, and went stale again inside one session.** Track 1 was
+> delivered while the table read 0%. It was corrected at 0.1.7 — and then six releases shipped without
+> touching it. Both times the dashboard reported the drift on its front page (*Spec to build — named by a
+> commit: 0 of 20*) and both times nobody read it. The tool detects documentation drift; its own plan is the
+> document that keeps drifting. **D-6 and D-8 exist because writing this by hand does not work.**
 
 | Item | % | Item | % | Item | % |
 |---|---|---|---|---|---|
@@ -16,8 +18,10 @@ measured against the code — the same distinction the tool preserves everywhere
 | P-1 | 100 | P-2 | 90 | P-3 | 70* |
 | Q-1 | 100 | Q-2 | 30* | Q-3 | 0 |
 | D-1 | 100 | D-2 | 100 | D-3 | 100 |
-| D-4 | 0 | D-5 | 0 | D-6 | 0 |
-| D-7 | 0 | D-8 | 0 | | |
+| D-4 | 0 | D-5 | 30* | D-6 | 0 |
+| D-7 | 0 | D-8 | 0 | D-9 | 100 |
+| D-10 | 100 | I-1 | 0 | I-2 | 0 |
+| I-3 | 40* | | | | |
 
 ---
 
@@ -113,9 +117,13 @@ sat five releases behind while every command reported success. **Nothing else in
 until this is fixed.**
 
 **D-5 · Tag the release when the version moves** — **P1 · High**
-*Six versions shipped and the first five tags were created by hand, retroactively.*
-A CI job on push to `main`: if `.claude-plugin/plugin.json` declares a version with no matching tag, create the
-annotated tag. The version gate already proves the number moved; nothing marks the commit.
+*Eleven tags now exist, `v0.1.0` through `v0.1.10`, and every one was typed by hand.*
+The first five were created retroactively; the rest were remembered, one release at a time, which is the
+definition of a step that will eventually be forgotten. A CI job on push to `main`: if
+`.claude-plugin/plugin.json` declares a version with no matching tag, create the annotated tag. The version
+gate already proves the number moved; nothing marks the commit. **The figure is 30% because the tags exist
+and the automation does not** — the visible symptom is fixed and the cause is not, which is exactly the state
+this project distrusts most.
 
 **D-6 · `atlas plan` — propose the route and wait** — **P1 · High**
 *The branch guard refuses a commit. Nothing proposes a route or waits for approval.*
@@ -130,9 +138,57 @@ in one session with nothing objecting.
 no prompt text, keeping the guarantee `tokens.mjs` rule 3 makes and its test enforces. Prompt quality is not
 scored: a transcript records what happened after a prompt, not whether the prompt was well judged.
 
-**D-8 · The tool audits its own output** — **P2 · High**
+**D-8 · The tool audits its own output** — **P0 · Critical**
 *`atlas health` audits your markdown. Nothing audits what the generator produces.*
-Two defects shipped inside one hour because of this: an export that deleted a control while keeping its
-script, and an update row that told the reader to downgrade. Both were caught by tests written afterwards. A
-`build --verify` pass over the generated site — no duplicate ids, every scripted control present, no dead
-in-document link — would catch the class rather than the instances.
+**Raised from P2. Six defects shipped in one afternoon and every single one was found by a human looking at
+the rendered page:** an export that deleted the theme toggle while keeping its script; an update row that told
+the reader to downgrade; a bundle that shipped every figure with none of its stylesheets, so the charts
+vanished; 69 links pointing at files that do not travel with a single-file export; panels leaving holes the
+height of their tallest neighbour; and a paragraph rendered as vertical strips because `.empty` was
+`display:flex`. Each is now pinned by a test written *after* a screenshot arrived.
+
+A `build --verify` pass — no duplicate ids, every scripted control rendered, every in-document link resolving,
+every class the page styles present in its stylesheet — would have caught all six before anyone saw them. The
+tool checks other people's documentation scrupulously and has never once looked at its own HTML.
+
+**D-9 · The published export is the whole site** — **P1 · High**
+*Shipped across 0.1.5–0.1.8.* One page of a ten-page site is not the site. `--page all` carries every page and
+all 27 document pages in one 660 KB file with the menu, the stylesheets and every link working, plus an About
+page and a build-time update row. Panels pack Pinterest-style rather than leaving holes.
+
+**D-10 · An unadopted repository is told, not left guessing** — **P1 · High**
+*Shipped in 0.1.10.* The hooks are inert without a config, deliberately — but inert and silent is
+indistinguishable from broken, and read as broken in a repository holding 349 indexable markdown files. One
+line at session start, narrow enough to stay quiet where it would be noise.
+
+## Track 5 — Insight
+
+*Added 2026-08-10. The dashboard reports what is measurable and stops there. What it does not do is tell a
+reader what any of it means, which is the first thing anyone asks of it.*
+
+**I-1 · An analysed homepage** — **P1 · High**
+*The front page states figures and draws no conclusion from them.*
+Two halves, deliberately separate. A **mechanical** risk panel computed from measured numbers with stated
+thresholds — rework 63.8% against a 30% band, bus factor 1, 0 of 20 items named by a commit, 15 orphan
+documents — where each line is a number, a threshold and the action it implies. And a **narrative** rendered
+from `docs/ANALYSIS.md`, written in a session and landing in a reviewable diff. The build never generates
+prose: that rule is what keeps the site regenerable and keeps unreviewed claims off it.
+
+**I-2 · Contributor and resource scorecard** — **P1 · High**
+*Throughput, rework, revert rate, spec coverage, bus factor and review latency, per contributor and per desk.*
+Requested explicitly from an organisational perspective. **The weights live in the config, not in the code** —
+a score the tool invents is unfalsifiable, and the first time someone disputes it there is no answer; a score
+whose components and weights are declared can be argued with, which is the only kind worth publishing. Each
+component states what it can and cannot support.
+
+Prompt quality stays out of it, and that is not squeamishness: a transcript records what happened *after* a
+prompt, not whether the prompt was well judged. In the session that produced this file the user interrupted
+twice and was right both times, and caught six generated-output defects the tool missed. Every friction-based
+scorer marks that as the user's failure. Interaction *outcomes* — rework after a session, turns to land,
+corrections by hand — measure whether the collaboration worked, which is the question actually being asked.
+
+**I-3 · Completed work visible on its own terms** — **P2 · Medium**
+*Done items are in the table and indistinguishable from a filter that hid them.*
+All 20 items are listed and the Status column filters to `Done`, so the data is there; what is missing is a
+deliberate control and a count, so "show me what landed" is one click rather than a filter someone has to
+discover.
