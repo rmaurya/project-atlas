@@ -13,6 +13,31 @@ versions follow [Semantic Versioning](https://semver.org/).
 - `atlas plan` — propose the git route for the working tree and wait for approval, rather than only refusing a
   commit once it is attempted.
 
+## [0.1.14] — 2026-08-10
+
+### Added
+- **A scorecard on the homepage, with the weights in your config.** Eight measured components across
+  Practice and Outcome, each printing its figure, its target, the weight it carried and its score — then a
+  ranked list of what to improve, ordered by weighted loss rather than by raw score, so a 15 carrying ×2
+  outranks a 52 carrying ×1.
+
+  `score.weights` lives in `project-atlas.config.json`. **The organisation owns the judgement; the tool owns
+  the arithmetic.** A score whose weighting is hidden can be resented but not disagreed with.
+
+  A component whose input is unavailable is omitted and its weight leaves the denominator with it — a missing
+  measurement must never quietly count as zero and drag a total down.
+- **Interaction components** (`atlas score --sessions`, never the build): tool-call success, results not
+  corrected by hand, sessions that fitted their window. These measure whether the collaboration worked.
+  Prompt quality is still not scored, and the reason is in `score.mjs`: a transcript records what happened
+  *after* a prompt, not whether the prompt was well judged.
+- `analysis.source`, so the rendered narrative can live somewhere other than `docs/ANALYSIS.md`.
+
+### Fixed
+- **The homepage lost its "last updated" date.** It was written by the live-reload poll, which the standalone
+  export disables because there is nothing to poll — so the one artifact people actually share was the single
+  page that never said when it was made. It is now rendered statically from the last commit date, which also
+  keeps the build byte-reproducible.
+
 ## [0.1.13] — 2026-08-10
 
 ### Fixed

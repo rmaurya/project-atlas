@@ -17,6 +17,8 @@ import { readDeck, deckPage } from './deck.mjs';
 import { readContrib } from './contrib.mjs';
 import { resolveViews, navItems, viewFile } from './views.mjs';
 import { risks, summarise } from './insight.mjs';
+import { repoComponents, scorecard } from './score.mjs';
+import { execFileSync } from 'node:child_process';
 import { PANELS } from './views.mjs';
 
 export { flatName } from './render-shared.mjs';
@@ -129,11 +131,33 @@ export function renderSite(index, health, cfg, root) {
     }
   } catch { analysisHtml = null; }             // a path outside the repository is refused, not read
 
+  // Tags against declared versions, for the release-marked component. Read, never assumed: a repository with
+  // no tags scores zero there, and one with no manifest is omitted from the scorecard entirely.
+  let releaseFacts = {};
+  try {
+    const tags = execFileSync('git', ['-C', root, 'tag', '-l', 'v*'], { encoding: 'utf8', stdio: ['ignore','pipe','ignore'] })
+      .split('\n').filter(Boolean).length;
+    const changelog = path.join(root, 'CHANGELOG.md');
+    const versions = fs.existsSync(changelog)
+      ? new Set([...fs.readFileSync(changelog,'utf8').matchAll(/^## \[(\d+\.\d+\.\d+)\]/gm)].map(m=>m[1])).size
+      : null;
+    if (versions) releaseFacts = { tags, versions };
+  } catch { /* not a repository, or no tags — the component is omitted rather than guessed */ }
+
+  // **The build date, rendered statically.** It used to be written by the live-reload poll, which the
+  // standalone export disables because there is nothing to poll — so the one artifact people actually share
+  // was the one page that never said when it was made. Read from git's own HEAD date where possible so a
+  // rebuild with no source change still produces an identical file.
+  let buildDate = null;
+  try {
+    buildDate = execFileSync('git', ['-C', root, 'log', '-1', '--format=%cs'], { encoding: 'utf8', stdio: ['ignore','pipe','ignore'] }).trim() || null;
+  } catch { buildDate = null; }
+
   // `jsonForScript`, not `JSON.stringify`: this file is inlined verbatim into a <script> tag by
   // `exportSingleFile`, and it carries document body text. See render-shared.mjs for what that cost.
   fs.writeFileSync(path.join(outDir, 'search-index.js'),
     'window.ATLAS = ' + jsonForScript({ docs: searchRows, truncated }) + ';\n', 'utf8');
-  fs.writeFileSync(path.join(outDir, 'index.html'), indexPage(index, health, cfg, truncated, docNav.map((n) => ({ ...n, current: n.href === 'index.html' })), views0, plan, contrib, nameFor, analysisHtml), 'utf8');
+  fs.writeFileSync(path.join(outDir, 'index.html'), indexPage(index, health, cfg, truncated, docNav.map((n) => ({ ...n, current: n.href === 'index.html' })), views0, plan, contrib, nameFor, analysisHtml, releaseFacts, buildDate), 'utf8');
   fs.writeFileSync(path.join(outDir, 'wiki.html'), wikiPage(index, cfg, truncated,
     docNav.map((n) => ({ ...n, current: n.href === 'wiki.html' })), nameFor), 'utf8');
   fs.writeFileSync(path.join(outDir, 'health.html'), healthPage(index, health, cfg, docNav.map((n) => ({ ...n, current: n.href === 'health.html' })), nameFor), 'utf8');
@@ -390,6 +414,42 @@ ${backlinks}
  * Every line states its number, the band it is judged against and what it implies — because a figure with no
  * threshold beside it needs a maintainer standing next to the screen, which is what this page was before.
  */
+/**
+ * The scorecard. Every component prints its figure, its target and the weight it carried, because a score
+ * whose arithmetic is hidden cannot be disagreed with — only resented.
+ */
+function scoreSection(card) {
+  if (!card || card.total === null) return '';
+  const tone = card.total >= 80 ? 'ok' : card.total >= 55 ? 'warn' : 'bad';
+  const groups = [...new Set(card.components.map((c) => c.group))];
+
+  return `
+<section class="score">
+  <h2>Scorecard <span class="stotal ${tone}">${card.total}</span></h2>
+  <p class="cap">Weighted across ${card.components.length} measured component(s). <strong>The weights live in
+  <code>score.weights</code> in this repository's config, not in the tool</strong> — change one and this
+  number changes with it. Prompt quality is not among them: a transcript records what happened after a
+  prompt, not whether the prompt was well judged.</p>
+  ${groups.map((g) => `
+  <h3 class="sgroup">${escapeHtml(g)}</h3>
+  <div class="table-wrap"><table class="mini-table">
+    <thead><tr><th>Component</th><th>Measured</th><th>Target</th><th class="num">Weight</th><th class="num">Score</th></tr></thead>
+    <tbody>${card.components.filter((c) => c.group === g).map((c) => `
+      <tr><td>${escapeHtml(c.label)}</td><td>${escapeHtml(c.figure)}</td>
+        <td class="cap">${escapeHtml(c.target)}</td>
+        <td class="num">×${c.weight}</td>
+        <td class="num ${c.score >= 80 ? 'ok' : c.score >= 55 ? 'warn' : 'bad'}">${c.score}</td></tr>`).join('')}
+    </tbody>
+  </table></div>`).join('')}
+  ${card.actions.length ? `
+  <h3 class="sgroup">What to improve, worst weighted loss first</h3>
+  <ol class="actions">
+    ${card.actions.map((a) => `<li><strong>${escapeHtml(a.label)}</strong> — ${escapeHtml(a.figure)}
+      <span class="cap">(scored ${a.score}, weight ×${a.weight})</span><br><span class="cap">${escapeHtml(a.suggestion)}</span></li>`).join('')}
+  </ol>` : '<p class="cap">Every measured component is at or above 80. Nothing here is worth acting on yet.</p>'}
+</section>`;
+}
+
 function riskSection(list, analysisHtml) {
   if (!list.length && !analysisHtml) return '';
   const dot = { risk: 'bad', watch: 'warn', ok: 'ok' };
@@ -418,7 +478,7 @@ ${analysisHtml ? `
 </section>` : ''}`;
 }
 
-function indexPage(index, health, cfg, truncated, nav, views, plan, contrib, nameFor, analysisHtml) {
+function indexPage(index, health, cfg, truncated, nav, views, plan, contrib, nameFor, analysisHtml, releaseFacts, buildDate) {
   const clusters = index.clusters.map((c) => {
     const docs = c.documents.map((p) => index.documents.find((d) => d.path === p)).filter(Boolean)
       .sort((a, b) => (a.title || a.path).localeCompare(b.title || b.path));
@@ -446,6 +506,7 @@ function indexPage(index, health, cfg, truncated, nav, views, plan, contrib, nam
     body: `
 <section class="hero">
   <h1>${escapeHtml(index.siteTitle)}</h1>
+  ${buildDate ? `<p class="built-on">Last updated <strong>${escapeHtml(buildDate)}</strong> <span class="cap">· from the last commit, so a rebuild with no change says the same thing</span></p>` : ''}
   ${lede(index)}
   <p class="hero-stats">
     <strong>${index.stats.documents}</strong> documents ·
@@ -462,6 +523,7 @@ function indexPage(index, health, cfg, truncated, nav, views, plan, contrib, nam
 </section>
 
 ${riskSection(risks({ index, health, plan, contrib }), analysisHtml)}
+${scoreSection(scorecard(repoComponents({ contrib, health, plan, index, ...releaseFacts }), cfg.score?.weights))}
 
 <section class="viewgrid">
   ${views.filter((v) => v.nav !== false).map((v) => `
@@ -705,6 +767,13 @@ a.src { color:var(--muted); }
 .hero-health { margin:0 0 8px; font-size:14px; }
 @media (max-width:600px) { .hero h1 { font-size:30px; } .hero .lede { font-size:15.5px; } }
 
+.built-on { margin:6px 0 14px; font-size:13.5px; color:var(--muted); }
+.score { margin:26px 0 8px; }
+.score h2 { display:flex; align-items:center; gap:12px; }
+.stotal { font-size:15px; font-weight:700; padding:3px 12px; border-radius:999px; border:1px solid currentColor; }
+.sgroup { font-size:14px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin:18px 0 6px; }
+.actions { margin:10px 0 0; padding-left:22px; }
+.actions li { margin:9px 0; }
 .risks { margin:28px 0 8px; }
 .risklist { list-style:none; margin:14px 0 0; padding:0; display:grid; gap:10px; }
 .risklist li { border:1px solid var(--line); border-left:3px solid var(--line); border-radius:8px; padding:11px 14px; background:var(--panel); }

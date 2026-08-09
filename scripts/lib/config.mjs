@@ -237,6 +237,10 @@ export const DEFAULT_CONFIG = {
   // loads up front, so this is a real budget, not a formality: at 20k a 400-document corpus produced 3.3 MB.
   // Documents past the limit are counted and reported — never silently truncated.
   searchBodyLimit: 6000,
+  // Weights for the homepage scorecard. Declared here so the organisation owns the judgement and the tool
+  // owns only the arithmetic — a score whose weighting is hidden can be resented but not disagreed with.
+  score: {},
+  analysis: {},          // { source: "docs/ANALYSIS.md" } — rendered on the homepage, never generated
   // Both on by default. A derived surface that only refreshes when someone remembers is a stale surface, and
   // the reason hand-maintained documentation rots is that keeping it current was always a separate decision.
   // Set either to false to go back to running `atlas build` and `atlas health` yourself.
@@ -335,6 +339,8 @@ const SCHEMA = {
   tokens: [T.object, 'an object'],
   branching: [T.object, 'an object'],
   automation: [T.object, 'an object'],
+  score: [T.object, 'an object'],
+  analysis: [T.object, 'an object'],
 };
 
 /** Every switch under `automation`, and what it turns off. Anything else there is refused as a typo. */

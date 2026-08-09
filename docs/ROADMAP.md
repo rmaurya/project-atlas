@@ -1,6 +1,6 @@
 # Roadmap — project-atlas
 
-**Last updated:** 2026-08-10 · **Version:** 0.1.12 · **Status:** pre-release, dogfooding
+**Last updated:** 2026-08-10 · **Version:** 0.1.14 · **Status:** pre-release, dogfooding
 
 Open work, with an honest completion figure against each item. A figure marked `*` is estimated rather than
 measured against the code — the same distinction the tool preserves everywhere else, applied to itself.
@@ -20,8 +20,8 @@ measured against the code — the same distinction the tool preserves everywhere
 | D-1 | 100 | D-2 | 100 | D-3 | 100 |
 | D-4 | 0 | D-5 | 30* | D-6 | 0 |
 | D-7 | 0 | D-8 | 0 | D-9 | 100 |
-| D-10 | 100 | I-1 | 100 | I-2 | 0 |
-| I-3 | 40* | D-11 | 100 | | |
+| D-10 | 100 | I-1 | 100 | | |
+| I-3 | 40* | D-11 | 100 | I-2 | 100 |
 
 ---
 
@@ -189,6 +189,7 @@ build never generates prose. That rule is what keeps the site byte-reproducible 
 reviewed off a page people will quote.
 
 **I-2 · Contributor and resource scorecard** — **P1 · High**
+*Shipped in 0.1.14.*
 *Throughput, rework, revert rate, spec coverage, bus factor and review latency, per contributor and per desk.*
 Requested explicitly from an organisational perspective. **The weights live in the config, not in the code** —
 a score the tool invents is unfalsifiable, and the first time someone disputes it there is no answer; a score
