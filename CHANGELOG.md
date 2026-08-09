@@ -13,6 +13,30 @@ versions follow [Semantic Versioning](https://semver.org/).
 - `atlas plan` — propose the git route for the working tree and wait for approval, rather than only refusing a
   commit once it is attempted.
 
+## [0.1.13] — 2026-08-10
+
+### Fixed
+- **Every skill block, not just the one that was reported.** `/atlas:diff` was fixed in 0.1.9; `/atlas:ask`
+  failed identically a release later — *"Contains shell syntax (string) that cannot be statically analyzed"*.
+  Six skills still carried command substitution, `if/then/fi`, and pipes into `head`, any of which stops the
+  permission checker cold. All twelve blocks are now a single `atlas` invocation with a trailing `|| echo`
+  fallback, which is required: a block that renders blank when `atlas` is missing reads as "nothing to
+  report".
+- The test that covered one skill now covers **every block in every skill**.
+
+### Added
+- **`atlas ask <question>`** — ranks documents by whether the phrase appears in the title, a heading or the
+  body. `grep -ril -- "$ARGUMENTS"` in a skill block is precisely what the checker refuses to parse.
+- **`atlas config`** prints the *resolved* configuration rather than catting a file that hid every unset key
+  behind an invisible default.
+
+### Note on this release
+- `b7ceddb` shipped 17 changed files declaring `0.1.12`, and was tagged `v0.1.13`. The release gate refused
+  it and the refusal was stepped over: the push used `;` where `&&` belonged, so a non-zero exit did not stop
+  the chain. The bump in that same command had never run either — a `PreToolUse` hook blocks the whole shell
+  call, so when the commit was refused, the `perl` beside it was refused with it. The tag has been moved to
+  the commit that actually declares `0.1.13`.
+
 ## [0.1.12] — 2026-08-10
 
 ### Added
