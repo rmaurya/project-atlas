@@ -64,33 +64,30 @@ None of that needed judgment to find. All of it needed someone to look.
 
 ## Install
 
-**As a Claude Code skill** — clone into your skills directory:
+**Claude Code** — one line, then the tool is on your PATH as `atlas`:
 
 ```bash
-git clone https://github.com/rmaurya/docs-atlas.git .claude/skills/docs-atlas
+/plugin marketplace add rmaurya/docs-atlas
+/plugin install atlas@docs-atlas
 ```
 
-Claude loads it automatically when you ask about documentation, a docs index, doc health, a developer manual,
-or a project knowledgebase.
-
-**As a CLI, or for any other agent** — clone anywhere:
+**Any other agent, or no agent at all** — clone and run it:
 
 ```bash
 git clone https://github.com/rmaurya/docs-atlas.git
-node docs-atlas/scripts/atlas.mjs --help
+./docs-atlas/bin/atlas --help
 ```
 
-For non-Claude runtimes, point your agent at [`AGENTS.md`](AGENTS.md).
+Non-Claude runtimes should load [`AGENTS.md`](AGENTS.md), which carries the same instructions in a portable
+form.
 
 ## Quick start
 
 ```bash
-S=.claude/skills/docs-atlas/scripts/atlas.mjs
-
-node $S init            # write a config, detecting your repository's layout
-node $S scan            # index the corpus                      --json for the raw model
-node $S health          # the rot report — exit 1 on blocking findings
-node $S build           # generate the site: index, dashboard, deck, health
+atlas init      # write a config, detecting your repository's layout
+atlas scan      # index the corpus                    --json for the raw model
+atlas health    # the rot report — exit 1 on blocking findings
+atlas build     # generate the site: index, dashboard, deck, health
 ```
 
 Then open `docs/_wiki/index.html`. Nothing existing is modified — the output is one directory you can delete
@@ -99,11 +96,17 @@ at any time.
 **Everything else:**
 
 ```bash
-node $S tasks [filter]  # your planning document, with progress bars
-node $S contrib         # who did what, from git history alone
-node $S watch           # rebuild on change; the open page reloads itself
-node $S all             # scan + health + build
+atlas branch [type slug]   # where you are, and whether it is safe to commit there
+atlas tasks [filter]       # your planning document, with progress bars
+atlas contrib              # who did what, from git history alone
+atlas caps                 # which host features are on (wiki/pages/issues/discussions)
+atlas community --write    # scaffolding for the features this host supports
+atlas watch                # rebuild on change; the open page reloads itself
+atlas all                  # scan + health + build
 ```
+
+If `atlas` is not on your PATH — you cloned it rather than installing the plugin — every command works the
+same as `./bin/atlas <command>` or `node scripts/atlas.mjs <command>`.
 
 ## What it produces
 
@@ -158,9 +161,9 @@ Three things it deliberately will not do, and why they matter more than the feat
 ## Publishing
 
 ```bash
-node $S publish --target wiki     # GitHub Wiki — flattened markdown, links rewritten, drift-guarded
-node $S publish --target pages    # the full site to a gh-pages branch
-node $S publish --target export   # one self-contained HTML file
+atlas publish --target wiki       # GitHub Wiki — flattened markdown, links rewritten, drift-guarded
+atlas publish --target pages      # the full site to a gh-pages branch
+atlas publish --target export     # one self-contained HTML file
 ```
 
 **Nothing pushes without an explicit `--push`.** The default stages to a temp directory and prints what would
@@ -177,8 +180,8 @@ Wiki, Pages, Issues and Discussions can each be off, and a publish target aimed 
 with an obscure git error. So the tool checks:
 
 ```bash
-node $S caps            # which features are on; --offline to skip the check entirely
-node $S community       # generate scaffolding for the ones that exist; --write to create it
+atlas caps          # which features are on; --offline to skip the check entirely
+atlas community     # generate scaffolding for the ones that exist; --write to create it
 ```
 
 `caps` is **the only command that touches the network**, it says so when it runs, and the result is cached for

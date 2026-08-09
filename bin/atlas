@@ -1,0 +1,5 @@
+#!/usr/bin/env sh
+# Thin shim so the tool is `atlas <command>` rather than `node .../scripts/atlas.mjs <command>`.
+# Claude Code puts a plugin's bin/ on PATH while the plugin is enabled; outside Claude Code, add this
+# directory to PATH yourself or call scripts/atlas.mjs directly. Nothing here needs installing.
+exec node "$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)/scripts/atlas.mjs" "$@"

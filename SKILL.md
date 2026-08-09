@@ -38,7 +38,7 @@ Pick the entry point that matches the request.
 
 1. **Measure before proposing.** Never open with a plan. Run:
    ```bash
-   node .claude/skills/docs-atlas/scripts/atlas.mjs scan --json | head -40
+   atlas scan --json | head -40
    ```
    This alone tells you file count, line count, clusters, and whether an index already exists. A proposal that
    ignores what is already there is a bad proposal — most repositories have more documentation than anyone
@@ -79,28 +79,27 @@ ignored, which is the failure mode that kills these systems.
 ## Commands
 
 ```bash
-S=.claude/skills/docs-atlas/scripts/atlas.mjs
-
-node $S init                  # write docs-atlas.config.json, detecting the repo's layout
-node $S scan                  # build the index; --json for the raw model
-node $S tasks [filter]        # the planning document, with progress bars
-node $S health                # rot report; --verbose for every instance; exit 1 on blocking
-node $S build                 # generate the site: index, dashboard, deck, health
-node $S watch                 # rebuild on change; the open page reloads itself
-node $S all                   # scan + health + build
+atlas init                  # write docs-atlas.config.json, detecting the repo's layout
+atlas scan                  # build the index; --json for the raw model
+atlas tasks [filter]        # the planning document, with progress bars
+atlas health                # rot report; --verbose for every instance; exit 1 on blocking
+atlas build                 # generate the site: index, dashboard, deck, health
+atlas watch                 # rebuild on change; the open page reloads itself
+atlas all                   # scan + health + build
 ```
 
 Flags: `--config <path>` · `--root <dir>` · `--quiet` · `--json` · `--no-git` (skip git metadata; staleness
 degrades to unknown rather than failing).
 
-Zero dependencies, Node ≥ 18, no network. Safe to run anywhere.
+Zero dependencies, Node ≥ 18. Installed as a plugin, `atlas` is on your PATH; otherwise it is
+`./bin/atlas` or `node scripts/atlas.mjs`. Only `atlas caps` touches the network, and it says so. Safe to run anywhere.
 
 ## Publishing
 
 ```bash
-node $S publish --target wiki     # GitHub Wiki: flattened markdown, links rewritten, drift-guarded
-node $S publish --target pages    # the full site to a gh-pages branch — dashboard and deck survive
-node $S publish --target export   # one self-contained HTML file (--page dashboard|index|health)
+atlas publish --target wiki     # GitHub Wiki: flattened markdown, links rewritten, drift-guarded
+atlas publish --target pages    # the full site to a gh-pages branch — dashboard and deck survive
+atlas publish --target export   # one self-contained HTML file (--page dashboard|index|health)
 ```
 
 **Nothing is pushed without `--push`.** The default stages to a temp directory and prints what would go where.

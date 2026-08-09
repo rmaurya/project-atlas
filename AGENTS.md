@@ -24,21 +24,20 @@ human reviews. Never emitted from the build script. That difference is the entir
 ## Commands
 
 ```bash
-S=path/to/docs-atlas/scripts/atlas.mjs
+atlas init            # write a config, detecting the repository's layout
+atlas scan            # index the corpus                        --json for the raw model
+atlas tasks [filter]  # the planning document, with progress bars
+atlas contrib         # who did what, from git history alone
+atlas health          # rot report; --verbose for instances; exit 1 on blocking
+atlas build           # generate the site
+atlas watch           # rebuild on change
+atlas all             # scan + health + build
 
-node $S init            # write a config, detecting the repository's layout
-node $S scan            # index the corpus                        --json for the raw model
-node $S tasks [filter]  # the planning document, with progress bars
-node $S contrib         # who did what, from git history alone
-node $S health          # rot report; --verbose for instances; exit 1 on blocking
-node $S build           # generate the site
-node $S watch           # rebuild on change
-node $S all             # scan + health + build
-
-node $S publish --target wiki|pages|export     # stages only; --push is required to publish
+atlas publish --target wiki|pages|export     # stages only; --push is required to publish
 ```
 
-Zero dependencies, Node ≥ 18, no network.
+Zero dependencies, Node ≥ 18. Installed as a plugin, `atlas` is on your PATH; otherwise it is
+`./bin/atlas` or `node scripts/atlas.mjs`. Only `atlas caps` touches the network, and it says so.
 
 ---
 

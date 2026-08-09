@@ -1,0 +1,22 @@
+{
+  "name": "docs-atlas",
+  "owner": {
+    "name": "Rajneesh Maurya"
+  },
+  "plugins": [
+    {
+      "name": "atlas",
+      "source": "./",
+      "description": "A derived, auditable knowledgebase over your repository's own documentation — index, dashboard, deck, and nine mechanical rot signals, generated from the markdown you already have.",
+      "category": "documentation",
+      "keywords": [
+        "documentation",
+        "wiki",
+        "knowledgebase",
+        "dashboard",
+        "docs-health"
+      ]
+    }
+  ],
+  "description": "Documentation tooling that treats your markdown as the source of truth and everything else as derived."
+}
