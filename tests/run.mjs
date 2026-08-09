@@ -26,7 +26,7 @@ import { readDeck } from '../scripts/lib/deck.mjs';
 import { RAMP, STATUS } from '../scripts/lib/dashboard.mjs';
 import { buildWikiPages, wikiPageName, exportSingleFile, RESERVED } from '../scripts/lib/publish.mjs';
 import { readContrib, estimateHours } from '../scripts/lib/contrib.mjs';
-import { readTokens, formatTokens, assertNotPublishable, transcriptDir } from '../scripts/lib/tokens.mjs';
+import { readTokens, formatTokens, formatSessions, assertNotPublishable, transcriptDir } from '../scripts/lib/tokens.mjs';
 import { branchStatus, createBranch, TYPES } from '../scripts/lib/branch.mjs';
 import { detectHost, gateTarget } from '../scripts/lib/host.mjs';
 import { resolveViews, navItems, PANELS } from '../scripts/lib/views.mjs';
@@ -756,6 +756,40 @@ test('tokens · aggregates only — no prompt text reaches the report', async ()
   ok(!dump.includes('SECRET-PROMPT-TEXT'), 'prompt text must never reach the report');
   ok(!dump.includes('SECRET-PATH'), 'tool arguments must never reach the report');
   includes(dump, 'Read', 'the tool NAME is fine — it is the argument that is not');
+});
+
+test('sessions · counts what happened, and refuses to call any of it prompt quality', async () => {
+  const store = path.join(tmpRoot, 'sessions-store');
+  const dir = fixture('sessions', { 'docs/A.md': '# A\n' });
+  const slug = path.resolve(dir).split(path.sep).join('-');
+  fs.mkdirSync(path.join(store, slug), { recursive: true });
+  const rows = [
+    { type: 'user', promptSource: 'typed', timestamp: '2026-01-01T10:00:00Z' },
+    { type: 'assistant', timestamp: '2026-01-01T10:00:01Z', message: { model: 'm', usage: { output_tokens: 5 },
+      content: [{ type: 'tool_use', name: 'Bash' }] } },
+    { type: 'user', timestamp: '2026-01-01T10:00:02Z', message: { content: [{ type: 'tool_result', is_error: true }] } },
+    { type: 'assistant', timestamp: '2026-01-01T10:00:03Z', message: { model: 'm', usage: { output_tokens: 5 },
+      content: [{ type: 'tool_use', name: 'Bash' }] } },
+    { type: 'user', timestamp: '2026-01-01T10:00:04Z', message: { content: [{ type: 'tool_result' }] } },
+    { type: 'user', promptSource: 'queued', timestamp: '2026-01-01T10:01:00Z' },
+    { type: 'assistant', interruptedMessageId: 'x', timestamp: '2026-01-01T10:02:00Z', message: { model: 'm', usage: { output_tokens: 1 } } },
+    { type: 'user', isCompactSummary: true, timestamp: '2026-01-01T10:03:00Z' },
+  ];
+  fs.writeFileSync(path.join(store, slug, 's.jsonl'), rows.map((r) => JSON.stringify(r)).join('\n') + '\n');
+
+  const k = await readTokens(dir, { ...resolveConfig(dir), tokens: { transcriptRoot: store } });
+  const o = k.outcomes;
+  eq([o.typedPrompts, o.queuedPrompts], [1, 1]);
+  eq(o.assistantTurns, 3);
+  eq([o.toolResults, o.toolErrors], [2, 1]);
+  eq(o.toolErrorRate, 50);
+  eq(o.interruptions, 1);
+  eq(o.compactions, 1);
+
+  const report = formatSessions(k, { available: false }, false);
+  includes(report, 'does not measure');
+  includes(report, 'Prompt quality');
+  ok(!/quality score|prompt score|rating/i.test(report), 'no score may appear under any name');
 });
 
 /* ================================================================== publish */

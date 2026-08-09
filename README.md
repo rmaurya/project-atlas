@@ -152,6 +152,7 @@ atlas branch [type slug]   # where you are, and whether it is safe to commit the
 atlas tasks [filter]       # your planning document, with progress bars
 atlas contrib              # who did what, from git history alone
 atlas tokens               # where the tokens went — local transcripts, opt-in, never published
+atlas sessions             # how sessions went — turns, interruptions, friction, rework
 atlas caps                 # which host features are on (wiki/pages/issues/discussions)
 atlas community --write    # scaffolding for the features this host supports
 atlas watch                # rebuild on change; the open page reloads itself
@@ -228,6 +229,23 @@ equal and make a cheap session look expensive.
 
 Cost appears only when you configure rates, because prices are not in the transcript and they change; the
 report prints the date you entered them, and names any model it had no rate for.
+
+## Session outcomes
+
+```bash
+atlas sessions             # turns per prompt, interruptions, compactions, tool friction, rework
+```
+
+Reads the same local transcripts as `atlas tokens`, under the same rules.
+
+**It does not measure prompt quality, and it says so on every run.** A transcript records what happened *after*
+a prompt, not whether the prompt was well judged — and a richer source does not change that. Every figure is
+named for the thing it observes: turns per typed prompt, queued prompts, interruptions, compactions, tool
+error rate, human-edited results. **None of them is combined into a score**, and there is a test asserting no
+score appears under any name.
+
+Read them as questions, not conclusions. A high tool-error rate might be a flaky environment. A high
+turns-per-prompt might be one large well-scoped request rather than a misunderstood small one.
 
 ## Publishing
 

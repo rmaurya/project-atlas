@@ -83,6 +83,10 @@ export async function readTokens(root, cfg = {}, { onProgress } = {}) {
   const tools = new Map();
   let skippedLines = 0, outOfRange = 0;
 
+  // Outcome signals, collected in the same pass. Named for what they observe, never for what they imply.
+  const oc = { typedPrompts: 0, queuedPrompts: 0, assistantTurns: 0, interruptions: 0,
+               compactions: 0, toolResults: 0, toolErrors: 0, userModifiedEdits: 0, sessions: 0 };
+
   for (const [i, f] of files.entries()) {
     onProgress?.(`  reading ${i + 1}/${files.length}  ${(f.size / 1048576).toFixed(0)} MB`);
     const s = { file: f.name.slice(0, 8), bytes: f.size, input: 0, output: 0, cacheWrite: 0, cacheRead: 0, messages: 0, first: null, last: null };
@@ -96,8 +100,17 @@ export async function readTokens(root, cfg = {}, { onProgress } = {}) {
       // Tool names only — never arguments, never results.
       const content = j.message?.content;
       if (Array.isArray(content)) {
-        for (const c of content) if (c?.type === 'tool_use' && c.name) tools.set(c.name, (tools.get(c.name) || 0) + 1);
+        for (const c of content) {
+          if (c?.type === 'tool_use' && c.name) tools.set(c.name, (tools.get(c.name) || 0) + 1);
+          if (c?.type === 'tool_result') { oc.toolResults++; if (c.is_error) oc.toolErrors++; }
+        }
       }
+      if (j.type === 'assistant') oc.assistantTurns++;
+      if (j.promptSource === 'typed') oc.typedPrompts++;
+      else if (j.promptSource === 'queued') oc.queuedPrompts++;
+      if (j.interruptedMessageId) oc.interruptions++;
+      if (j.isCompactSummary) oc.compactions++;
+      if (j.toolUseResult && j.toolUseResult.userModified) oc.userModifiedEdits++;
 
       const u = j.message?.usage || j.usage;
       if (!u) continue;
@@ -129,6 +142,7 @@ export async function readTokens(root, cfg = {}, { onProgress } = {}) {
         if (!s.last || ts > s.last) s.last = ts;
       }
     }
+    if (s.messages || oc.assistantTurns) oc.sessions++;
     if (s.messages) bySession.push({ ...s, first: s.first && new Date(s.first).toISOString().slice(0, 10), last: s.last && new Date(s.last).toISOString().slice(0, 10) });
   }
 
@@ -144,6 +158,12 @@ export async function readTokens(root, cfg = {}, { onProgress } = {}) {
     bySession: bySession.sort((a, b) => b.output - a.output),
     byDay: [...byDay.values()].sort((a, b) => a.day.localeCompare(b.day)),
     tools: [...tools.entries()].map(([name, calls]) => ({ name, calls })).sort((a, b) => b.calls - a.calls),
+    outcomes: {
+      ...oc,
+      turnsPerPrompt: oc.typedPrompts ? Math.round((oc.assistantTurns / oc.typedPrompts) * 10) / 10 : null,
+      toolErrorRate: oc.toolResults ? Math.round((oc.toolErrors / oc.toolResults) * 1000) / 10 : null,
+      interruptionRate: oc.typedPrompts ? Math.round((oc.interruptions / oc.typedPrompts) * 1000) / 10 : null,
+    },
     cost: estimateCost(byModel, t),
     notChecked: notChecked(t, skippedLines, outOfRange),
   };
@@ -242,6 +262,68 @@ export function formatTokens(k, useColor) {
 
   L.push('');
   L.push(c.bold('Read these with the caveats'));
+  for (const n of k.notChecked) L.push(c.dim('  · ' + n));
+  return L.join('\n');
+}
+
+/* ------------------------------------------------------------------ session outcomes */
+
+/**
+ * What the transcripts say about how sessions went — **not** how good the prompts were.
+ *
+ * The distinction is the whole point and it survives the richer source. A transcript records what happened
+ * after a prompt; it does not record whether the prompt was well judged. Every figure below is named for the
+ * thing it observes, and none is combined into a score.
+ *
+ * Read them as questions. A high tool-error rate might be a flaky environment. A high turns-per-prompt might
+ * be one large well-scoped request rather than a misunderstood small one. The numbers narrow where to look;
+ * they do not conclude.
+ */
+export function formatSessions(k, contrib, useColor) {
+  const c = useColor
+    ? { dim: (s) => `\x1b[2m${s}\x1b[0m`, bold: (s) => `\x1b[1m${s}\x1b[0m`, yellow: (s) => `\x1b[33m${s}\x1b[0m` }
+    : new Proxy({}, { get: () => (s) => s });
+
+  if (!k.available) return `No session data: ${k.reason}`;
+  const o = k.outcomes;
+  const L = [];
+
+  L.push(c.bold(`${o.typedPrompts.toLocaleString()} typed prompt(s) across ${o.sessions} session(s)`));
+  L.push(c.dim(`${o.assistantTurns.toLocaleString()} assistant turns · ${o.toolResults.toLocaleString()} tool results`));
+  L.push('');
+
+  L.push(c.bold('Interaction'));
+  L.push(`  turns per typed prompt   ${String(o.turnsPerPrompt ?? '—').padStart(7)}  ` + c.dim('work done per instruction — high can mean a big request, not a misread one'));
+  L.push(`  queued prompts           ${String(o.queuedPrompts).padStart(7)}  ` + c.dim('sent while a turn was already running'));
+  L.push(`  interruptions            ${String(o.interruptions).padStart(7)}  ` + c.dim(`${o.interruptionRate ?? '—'}% of typed prompts — a turn stopped mid-flight`));
+  L.push(`  compactions              ${String(o.compactions).padStart(7)}  ` + c.dim('sessions that outgrew their window — a proxy for scope not being split'));
+  L.push('');
+
+  L.push(c.bold('Friction'));
+  L.push(`  tool error rate          ${String(o.toolErrorRate ?? '—').padStart(6)}%  ` + c.dim(`${o.toolErrors} of ${o.toolResults} tool results failed`));
+  L.push(`  human-edited results     ${String(o.userModifiedEdits).padStart(7)}  ` + c.dim('a file was changed by hand after being written — a direct correction'));
+
+  if (contrib?.available) {
+    const q = contrib.quality;
+    const fixes = contrib.commits.filter((x) => /^fix(\(|:)/i.test(x.subject)).length;
+    const feats = contrib.commits.filter((x) => /^feat(\(|:)/i.test(x.subject)).length;
+    L.push('');
+    L.push(c.bold('Outcomes in the repository') + c.dim('  from git, not from transcripts'));
+    L.push(`  rework rate              ${String(q.reworkRate).padStart(6)}%  ` + c.dim(`a file re-touched within ${q.reworkWindowDays} days`));
+    L.push(`  revert rate              ${String(q.revertRate).padStart(6)}%  ` + c.dim(`${q.reverts} revert commit(s)`));
+    L.push(`  fix / feat               ${String(fixes).padStart(3)} / ${String(feats).padEnd(3)}  ` + c.dim('subjects typed fix: against feat:'));
+  }
+
+  L.push('');
+  L.push(c.bold('What this does not measure'));
+  L.push(c.dim('  · Prompt quality. A transcript records what happened after a prompt, not whether the prompt was'));
+  L.push(c.dim('    well judged. Nothing here is a proxy for that, and none of it is combined into a score.'));
+  const authors = contrib?.available ? contrib.people.length : 0;
+  if (authors === 1) {
+    L.push(c.dim('  · Per-contributor comparison. This repository has one git author, so a per-person breakdown'));
+    L.push(c.dim('    would be a table of one. It becomes meaningful with a Desk: trailer or more committers.'));
+  }
+  L.push(c.dim('  · Difficulty. A turn on a hard problem and a turn on a typo count the same.'));
   for (const n of k.notChecked) L.push(c.dim('  · ' + n));
   return L.join('\n');
 }
