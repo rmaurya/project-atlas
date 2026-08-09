@@ -28,6 +28,8 @@ export const PANELS = {
   people: 'Per-author commits, files, churn, days, estimated hours',
   desks: 'Per-desk attribution from the Desk: trailer',
   coverage: 'Spec-to-build — items named by a commit',
+  documents: 'The documents this role owns, with dates, status and signals',
+  recent: 'Recent commits — what changed, and when',
   caveats: 'What this page does not show, and why',
 };
 
@@ -43,23 +45,27 @@ export const DEFAULT_VIEWS = [
   },
   {
     id: 'qc', title: 'Quality', nav: true,
-    blurb: 'Where the corpus is wrong, and how often work has to be redone. Leads with defects that have no legitimate cause.',
-    panels: ['health', 'deliveryTiles', 'coverage', 'clusters', 'caveats'],
+    blurb: 'Where the corpus is wrong, how often work has to be redone, and what has just landed.',
+    clusters: ['procedures', 'planning', 'manuals'],
+    panels: ['health', 'deliveryTiles', 'recent', 'documents', 'coverage', 'caveats'],
   },
   {
     id: 'product', title: 'Product', nav: true,
     blurb: 'What is in scope, how far along it is, and how much of that figure is measured rather than estimated.',
-    panels: ['tiles', 'progress', 'status', 'items', 'caveats'],
+    clusters: ['product', 'planning'],
+    panels: ['tiles', 'progress', 'status', 'documents', 'items', 'caveats'],
   },
   {
     id: 'delivery', title: 'Delivery', nav: true,
     blurb: 'Throughput and where it is concentrated. Rhythm, not value — a commit count measures neither difficulty nor worth.',
-    panels: ['deliveryTiles', 'velocity', 'people', 'desks', 'status', 'caveats'],
+    clusters: ['planning', 'operations'],
+    panels: ['deliveryTiles', 'velocity', 'recent', 'people', 'desks', 'status', 'documents', 'caveats'],
   },
   {
     id: 'architecture', title: 'Architecture', nav: true,
-    blurb: 'Where the documentation and the code have drifted apart, and which specifications were never started.',
-    panels: ['health', 'clusters', 'coverage', 'progress', 'caveats'],
+    blurb: 'The design record — HLD, LLD, specifications — and where it has drifted from the code it cites.',
+    clusters: ['engineering', 'specs'],
+    panels: ['documents', 'health', 'coverage', 'clusters', 'progress', 'caveats'],
   },
   {
     id: 'executive', title: 'Executive', nav: true,
@@ -95,6 +101,7 @@ export const viewFile = (id) => (id === 'dashboard' ? 'dashboard.html' : `view-$
 export function navItems(views, { hasDeck }) {
   const items = [{ href: 'index.html', label: 'Home' }];
   for (const v of views) if (v.nav !== false) items.push({ href: viewFile(v.id), label: v.title });
+  items.push({ href: 'wiki.html', label: 'Wiki' });
   if (hasDeck) items.push({ href: 'deck.html', label: 'Deck' });
   items.push({ href: 'health.html', label: 'Health' });
   return items;

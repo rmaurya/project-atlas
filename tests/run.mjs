@@ -28,6 +28,7 @@ import { buildWikiPages, wikiPageName, exportSingleFile, RESERVED } from '../scr
 import { readContrib, estimateHours } from '../scripts/lib/contrib.mjs';
 import { branchStatus, createBranch, TYPES } from '../scripts/lib/branch.mjs';
 import { detectHost, gateTarget } from '../scripts/lib/host.mjs';
+import { resolveViews, navItems, PANELS } from '../scripts/lib/views.mjs';
 import { communityAssets } from '../scripts/lib/community.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -874,6 +875,65 @@ test('community · generates only what the host supports, and says what it skipp
   const on = communityAssets(index, health, null, host, { checked: true, slug: 'acme/widget', discussions: true, issues: true, wiki: true, pages: true }, cfg);
   ok([...on.files.keys()].some((f) => f.includes('DISCUSSIONS')));
   includes(on.files.get('.github/ISSUE_TEMPLATE/config.yml'), 'discussions', 'issues route to Discussions when it exists');
+});
+
+/* ================================================================== views */
+
+console.log('\nviews');
+
+test('views · a page is composed from panel ids, and unknown ids are rejected', () => {
+  const ok1 = resolveViews({ views: [{ id: 'x', title: 'X', panels: ['tiles', 'health'] }] });
+  eq(ok1.length, 1);
+  let threw = null;
+  try { resolveViews({ views: [{ id: 'x', title: 'X', panels: ['tiles', 'nonsense'] }] }); } catch (e) { threw = e; }
+  ok(threw, 'an unknown panel id must be rejected, not silently skipped');
+  includes(threw.message, 'nonsense');
+});
+
+test('views · duplicate view ids are rejected', () => {
+  let threw = null;
+  try { resolveViews({ views: [{ id: 'a', title: 'A', panels: [] }, { id: 'a', title: 'B', panels: [] }] }); }
+  catch (e) { threw = e; }
+  includes(threw?.message || '', 'duplicate view id');
+});
+
+test('views · nav is generated from what exists, not hardcoded', () => {
+  const views = [{ id: 'dashboard', title: 'Overview', panels: [] }, { id: 'qc', title: 'Quality', panels: [] }];
+  const withDeck = navItems(views, { hasDeck: true }).map((n) => n.label);
+  const without = navItems(views, { hasDeck: false }).map((n) => n.label);
+  eq(withDeck, ['Home', 'Overview', 'Quality', 'Wiki', 'Deck', 'Health']);
+  ok(!without.includes('Deck'), 'a deck that was never authored must not appear in the menu');
+  ok(without.includes('Wiki'), 'the corpus browser is always reachable — it is the point of the tool');
+  // A view marked nav:false is reachable by URL but stays out of the menu.
+  eq(navItems([...views, { id: 'hidden', title: 'Hidden', nav: false, panels: [] }], { hasDeck: false })
+      .map((n) => n.label).includes('Hidden'), false);
+});
+
+test('views · a panel with no data is omitted and named, never rendered empty', () => {
+  const dir = fixture('views-empty', { 'docs/A.md': '# Alpha\n' });
+  const cfg = resolveConfig(dir);
+  // No planning source, so every plan-backed panel has nothing behind it.
+  cfg.views = [{ id: 'dashboard', title: 'Overview', panels: ['tiles', 'progress', 'items', 'health'] }];
+  const index = buildIndex(dir, cfg);
+  const health = runHealth(index, cfg, dir);
+  const site = renderSite(index, health, cfg, dir);
+  const html = fs.readFileSync(path.join(site.outDir, 'dashboard.html'), 'utf8');
+  includes(html, 'Not shown on this page');
+  includes(html, 'progress', 'the omitted panel must be named');
+  ok(!/<figure class="card">\s*<figcaption><h2>Mean completion/.test(html), 'no empty progress card');
+});
+
+test('views · the landing page quotes the corpus, never a bare link', () => {
+  // Regression: the README opens with its own URL, and the landing page quoted that as the description —
+  // a one-line summary that was a link the reader was already on.
+  const dir = fixture('views-lede', {
+    'docs/README.md': '# Index\n\ngithub.com/acme/widget\n\nA real description of what this project does and why.\n',
+  });
+  const cfg = resolveConfig(dir);
+  const index = buildIndex(dir, cfg);
+  const doc = index.documents.find((d) => d.path === 'docs/README.md');
+  includes(doc.excerpt, 'A real description');
+  ok(!doc.excerpt.includes('github.com'), 'a bare link must not become the description');
 });
 
 /* ================================================================== runtimes */

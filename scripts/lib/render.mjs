@@ -15,8 +15,10 @@ import { viewPage } from './dashboard.mjs';
 import { readDeck, deckPage } from './deck.mjs';
 import { readContrib } from './contrib.mjs';
 import { resolveViews, navItems, viewFile } from './views.mjs';
+import { PANELS } from './views.mjs';
 
-export const flatName = (p) => p.replace(/\.md$/i, '').replace(/[/\\]/g, '__') + '.html';
+export { flatName } from './render-shared.mjs';
+import { flatName } from './render-shared.mjs';
 
 export function renderSite(index, health, cfg, root) {
   const outDir = path.resolve(root, cfg.output);
@@ -65,7 +67,9 @@ export function renderSite(index, health, cfg, root) {
 
   fs.writeFileSync(path.join(outDir, 'search-index.js'),
     'window.ATLAS = ' + JSON.stringify({ docs: searchRows, truncated }) + ';\n', 'utf8');
-  fs.writeFileSync(path.join(outDir, 'index.html'), indexPage(index, health, cfg, truncated, docNav.map((n) => ({ ...n, current: n.href === 'index.html' }))), 'utf8');
+  fs.writeFileSync(path.join(outDir, 'index.html'), indexPage(index, health, cfg, truncated, docNav.map((n) => ({ ...n, current: n.href === 'index.html' })), views0, plan, contrib), 'utf8');
+  fs.writeFileSync(path.join(outDir, 'wiki.html'), wikiPage(index, cfg, truncated,
+    docNav.map((n) => ({ ...n, current: n.href === 'wiki.html' }))), 'utf8');
   fs.writeFileSync(path.join(outDir, 'health.html'), healthPage(index, health, cfg, docNav.map((n) => ({ ...n, current: n.href === 'health.html' }))), 'utf8');
   const views = views0;
   const baseNav = docNav;
@@ -91,6 +95,103 @@ export function writeBuildStamp(root, cfg, value) {
   const outDir = path.resolve(root, cfg.output);
   fs.writeFileSync(path.join(outDir, 'build-stamp.txt'), String(value) + '\n', 'utf8');
 }
+
+
+/**
+ * The corpus browser. Split off the landing page because the two answer different questions: the landing
+ * page says what this project is and where to look; the wiki is where you actually look. Merging them meant
+ * a reader scrolling past a search box to reach the dashboards, or past the dashboards to reach the search.
+ */
+function wikiPage(index, cfg, truncated, nav) {
+  const clusters = index.clusters.map((c) => {
+    const docs = c.documents.map((p) => index.documents.find((d) => d.path === p)).filter(Boolean)
+      .sort((a, b) => (a.title || a.path).localeCompare(b.title || b.path));
+    return `
+<section class="cluster" id="c-${escapeHtml(c.id)}">
+  <h2>${escapeHtml(c.title)} <span class="count">${docs.length}</span></h2>
+  ${c.blurb ? `<p class="blurb">${escapeHtml(c.blurb)}</p>` : ''}
+  <ul class="docs">
+    ${docs.map((d) => `<li>
+      <a class="dt" href="pages/${flatName(d.path)}">${escapeHtml(d.title || d.path)}</a>
+      <span class="dm">${d.git ? d.git.date + ' · ' : ''}${d.lines.toLocaleString()} lines</span>
+      ${d.excerpt ? `<span class="dx">${escapeHtml(d.excerpt.slice(0, 190))}</span>` : ''}
+      <code class="dp">${escapeHtml(d.path)}</code>
+    </li>`).join('\n')}
+  </ul>
+</section>`;
+  }).join('\n');
+
+  const clusterNav = index.clusters.map((c) =>
+    `<a href="#c-${escapeHtml(c.id)}">${escapeHtml(c.title)} <span>${c.documents.length}</span></a>`).join('');
+
+  return shell({
+    title: `Wiki · ${index.siteTitle}`,
+    siteTitle: index.siteTitle,
+    nav,
+    body: `
+<h1>Wiki</h1>
+<p class="lede">${index.stats.documents} documents · ${index.stats.lines.toLocaleString()} lines ·
+${index.stats.clusters} clusters. Every page is derived from the markdown in this repository — edit the source,
+never the page.</p>
+
+<div class="searchbox">
+  <input id="q" type="search" placeholder="Search titles, headings and body text…" autocomplete="off" autofocus>
+  <p id="qhint" class="hint">${truncated ? `${truncated} long document(s) are indexed to the first ${(cfg.searchBodyLimit || 6000).toLocaleString()} characters.` : 'Full text of every document is indexed.'}</p>
+</div>
+<div id="results" hidden></div>
+
+<nav class="clusternav">${clusterNav}</nav>
+<div id="browse">
+${clusters}
+</div>
+`,
+    scripts: `<script src="search-index.js"></script>
+<script>${SEARCH_JS}</script>`,
+  });
+}
+
+const SEARCH_JS = `(function () {
+  var q = document.getElementById('q'), res = document.getElementById('results'), browse = document.getElementById('browse');
+  var docs = (window.ATLAS && window.ATLAS.docs) || [];
+  function esc(s){ return String(s).replace(/[&<>"]/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
+  function score(d, terms) {
+    var t = (d.t||'').toLowerCase(), h = (d.h||'').toLowerCase(), b = (d.b||'').toLowerCase(), p = (d.p||'').toLowerCase(), s = 0;
+    for (var i=0;i<terms.length;i++) {
+      var w = terms[i];
+      if (!t.includes(w) && !h.includes(w) && !b.includes(w) && !p.includes(w)) return 0;
+      if (t.includes(w)) s += 100;
+      if (p.includes(w)) s += 40;
+      if (h.includes(w)) s += 20;
+      var n = b.split(w).length - 1; s += Math.min(n, 25);
+    }
+    return s;
+  }
+  function snippet(d, w) {
+    var b = d.b || '', i = b.toLowerCase().indexOf(w);
+    if (i < 0) return esc((d.x || '').slice(0, 180));
+    var s = Math.max(0, i - 70);
+    return (s ? '…' : '') + esc(b.slice(s, s + 190)) + '…';
+  }
+  function run() {
+    var v = q.value.trim().toLowerCase();
+    if (v.length < 2) { res.hidden = true; browse.hidden = false; return; }
+    var terms = v.split(/\\\\s+/);
+    var hits = docs.map(function (d) { return { d: d, s: score(d, terms) }; })
+                   .filter(function (x) { return x.s > 0; })
+                   .sort(function (a, b) { return b.s - a.s; }).slice(0, 60);
+    browse.hidden = true; res.hidden = false;
+    res.innerHTML = hits.length
+      ? '<p class="hint">' + hits.length + ' match' + (hits.length === 1 ? '' : 'es') + '</p><ul class="docs">' + hits.map(function (x) {
+          return '<li><a class="dt" href="pages/' + x.d.f + '">' + esc(x.d.t) + '</a>' +
+                 '<span class="dm">' + esc(x.d.c) + '</span>' +
+                 '<span class="dx">' + snippet(x.d, terms[0]) + '</span>' +
+                 '<code class="dp">' + esc(x.d.p) + '</code></li>';
+        }).join('') + '</ul>'
+      : '<p class="hint">No match.</p>';
+  }
+  q.addEventListener('input', run);
+  window.addEventListener('keydown', function (e) { if (e.key === '/' && document.activeElement !== q) { e.preventDefault(); q.focus(); } });
+})();`;
 
 /* ------------------------------------------------------------------ theme */
 
@@ -159,6 +260,20 @@ ${scripts}
 
 /* ------------------------------------------------------------------ pages */
 
+/**
+ * The one-line description on the landing page. Taken from whatever document the taxonomy put in the entry
+ * cluster — normally the README — rather than written here. A landing page that describes the project in
+ * words the project never used is the first thing to go stale.
+ */
+function lede(index) {
+  const entry = index.clusters.find((c) => c.id === 'start');
+  const doc = entry && index.documents.find((d) => d.path === entry.documents[0]);
+  if (doc?.excerpt) return `<p class="lede">${escapeHtml(doc.excerpt)}</p>`;
+  return `<p class="lede muted">No entry document is classified under "start", so there is nothing to quote here.
+    Add one — a hand-written <code>docs/README.md</code> is worth more than the rest of this site.</p>`;
+}
+
+
 function docPage(d, bodyHtml, findings, index, cfg, toRoot, nav) {
   const meta = [];
   if (d.git) meta.push(`<span title="${escapeHtml(d.git.subject)}">Last commit <strong>${d.git.date}</strong> <code>${d.git.hash}</code></span>`);
@@ -203,7 +318,7 @@ ${backlinks}
   });
 }
 
-function indexPage(index, health, cfg, truncated, nav) {
+function indexPage(index, health, cfg, truncated, nav, views, plan, contrib) {
   const clusters = index.clusters.map((c) => {
     const docs = c.documents.map((p) => index.documents.find((d) => d.path === p)).filter(Boolean)
       .sort((a, b) => (a.title || a.path).localeCompare(b.title || b.path));
@@ -225,69 +340,45 @@ function indexPage(index, health, cfg, truncated, nav) {
   const clusterNav = index.clusters.map((c) => `<a href="#c-${escapeHtml(c.id)}">${escapeHtml(c.title)} <span>${c.documents.length}</span></a>`).join('');
 
   return shell({
-    title: `${index.siteTitle} · project-atlas`,
+    title: escapeHtml(index.siteTitle),
     siteTitle: index.siteTitle,
     nav,
     body: `
-<h1>${escapeHtml(index.siteTitle)}</h1>
-<p class="lede">${index.stats.documents} documents · ${index.stats.lines.toLocaleString()} lines · ${index.stats.clusters} clusters ·
-<a href="health.html">${health.blockingCount ? `<strong class="bad">${health.blockingCount} blocking</strong>` : '<span class="ok">no blocking findings</span>'}</a></p>
+<section class="hero">
+  <h1>${escapeHtml(index.siteTitle)}</h1>
+  ${lede(index)}
+  <p class="hero-stats">
+    <strong>${index.stats.documents}</strong> documents ·
+    <strong>${index.stats.lines.toLocaleString()}</strong> lines ·
+    <strong>${index.stats.clusters}</strong> clusters${plan && !plan.missing ? ` ·
+    <strong>${plan.stats.total}</strong> open items at <strong>${plan.stats.mean ?? '—'}%</strong>` : ''}${contrib?.available ? ` ·
+    <strong>${contrib.totals.commits}</strong> commits` : ''}
+  </p>
+  <p class="hero-health">
+    ${health.blockingCount
+      ? `<a href="health.html"><strong class="bad">${health.blockingCount} blocking finding(s)</strong></a> — defects with no legitimate cause`
+      : `<a href="health.html"><span class="ok">No blocking findings</span></a> — every mechanical check is clean`}
+  </p>
+</section>
 
-<div class="searchbox">
-  <input id="q" type="search" placeholder="Search titles, headings and body text…" autocomplete="off" autofocus>
-  <p id="qhint" class="hint">${truncated ? `${truncated} long document(s) are indexed to the first ${(cfg.searchBodyLimit || 6000).toLocaleString()} characters.` : 'Full text of every document is indexed.'}</p>
-</div>
-<div id="results" hidden></div>
+<section class="viewgrid">
+  ${views.filter((v) => v.nav !== false).map((v) => `
+  <a class="viewcard" href="${viewFile(v.id)}">
+    <span class="vt">${escapeHtml(v.title)}</span>
+    <span class="vb">${escapeHtml(v.blurb || '')}</span>
+    <span class="vp">${v.panels.length} panel(s)</span>
+  </a>`).join('')}
+</section>
 
-<nav class="clusternav">${clusterNav}</nav>
-<div id="browse">
-${clusters}
-</div>
+<section class="browse-cta">
+  <h2>Browse the corpus</h2>
+  <p class="cap">${index.stats.documents} documents across ${index.stats.clusters} clusters, with full-text
+  search over titles, headings and body text.</p>
+  <p><a class="cta" href="wiki.html">Open the wiki →</a></p>
+</section>
 `,
-    scripts: `<script src="search-index.js"></script>
-<script>
-(function () {
-  var q = document.getElementById('q'), res = document.getElementById('results'), browse = document.getElementById('browse');
-  var docs = (window.ATLAS && window.ATLAS.docs) || [];
-  function esc(s){ return String(s).replace(/[&<>"]/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
-  function score(d, terms) {
-    var t = (d.t||'').toLowerCase(), h = (d.h||'').toLowerCase(), b = (d.b||'').toLowerCase(), p = (d.p||'').toLowerCase(), s = 0;
-    for (var i=0;i<terms.length;i++) {
-      var w = terms[i];
-      if (!t.includes(w) && !h.includes(w) && !b.includes(w) && !p.includes(w)) return 0;
-      if (t.includes(w)) s += 100;
-      if (p.includes(w)) s += 40;
-      if (h.includes(w)) s += 20;
-      var n = b.split(w).length - 1; s += Math.min(n, 25);
-    }
-    return s;
-  }
-  function snippet(d, w) {
-    var b = d.b || '', i = b.toLowerCase().indexOf(w);
-    if (i < 0) return esc((d.x || '').slice(0, 180));
-    var s = Math.max(0, i - 70);
-    return (s ? '…' : '') + esc(b.slice(s, s + 190)) + '…';
-  }
-  function run() {
-    var v = q.value.trim().toLowerCase();
-    if (v.length < 2) { res.hidden = true; browse.hidden = false; return; }
-    var terms = v.split(/\\s+/);
-    var hits = docs.map(function (d) { return { d: d, s: score(d, terms) }; })
-                   .filter(function (x) { return x.s > 0; })
-                   .sort(function (a, b) { return b.s - a.s; }).slice(0, 60);
-    browse.hidden = true; res.hidden = false;
-    res.innerHTML = hits.length
-      ? '<p class="hint">' + hits.length + ' match' + (hits.length === 1 ? '' : 'es') + '</p><ul class="docs">' + hits.map(function (x) {
-          return '<li><a class="dt" href="pages/' + x.d.f + '">' + esc(x.d.t) + '</a>' +
-                 '<span class="dm">' + esc(x.d.c) + '</span>' +
-                 '<span class="dx">' + snippet(x.d, terms[0]) + '</span>' +
-                 '<code class="dp">' + esc(x.d.p) + '</code></li>';
-        }).join('') + '</ul>'
-      : '<p class="hint">No match.</p>';
-  }
-  q.addEventListener('input', run);
-  window.addEventListener('keydown', function (e) { if (e.key === '/' && document.activeElement !== q) { e.preventDefault(); q.focus(); } });
-})();
+    scripts: `<script>
+
 </script>`,
   });
 }
@@ -425,7 +516,7 @@ code, pre, .dp { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospac
   position:sticky; top:0; z-index:10; display:flex; align-items:center; gap:24px;
   padding:12px 5%; background:var(--bg); border-bottom:1px solid var(--line);
 }
-.brand { font-weight:650; color:var(--ink); }
+.brand { font-weight:650; color:var(--ink); white-space:nowrap; }
 .topbar nav { display:flex; gap:16px; margin-left:auto; }
 footer { border-top:1px solid var(--line); padding:20px 5%; color:var(--muted); font-size:13px; }
 
@@ -498,6 +589,26 @@ a.src { color:var(--muted); }
 }
 #q:focus { outline:2px solid var(--accent); outline-offset:1px; }
 .hint { color:var(--muted); font-size:12.5px; margin:6px 2px 0; }
+
+.hero { padding:14px 0 6px; }
+.hero h1 { font-size:40px; letter-spacing:-.02em; margin:0 0 10px; }
+.hero .lede { font-size:17px; max-width:66ch; margin:0 0 16px; color:var(--fg-soft); }
+.hero-stats { margin:0 0 6px; font-size:14px; color:var(--muted); }
+.hero-stats strong { color:var(--ink); font-variant-numeric:tabular-nums; }
+.hero-health { margin:0 0 8px; font-size:14px; }
+@media (max-width:600px) { .hero h1 { font-size:30px; } .hero .lede { font-size:15.5px; } }
+
+.viewgrid { display:grid; grid-template-columns:repeat(auto-fit,minmax(230px,1fr)); gap:12px; margin:22px 0 34px; }
+.viewcard {
+  display:flex; flex-direction:column; gap:5px; padding:14px 16px;
+  background:var(--panel); border:1px solid var(--line); border-radius:10px; color:var(--ink);
+  box-shadow:var(--shadow); transition:border-color .1s ease;
+}
+.viewcard:hover { border-color:var(--accent); text-decoration:none; }
+.viewcard .vt { font-weight:650; font-size:15px; color:var(--link); }
+.viewcard .vb { font-size:13px; color:var(--muted); line-height:1.5; }
+.viewcard .vp { font-size:11.5px; color:var(--muted); opacity:.8; margin-top:2px; }
+.browse-title { margin:34px 0 4px; }
 
 .clusternav { display:flex; flex-wrap:wrap; gap:8px; margin:22px 0 8px; }
 .clusternav a {

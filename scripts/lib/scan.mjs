@@ -138,11 +138,21 @@ function versionFromName(rel) {
   return m ? m[1] : null;
 }
 
+/**
+ * The first paragraph that actually describes something. Headings, rules and tables are skipped, and so is a
+ * block that is only a link or a badge row — a README commonly opens with its own URL, and quoting that as
+ * the project's description produces a landing page whose one line is a link the reader is already on.
+ */
 function firstParagraph(text) {
   for (const block of text.split(/\n\s*\n/)) {
     const t = block.trim();
     if (!t || t.startsWith('#') || t.startsWith('---') || t.startsWith('|')) continue;
-    return stripInline(t.replace(/^>\s?/gm, '')).slice(0, 300);
+    const plain = stripInline(t.replace(/^>\s?/gm, ''));
+    if (!plain) continue;
+    if (/^(https?:\/\/|www\.)/i.test(plain)) continue;              // a bare URL
+    if (/^[\w.-]+\.(com|org|net|io|dev|ai)\b\S*$/i.test(plain)) continue;  // a bare domain, e.g. github.com/x/y
+    if (plain.split(/\s+/).length < 6) continue;                    // a badge row or a one-word line
+    return plain.slice(0, 300);
   }
   return '';
 }

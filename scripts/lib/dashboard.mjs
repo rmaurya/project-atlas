@@ -20,6 +20,7 @@ import { escapeHtml } from './markdown.mjs';
 import { SIGNALS } from './health.mjs';
 import { taskCoverage } from './contrib.mjs';
 import { PANELS } from './views.mjs';
+import { flatName } from './render-shared.mjs';
 
 /**
  * Ordinal progress ramps — one per theme, each validated against the surface it actually sits on.
@@ -61,7 +62,7 @@ const st = (role) => `var(--st-${role})`;
 export function viewPage(view, ctx, shell) {
   const { index, health, plan, cfg, contrib, nav } = ctx;
 
-  const built = view.panels.map((id) => ({ id, html: panel(id, ctx) }));
+  const built = view.panels.map((id) => ({ id, html: panel(id, { ...ctx, view }) }));
   const rendered = built.filter((b) => b.html);
   const omitted = built.filter((b) => !b.html).map((b) => b.id);
 
@@ -92,7 +93,7 @@ ${omitted.length ? `<section class="card muted"><h2>Not shown on this page</h2>
 }
 
 /** Returns the panel's HTML, or null when it has nothing to say. */
-function panel(id, { index, health, plan, cfg, contrib }) {
+function panel(id, { index, health, plan, cfg, contrib, view }) {
   const hasPlan = plan && !plan.missing;
   const hasContrib = contrib && contrib.available;
 
@@ -109,6 +110,8 @@ function panel(id, { index, health, plan, cfg, contrib }) {
     case 'people': return hasContrib ? peopleTable(contrib) : null;
     case 'desks': return hasContrib ? desksChart(contrib) : null;
     case 'coverage': return hasContrib && hasPlan ? coverageChart(contrib, plan) : null;
+    case 'documents': return documentsPanel(index, health, view);
+    case 'recent': return hasContrib ? recentPanel(contrib) : null;
     case 'caveats': return caveats(plan, health, contrib);
     default: return null;
   }
@@ -396,6 +399,66 @@ function coverageChart(contrib, plan) {
 </figure>`;
 }
 
+/**
+ * The documents this role owns. A metrics page tells a reader something is wrong; this tells them which file
+ * to open. Which clusters a view claims is declared on the view, so an architect gets HLD, LLD and the
+ * specifications while QC gets the procedures and the manuals — from the same taxonomy, not a second list.
+ */
+function documentsPanel(index, health, view) {
+  const want = view.clusters || [];
+  if (!want.length) return null;
+  const clusters = index.clusters.filter((c) => want.includes(c.id));
+  if (!clusters.length) {
+    return `<figure class="card muted"><figcaption><h2>Documents</h2></figcaption>
+      <p class="empty">This view claims the cluster(s) <code>${escapeHtml(want.join(', '))}</code>, and none of
+      them exists in this repository's taxonomy. Either the documents are classified elsewhere or the rules
+      need one more entry — see <code>atlas config</code>.</p></figure>`;
+  }
+
+  const flagsFor = (p) => health.findings.filter((f) => f.doc === p && !f.suppressed);
+
+  return clusters.map((c) => {
+    const docs = c.documents.map((p) => index.documents.find((d) => d.path === p)).filter(Boolean)
+      .sort((a, b) => (b.git?.date || '').localeCompare(a.git?.date || ''));
+    return `
+<section class="card">
+  <h2>${escapeHtml(c.title)} <span class="count">${docs.length}</span></h2>
+  ${c.blurb ? `<p class="cap">${escapeHtml(c.blurb)}</p>` : ''}
+  <ul class="doclist">
+    ${docs.map((d) => {
+      const flags = flagsFor(d.path);
+      return `<li>
+        <a href="pages/${flatName(d.path)}">${escapeHtml(d.title || d.path)}</a>
+        <span class="dm">${d.git ? d.git.date : 'undated'} · ${d.lines.toLocaleString()} lines${d.status ? ` · ${escapeHtml(d.status)}` : ''}</span>
+        ${flags.length ? `<span class="dflags">${flags.map((f) =>
+          `<span class="sig ${f.blocking ? 'block' : 'adv'}" title="${escapeHtml(f.detail || '')}">${f.signal}</span>`).join('')}</span>` : ''}
+        <code class="dp">${escapeHtml(d.path)}</code>
+      </li>`;
+    }).join('')}
+  </ul>
+</section>`;
+  }).join('\n');
+}
+
+/** What has just landed. Newest first, because "what changed" is almost always the question. */
+function recentPanel(contrib) {
+  const recent = contrib.commits.slice(-15).reverse();
+  if (!recent.length) return null;
+  return `
+<section class="card">
+  <h2>Recently pushed <span class="count">${recent.length}</span></h2>
+  <p class="cap">The last ${recent.length} of ${contrib.totals.commits} commits. Subjects are shown as written —
+  where a subject names an item id, that item is the one to check.</p>
+  <ul class="doclist">
+    ${recent.map((c) => `<li>
+      <span class="rsub">${escapeHtml(c.subject)}</span>
+      <span class="dm">${c.date.slice(0, 10)} · <code>${escapeHtml(c.hash)}</code> · +${c.added} / −${c.removed}${c.agents.length ? ` · ${escapeHtml(c.agents[0])}` : ''}</span>
+      ${c.taskRefs.length ? `<span class="dflags">${c.taskRefs.map((r) => `<span class="sig adv">${escapeHtml(r)}</span>`).join('')}</span>` : ''}
+    </li>`).join('')}
+  </ul>
+</section>`;
+}
+
 /* ------------------------------------------------------------------ assets */
 
 const DASH_CSS = `
@@ -503,6 +566,13 @@ figcaption { display:block; }
 .mini-table th,.mini-table td { border-bottom:1px solid var(--line); padding:7px 10px; text-align:left; }
 .mini-table th.num,.mini-table td.num { text-align:right; white-space:nowrap; font-variant-numeric:tabular-nums; }
 .mini-table tbody tr:hover { background:var(--code-bg); }
+.doclist { list-style:none; margin:10px 0 0; padding:0; display:grid; gap:8px; }
+.doclist li { padding:9px 12px; background:var(--bg); border:1px solid var(--line); border-radius:8px; font-size:14px; }
+.doclist a { font-weight:600; }
+.doclist .dm { display:block; color:var(--muted); font-size:12.5px; margin-top:2px; }
+.doclist .dflags { display:inline-flex; gap:4px; margin-top:5px; }
+.doclist .dp { display:block; color:var(--muted); font-size:11.5px; margin-top:4px; opacity:.8; }
+.rsub { font-weight:600; }
 .stamp { color:var(--muted); font-size:12px; }
 abbr { text-decoration:none; cursor:help; color:var(--muted); }
 :root { --st-good:${STATUS.light.good}; --st-warning:${STATUS.light.warning};
