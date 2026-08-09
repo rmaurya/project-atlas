@@ -11,9 +11,10 @@ import path from 'node:path';
 import { renderMarkdown, escapeHtml } from './markdown.mjs';
 import { SIGNALS } from './health.mjs';
 import { readPlanning } from './planning.mjs';
-import { dashboardPage } from './dashboard.mjs';
+import { viewPage } from './dashboard.mjs';
 import { readDeck, deckPage } from './deck.mjs';
-import { readContrib, taskCoverage } from './contrib.mjs';
+import { readContrib } from './contrib.mjs';
+import { resolveViews, navItems, viewFile } from './views.mjs';
 
 export const flatName = (p) => p.replace(/\.md$/i, '').replace(/[/\\]/g, '__') + '.html';
 
@@ -35,13 +36,18 @@ export function renderSite(index, health, cfg, root) {
     return { href: `${toRoot}/${resolved}`, cls: 'dead' };
   };
 
+  const plan0 = readPlanning(root, cfg);
+  const deck0 = readDeck(root, cfg);
+  const views0 = resolveViews(cfg);
+  const docNav = navItems(views0, { hasDeck: !!deck0 }).map((n) => ({ ...n, current: false }));
+
   let truncated = 0;
   const searchRows = [];
 
   for (const d of index.documents) {
     const findings = health.findings.filter((f) => f.doc === d.path && !f.suppressed);
     const body = renderMarkdown(d.body, { resolveLink: resolveFrom(d.path) });
-    fs.writeFileSync(path.join(pagesDir, flatName(d.path)), docPage(d, body, findings, index, cfg, toRoot), 'utf8');
+    fs.writeFileSync(path.join(pagesDir, flatName(d.path)), docPage(d, body, findings, index, cfg, toRoot, docNav), 'utf8');
 
     const limit = cfg.searchBodyLimit || 6000;
     const text = d.body.replace(/\s+/g, ' ').trim();
@@ -53,15 +59,21 @@ export function renderSite(index, health, cfg, root) {
     });
   }
 
-  const plan = readPlanning(root, cfg);
-  const deck = readDeck(root, cfg);
+  const plan = plan0;
+  const deck = deck0;
   const contrib = readContrib(root, cfg);
 
   fs.writeFileSync(path.join(outDir, 'search-index.js'),
     'window.ATLAS = ' + JSON.stringify({ docs: searchRows, truncated }) + ';\n', 'utf8');
-  fs.writeFileSync(path.join(outDir, 'index.html'), indexPage(index, health, cfg, truncated), 'utf8');
-  fs.writeFileSync(path.join(outDir, 'health.html'), healthPage(index, health, cfg), 'utf8');
-  fs.writeFileSync(path.join(outDir, 'dashboard.html'), dashboardPage(index, health, plan, cfg, shell, contrib), 'utf8');
+  fs.writeFileSync(path.join(outDir, 'index.html'), indexPage(index, health, cfg, truncated, docNav.map((n) => ({ ...n, current: n.href === 'index.html' }))), 'utf8');
+  fs.writeFileSync(path.join(outDir, 'health.html'), healthPage(index, health, cfg, docNav.map((n) => ({ ...n, current: n.href === 'health.html' }))), 'utf8');
+  const views = views0;
+  const baseNav = docNav;
+  const ctx = { index, health, plan, cfg, contrib };
+  for (const v of views) {
+    const nav = baseNav.map((n) => ({ ...n, current: n.href === viewFile(v.id) }));
+    fs.writeFileSync(path.join(outDir, viewFile(v.id)), viewPage(v, { ...ctx, nav }, shell), 'utf8');
+  }
   if (deck) fs.writeFileSync(path.join(outDir, 'deck.html'), deckPage(deck, index, cfg), 'utf8');
   fs.writeFileSync(path.join(outDir, 'atlas.css'), CSS, 'utf8');
   fs.writeFileSync(path.join(outDir, '.gitattributes'), '* linguist-generated=true\n', 'utf8');
@@ -115,7 +127,7 @@ const THEME_WIRE = `(function(){
 
 /* ------------------------------------------------------------------ shell */
 
-function shell({ title, siteTitle, base = '', body, extraHead = '', scripts = '', nav = true }) {
+function shell({ title, siteTitle, base = '', body, extraHead = '', scripts = '', nav = [] }) {
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -130,10 +142,7 @@ ${extraHead}
 <header class="topbar">
   <a class="brand" href="${base}index.html">${escapeHtml(siteTitle)}</a>
   <nav>
-    <a href="${base}index.html">Index</a>
-    <a href="${base}dashboard.html">Dashboard</a>
-    <a href="${base}deck.html">Deck</a>
-    <a href="${base}health.html">Health</a>
+    ${(nav || []).map((n) => `<a href="${base}${n.href}"${n.current ? ' aria-current="page"' : ''}>${escapeHtml(n.label)}</a>`).join('\n    ')}
     <button type="button" class="theme-toggle" id="themeToggle" aria-label="Theme: system">◐</button>
   </nav>
 </header>
@@ -150,7 +159,7 @@ ${scripts}
 
 /* ------------------------------------------------------------------ pages */
 
-function docPage(d, bodyHtml, findings, index, cfg, toRoot) {
+function docPage(d, bodyHtml, findings, index, cfg, toRoot, nav) {
   const meta = [];
   if (d.git) meta.push(`<span title="${escapeHtml(d.git.subject)}">Last commit <strong>${d.git.date}</strong> <code>${d.git.hash}</code></span>`);
   meta.push(`<span>${d.lines.toLocaleString()} lines</span>`);
@@ -179,6 +188,7 @@ function docPage(d, bodyHtml, findings, index, cfg, toRoot) {
   return shell({
     title: `${d.title || d.path} · ${index.siteTitle}`,
     siteTitle: index.siteTitle,
+    nav,
     base: '../',                     // document pages live in pages/; the stylesheet and nav are one level up
     body: `
 <div class="derived">Derived page. Source: <a href="${toRoot}/${d.path}"><code>${escapeHtml(d.path)}</code></a> — edit that file, not this one.</div>
@@ -193,7 +203,7 @@ ${backlinks}
   });
 }
 
-function indexPage(index, health, cfg, truncated) {
+function indexPage(index, health, cfg, truncated, nav) {
   const clusters = index.clusters.map((c) => {
     const docs = c.documents.map((p) => index.documents.find((d) => d.path === p)).filter(Boolean)
       .sort((a, b) => (a.title || a.path).localeCompare(b.title || b.path));
@@ -212,11 +222,12 @@ function indexPage(index, health, cfg, truncated) {
 </section>`;
   }).join('\n');
 
-  const nav = index.clusters.map((c) => `<a href="#c-${escapeHtml(c.id)}">${escapeHtml(c.title)} <span>${c.documents.length}</span></a>`).join('');
+  const clusterNav = index.clusters.map((c) => `<a href="#c-${escapeHtml(c.id)}">${escapeHtml(c.title)} <span>${c.documents.length}</span></a>`).join('');
 
   return shell({
     title: `${index.siteTitle} · project-atlas`,
     siteTitle: index.siteTitle,
+    nav,
     body: `
 <h1>${escapeHtml(index.siteTitle)}</h1>
 <p class="lede">${index.stats.documents} documents · ${index.stats.lines.toLocaleString()} lines · ${index.stats.clusters} clusters ·
@@ -228,7 +239,7 @@ function indexPage(index, health, cfg, truncated) {
 </div>
 <div id="results" hidden></div>
 
-<nav class="clusternav">${nav}</nav>
+<nav class="clusternav">${clusterNav}</nav>
 <div id="browse">
 ${clusters}
 </div>
@@ -281,7 +292,7 @@ ${clusters}
   });
 }
 
-function healthPage(index, health, cfg) {
+function healthPage(index, health, cfg, nav) {
   const sections = Object.values(SIGNALS).map((s) => {
     const items = health.findings.filter((f) => f.signal === s.id && !f.suppressed);
     const isBlocking = (cfg.blocking || []).includes(s.id);
@@ -303,6 +314,7 @@ function healthPage(index, health, cfg) {
   return shell({
     title: `Health · ${index.siteTitle}`,
     siteTitle: index.siteTitle,
+    nav,
     body: `
 <h1>Documentation health</h1>
 <p class="lede">${health.blockingCount

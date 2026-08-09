@@ -19,6 +19,7 @@
 import { escapeHtml } from './markdown.mjs';
 import { SIGNALS } from './health.mjs';
 import { taskCoverage } from './contrib.mjs';
+import { PANELS } from './views.mjs';
 
 /**
  * Ordinal progress ramps — one per theme, each validated against the surface it actually sits on.
@@ -52,35 +53,65 @@ export const STATUS = {
  */
 const st = (role) => `var(--st-${role})`;
 
-export function dashboardPage(index, health, plan, cfg, shell, contrib = null) {
-  const body = `
-<h1>Project dashboard</h1>
-<p class="lede">${escapeHtml(index.siteTitle)} · ${index.stats.documents} documents · ${index.stats.lines.toLocaleString()} lines
-${plan && !plan.missing ? `· ${plan.stats.total} tracked items` : ''}
-<span class="stamp" id="stamp"></span></p>
+/**
+ * One page per view. The view supplies an ordered list of panel ids; every panel is written once and
+ * rendered here. A panel that has nothing to show returns null and is **omitted with a note** rather than
+ * rendered as an empty box — an empty box reads as "nothing to report", which is a different claim.
+ */
+export function viewPage(view, ctx, shell) {
+  const { index, health, plan, cfg, contrib, nav } = ctx;
 
-${tiles(index, health, plan)}
-<div class="dash">
-  <div class="dash-main">
-    ${plan && !plan.missing ? charts(plan) : noPlanning(cfg)}
-    ${healthChart(health, cfg)}
-    ${clusterChart(index)}
-    ${delivery(contrib, plan)}
-    ${caveats(plan, health, contrib)}
-  </div>
-  <aside class="dash-side">
-    ${plan && !plan.missing ? itemTable(plan) : ''}
-  </aside>
-</div>
-`;
+  const built = view.panels.map((id) => ({ id, html: panel(id, ctx) }));
+  const rendered = built.filter((b) => b.html);
+  const omitted = built.filter((b) => !b.html).map((b) => b.id);
+
+  // The item table is wide; on a view that shows it, it takes the side column and everything else the main.
+  const showsItems = rendered.some((b) => b.id === 'items');
+  const main = rendered.filter((b) => b.id !== 'items').map((b) => b.html).join('\n');
+  const side = rendered.filter((b) => b.id === 'items').map((b) => b.html).join('\n');
+
+  const body = `
+<h1>${escapeHtml(view.title)}</h1>
+<p class="lede">${escapeHtml(view.blurb || '')}
+<span class="stamp" id="stamp"></span></p>
+${showsItems ? `<div class="dash"><div class="dash-main">${main}</div><aside class="dash-side">${side}</aside></div>`
+             : `<div class="dash-single">${main}</div>`}
+${omitted.length ? `<section class="card muted"><h2>Not shown on this page</h2>
+  <p class="cap">Omitted because there is no data behind them, not because they were excluded.</p>
+  <ul>${omitted.map((id) => `<li><strong>${escapeHtml(id)}</strong> — ${escapeHtml(PANELS[id] || '')}</li>`).join('')}</ul>
+</section>` : ''}`;
 
   return shell({
-    title: `Dashboard · ${index.siteTitle}`,
+    title: `${view.title} · ${index.siteTitle}`,
     siteTitle: index.siteTitle,
+    nav,
     body,
     extraHead: `<style>${DASH_CSS}</style>`,
     scripts: `<script>${TABLE_JS}</script>`,
   });
+}
+
+/** Returns the panel's HTML, or null when it has nothing to say. */
+function panel(id, { index, health, plan, cfg, contrib }) {
+  const hasPlan = plan && !plan.missing;
+  const hasContrib = contrib && contrib.available;
+
+  switch (id) {
+    case 'tiles': return tiles(index, health, plan);
+    case 'progress': return hasPlan ? progressChart(plan) : null;
+    case 'status': return hasPlan ? statusChart(plan) : null;
+    case 'items': return hasPlan ? itemTable(plan) : null;
+    case 'health': return healthChart(health, cfg);
+    case 'clusters': return clusterChart(index);
+    case 'deliveryTiles': return hasContrib ? deliveryTiles(contrib) : null;
+    case 'velocity': return hasContrib ? velocityChart(contrib) : null;
+    case 'models': return hasContrib && contrib.agents.length ? modelChart(contrib) : null;
+    case 'people': return hasContrib ? peopleTable(contrib) : null;
+    case 'desks': return hasContrib ? desksChart(contrib) : null;
+    case 'coverage': return hasContrib && hasPlan ? coverageChart(contrib, plan) : null;
+    case 'caveats': return caveats(plan, health, contrib);
+    default: return null;
+  }
 }
 
 /* ------------------------------------------------------------------ tiles */
@@ -106,33 +137,35 @@ function tile(value, label, sub, tone) {
 
 /* ------------------------------------------------------------------ charts */
 
-function charts(plan) {
+function progressChart(plan) {
   const tracks = plan.tracks.filter((t) => t.mean !== null).sort((a, b) => b.mean - a.mean);
-  const statusRows = plan.stats.byStatus.filter((b) => b.count)
-    .concat(plan.stats.unknown ? [{ label: 'Unknown', tone: 'unknown', count: plan.stats.unknown }] : []);
-
+  if (!tracks.length) return null;
   return `
-<div class="grid2">
-  <figure class="card">
-    <figcaption><h2>Mean completion by track</h2>
-      <p class="cap">Percent complete, averaged over the items in each track that carry a figure. Tracks with no measured item are omitted rather than shown as zero.</p></figcaption>
-    ${hbar(tracks.map((t) => ({
-      label: t.name.replace(/^Track \d+\s*[—–-]\s*/, ''),
-      value: t.mean, max: 100, suffix: '%',
-      tone: toneFor(t.mean),
-      hint: `${t.known} of ${t.count} items measured`,
-    })))}
-  </figure>
+<figure class="card">
+  <figcaption><h2>Mean completion by track</h2>
+    <p class="cap">Percent complete, averaged over the items in each track that carry a figure. Tracks with no measured item are omitted rather than shown as zero.</p></figcaption>
+  ${hbar(tracks.map((t) => ({
+    label: t.name.replace(/^Track \d+\s*[—–-]\s*/, ''),
+    value: t.mean, max: 100, suffix: '%',
+    tone: toneFor(t.mean),
+    hint: `${t.known} of ${t.count} items measured`,
+  })))}
+</figure>`;
+}
 
-  <figure class="card">
-    <figcaption><h2>Items by status</h2>
-      <p class="cap">Every tracked item, bucketed by its recorded completion. Colour follows the same ordinal ramp as the bars above; each bucket is labelled, so colour is never the only signal.</p></figcaption>
-    ${hbar(statusRows.map((b) => ({
-      label: b.label, value: b.count, max: Math.max(...statusRows.map((x) => x.count)),
-      tone: b.tone, hint: `${b.count} item(s)`,
-    })))}
-  </figure>
-</div>`;
+function statusChart(plan) {
+  const rows = plan.stats.byStatus.filter((b) => b.count)
+    .concat(plan.stats.unknown ? [{ label: 'Unknown', tone: 'unknown', count: plan.stats.unknown }] : []);
+  if (!rows.length) return null;
+  return `
+<figure class="card">
+  <figcaption><h2>Items by status</h2>
+    <p class="cap">Every tracked item, bucketed by its recorded completion. Colour follows the same ordinal ramp as the bars above; each bucket is labelled, so colour is never the only signal.</p></figcaption>
+  ${hbar(rows.map((b) => ({
+    label: b.label, value: b.count, max: Math.max(...rows.map((x) => x.count)),
+    tone: b.tone, hint: `${b.count} item(s)`,
+  })))}
+</figure>`;
 }
 
 function healthChart(health, cfg) {
@@ -263,43 +296,51 @@ function caveats(plan, health, contrib) {
  *    says so on the page rather than in a footnote nobody reaches.
  *  - **Nothing is silently capped.** Where a chart shows a window, the window is stated.
  */
-function delivery(contrib, plan) {
-  if (!contrib) return '';
-  if (!contrib.available) {
-    return `<figure class="card muted"><figcaption><h2>Delivery</h2></figcaption>
-      <p class="empty">No contribution data: ${escapeHtml(contrib.reason)}</p></figure>`;
-  }
+function deliveryTiles(contrib) {
+  const t = contrib.totals, q = contrib.quality;
+  return `
+<section class="tiles">
+  ${tile(String(t.commits), 'commits', `${t.first} → ${t.last}`)}
+  ${tile(`${Math.round((t.aiAssisted / t.commits) * 100)}%`, 'AI-assisted', `${t.aiAssisted} of ${t.commits}`)}
+  ${tile(`${q.reworkRate}%`, 'rework rate', `a file re-touched within ${q.reworkWindowDays} days`)}
+  ${tile(`${q.conventionalRate}%`, 'conventional subjects', `${q.reverts} revert(s)`)}
+</section>
+<p class="cap sect">Derived entirely from <code>git log</code>. <strong>Not a measure of prompt quality</strong>:
+a repository cannot see a prompt. These are outcomes under their real names.</p>`;
+}
 
-  const t = contrib.totals;
+function velocityChart(contrib) {
   const weeks = contrib.weeks.slice(-12);
+  if (!weeks.length) return null;
   const trimmed = contrib.weeks.length - weeks.length;
-  const maxCommits = Math.max(...weeks.map((w) => w.commits), 1);
-  const q = contrib.quality;
-
-  const velocity = `
+  const max = Math.max(...weeks.map((w) => w.commits), 1);
+  return `
 <figure class="card">
   <figcaption><h2>Commits per week</h2>
     <p class="cap">${weeks.length} week(s) shown${trimmed ? `, the most recent of ${contrib.weeks.length} — the earlier ${trimmed} are omitted for width, not because they were empty` : ''}.
-    Commit count is a measure of rhythm, not of value.</p></figcaption>
+    Commit count measures rhythm, not value.</p></figcaption>
   ${hbar(weeks.map((w) => ({
-    label: w.week, value: w.commits, max: maxCommits,
-    tone: 'high',
+    label: w.week, value: w.commits, max, tone: 'high',
     hint: `${w.ai} AI-assisted · +${w.added.toLocaleString()} / −${w.removed.toLocaleString()}`,
   })))}
 </figure>`;
+}
 
-  const agents = contrib.agents.length ? `
+function modelChart(contrib) {
+  const max = Math.max(...contrib.agents.map((a) => a.commits));
+  return `
 <figure class="card">
   <figcaption><h2>Model mix</h2>
     <p class="cap">Read from the <code>Co-Authored-By</code> trailer on each commit. It records which model
     assisted, not how much of the result it produced.</p></figcaption>
   ${hbar(contrib.agents.map((a) => ({
-    label: a.agent, value: a.commits, max: Math.max(...contrib.agents.map((x) => x.commits)),
-    tone: 'mid', hint: `${a.first} → ${a.last}`,
+    label: a.agent, value: a.commits, max, tone: 'mid', hint: `${a.first} → ${a.last}`,
   })))}
-</figure>` : '';
+</figure>`;
+}
 
-  const people = `
+function peopleTable(contrib) {
+  return `
 <section class="card">
   <h2>People <span class="count">${contrib.people.length}</span></h2>
   <p class="cap">Side by side, deliberately. There is no combined contribution score and no ranking —
@@ -320,44 +361,39 @@ function delivery(contrib, plan) {
   </div>
   <p class="hint">* estimated from commit rhythm over ${contrib.people.reduce((n, p) => n + p.sessions, 0)} session(s) — not time worked</p>
 </section>`;
+}
 
-  const desks = contrib.desks.configured ? `
+function desksChart(contrib) {
+  if (!contrib.desks.configured) {
+    return `<figure class="card muted"><figcaption><h2>Desks</h2></figcaption>
+      <p class="empty">No commit carries a <code>Desk:</code> trailer, so per-desk attribution is unavailable.
+      Adopting the trailer works going forward only — history cannot be tagged retroactively.</p></figure>`;
+  }
+  const max = Math.max(...contrib.desks.desks.map((d) => d.commits));
+  return `
 <figure class="card">
   <figcaption><h2>Desks</h2>
     <p class="cap">From the <code>Desk:</code> commit trailer.${contrib.desks.untagged ? ` ${contrib.desks.untagged} commit(s) carry no trailer and are not counted here; history cannot be tagged retroactively.` : ''}</p></figcaption>
   ${hbar(contrib.desks.desks.map((d) => ({
-    label: d.desk, value: d.commits, max: Math.max(...contrib.desks.desks.map((x) => x.commits)),
-    tone: 'high', hint: `${d.estimatedHours} est. hours`,
+    label: d.desk, value: d.commits, max, tone: 'high', hint: `${d.estimatedHours} est. hours`,
   })))}
-</figure>` : `
-<figure class="card muted"><figcaption><h2>Desks</h2></figcaption>
-  <p class="empty">No commit carries a <code>Desk:</code> trailer, so per-desk attribution is unavailable.
-  Adopting the trailer works going forward only — history cannot be tagged retroactively.</p></figure>`;
+</figure>`;
+}
 
+function coverageChart(contrib, plan) {
   const cov = taskCoverage(contrib, plan);
-  const coverage = cov ? `
+  if (!cov) return null;
+  return `
 <figure class="card">
   <figcaption><h2>Spec to build</h2>
     <p class="cap">Items named by at least one commit subject. A low number is often a commit convention —
     subjects that describe the defect rather than the ticket — not abandoned work. Read it as a question.</p></figcaption>
   ${hbar([
     { label: 'Named by a commit', value: cov.withCommits, max: cov.rows.length, tone: 'high', hint: `of ${cov.rows.length} items` },
-    { label: 'Never named', value: cov.withoutCommits, max: cov.rows.length, tone: 'none', hint: cov.claimedButUnreferenced ? `${cov.claimedButUnreferenced} of these report progress` : '' },
+    { label: 'Never named', value: cov.withoutCommits, max: cov.rows.length, tone: 'none',
+      hint: cov.claimedButUnreferenced ? `${cov.claimedButUnreferenced} of these report progress` : '' },
   ])}
-</figure>` : '';
-
-  return `
-<section class="tiles">
-  ${tile(String(t.commits), 'commits', `${t.first} → ${t.last}`)}
-  ${tile(`${Math.round((t.aiAssisted / t.commits) * 100)}%`, 'AI-assisted', `${t.aiAssisted} of ${t.commits}`)}
-  ${tile(`${q.reworkRate}%`, 'rework rate', `a file re-touched within ${q.reworkWindowDays} days`)}
-  ${tile(`${q.conventionalRate}%`, 'conventional subjects', `${q.reverts} revert(s)`)}
-</section>
-<p class="cap sect">Delivery — derived entirely from <code>git log</code>. <strong>Not a measure of prompt
-quality</strong>: a repository cannot see a prompt. These are outcomes under their real names.</p>
-<div class="grid2">${velocity}${agents}</div>
-${people}
-<div class="grid2">${desks}${coverage}</div>`;
+</figure>`;
 }
 
 /* ------------------------------------------------------------------ assets */
@@ -459,7 +495,10 @@ figcaption { display:block; }
 .pct { font-size:12.5px; }
 .pill { display:inline-block; padding:2px 9px; border-radius:999px; font-size:12px; color:#fff; white-space:nowrap; }
 .pill.t-none,.pill.t-unknown { color:var(--ink); }
-.sect { margin:26px 0 12px; font-size:13.5px; }
+.sect { margin:0 0 16px; font-size:13.5px; }
+.dash-single { display:grid; gap:16px; }
+@media (min-width:1180px) { .dash-single { grid-template-columns:repeat(auto-fit,minmax(360px,1fr)); align-items:start; }
+  .dash-single > .tiles, .dash-single > .sect { grid-column:1 / -1; } }
 .mini-table { border-collapse:collapse; width:100%; font-size:13.5px; min-width:520px; }
 .mini-table th,.mini-table td { border-bottom:1px solid var(--line); padding:7px 10px; text-align:left; }
 .mini-table th.num,.mini-table td.num { text-align:right; white-space:nowrap; font-variant-numeric:tabular-nums; }
