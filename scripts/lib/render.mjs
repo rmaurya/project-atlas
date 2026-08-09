@@ -13,6 +13,7 @@ import { SIGNALS } from './health.mjs';
 import { readPlanning } from './planning.mjs';
 import { dashboardPage } from './dashboard.mjs';
 import { readDeck, deckPage } from './deck.mjs';
+import { readContrib, taskCoverage } from './contrib.mjs';
 
 export const flatName = (p) => p.replace(/\.md$/i, '').replace(/[/\\]/g, '__') + '.html';
 
@@ -54,12 +55,13 @@ export function renderSite(index, health, cfg, root) {
 
   const plan = readPlanning(root, cfg);
   const deck = readDeck(root, cfg);
+  const contrib = readContrib(root, cfg);
 
   fs.writeFileSync(path.join(outDir, 'search-index.js'),
     'window.ATLAS = ' + JSON.stringify({ docs: searchRows, truncated }) + ';\n', 'utf8');
   fs.writeFileSync(path.join(outDir, 'index.html'), indexPage(index, health, cfg, truncated), 'utf8');
   fs.writeFileSync(path.join(outDir, 'health.html'), healthPage(index, health, cfg), 'utf8');
-  fs.writeFileSync(path.join(outDir, 'dashboard.html'), dashboardPage(index, health, plan, cfg, shell), 'utf8');
+  fs.writeFileSync(path.join(outDir, 'dashboard.html'), dashboardPage(index, health, plan, cfg, shell, contrib), 'utf8');
   if (deck) fs.writeFileSync(path.join(outDir, 'deck.html'), deckPage(deck, index, cfg), 'utf8');
   fs.writeFileSync(path.join(outDir, 'atlas.css'), CSS, 'utf8');
   fs.writeFileSync(path.join(outDir, '.gitattributes'), '* linguist-generated=true\n', 'utf8');

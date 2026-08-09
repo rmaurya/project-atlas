@@ -18,6 +18,7 @@
 
 import { escapeHtml } from './markdown.mjs';
 import { SIGNALS } from './health.mjs';
+import { taskCoverage } from './contrib.mjs';
 
 /**
  * Ordinal progress ramps — one per theme, each validated against the surface it actually sits on.
@@ -51,7 +52,7 @@ export const STATUS = {
  */
 const st = (role) => `var(--st-${role})`;
 
-export function dashboardPage(index, health, plan, cfg, shell) {
+export function dashboardPage(index, health, plan, cfg, shell, contrib = null) {
   const body = `
 <h1>Project dashboard</h1>
 <p class="lede">${escapeHtml(index.siteTitle)} · ${index.stats.documents} documents · ${index.stats.lines.toLocaleString()} lines
@@ -64,7 +65,8 @@ ${tiles(index, health, plan)}
     ${plan && !plan.missing ? charts(plan) : noPlanning(cfg)}
     ${healthChart(health, cfg)}
     ${clusterChart(index)}
-    ${caveats(plan, health)}
+    ${delivery(contrib, plan)}
+    ${caveats(plan, health, contrib)}
   </div>
   <aside class="dash-side">
     ${plan && !plan.missing ? itemTable(plan) : ''}
@@ -236,14 +238,126 @@ function noPlanning(cfg) {
   Set <code>planning.source</code> in <code>project-atlas.config.json</code> to a task list such as <code>docs/TASKS.md</code>.</p></figure>`;
 }
 
-function caveats(plan, health) {
-  const notes = [...(plan && !plan.missing ? plan.notes : []), ...health.notChecked];
+function caveats(plan, health, contrib) {
+  const notes = [...(plan && !plan.missing ? plan.notes : []), ...health.notChecked,
+                 ...(contrib?.available ? contrib.caveats.map((c) => c.replace(/\*\*/g, '')) : [])];
   if (!notes.length) return '';
   return `<section class="card muted">
     <h2>What this dashboard does not show</h2>
     <p class="cap">Stated explicitly, because a dashboard that silently omits reads as one that found nothing.</p>
     <ul>${notes.map((n) => `<li>${escapeHtml(n)}</li>`).join('')}</ul>
   </section>`;
+}
+
+
+/* ------------------------------------------------------------------ delivery */
+
+/**
+ * What git history says about how the work happened. Every number here is derived from `git log` — no
+ * telemetry, no service.
+ *
+ * Three rules this section exists to hold, because a delivery panel is where they get broken first:
+ *  - **No combined score, and no ranking of people.** Commits, files and churn sit side by side; collapsing
+ *    them into one number hides which one is driving it.
+ *  - **Active hours are an estimate**, computed from commit rhythm rather than time worked, and the label
+ *    says so on the page rather than in a footnote nobody reaches.
+ *  - **Nothing is silently capped.** Where a chart shows a window, the window is stated.
+ */
+function delivery(contrib, plan) {
+  if (!contrib) return '';
+  if (!contrib.available) {
+    return `<figure class="card muted"><figcaption><h2>Delivery</h2></figcaption>
+      <p class="empty">No contribution data: ${escapeHtml(contrib.reason)}</p></figure>`;
+  }
+
+  const t = contrib.totals;
+  const weeks = contrib.weeks.slice(-12);
+  const trimmed = contrib.weeks.length - weeks.length;
+  const maxCommits = Math.max(...weeks.map((w) => w.commits), 1);
+  const q = contrib.quality;
+
+  const velocity = `
+<figure class="card">
+  <figcaption><h2>Commits per week</h2>
+    <p class="cap">${weeks.length} week(s) shown${trimmed ? `, the most recent of ${contrib.weeks.length} — the earlier ${trimmed} are omitted for width, not because they were empty` : ''}.
+    Commit count is a measure of rhythm, not of value.</p></figcaption>
+  ${hbar(weeks.map((w) => ({
+    label: w.week, value: w.commits, max: maxCommits,
+    tone: 'high',
+    hint: `${w.ai} AI-assisted · +${w.added.toLocaleString()} / −${w.removed.toLocaleString()}`,
+  })))}
+</figure>`;
+
+  const agents = contrib.agents.length ? `
+<figure class="card">
+  <figcaption><h2>Model mix</h2>
+    <p class="cap">Read from the <code>Co-Authored-By</code> trailer on each commit. It records which model
+    assisted, not how much of the result it produced.</p></figcaption>
+  ${hbar(contrib.agents.map((a) => ({
+    label: a.agent, value: a.commits, max: Math.max(...contrib.agents.map((x) => x.commits)),
+    tone: 'mid', hint: `${a.first} → ${a.last}`,
+  })))}
+</figure>` : '';
+
+  const people = `
+<section class="card">
+  <h2>People <span class="count">${contrib.people.length}</span></h2>
+  <p class="cap">Side by side, deliberately. There is no combined contribution score and no ranking —
+  collapsing these into one number would hide which one is moving.</p>
+  <div class="table-wrap">
+    <table class="mini-table">
+      <thead><tr><th>Author</th><th class="num">Commits</th><th class="num">Files</th>
+        <th class="num">+ / −</th><th class="num">Days</th><th class="num">Est. hours</th></tr></thead>
+      <tbody>${contrib.people.map((p) => `<tr>
+        <td>${escapeHtml(p.name)}<span class="sum">${p.aiAssisted} AI-assisted · ${p.first} → ${p.last}</span></td>
+        <td class="num">${p.commits}</td>
+        <td class="num">${p.files}</td>
+        <td class="num">+${p.added.toLocaleString()} / −${p.removed.toLocaleString()}</td>
+        <td class="num">${p.days}</td>
+        <td class="num">${p.estimatedHours}<abbr title="Estimated from gaps between commits, not time worked. A floor, not a timesheet.">*</abbr></td>
+      </tr>`).join('')}</tbody>
+    </table>
+  </div>
+  <p class="hint">* estimated from commit rhythm over ${contrib.people.reduce((n, p) => n + p.sessions, 0)} session(s) — not time worked</p>
+</section>`;
+
+  const desks = contrib.desks.configured ? `
+<figure class="card">
+  <figcaption><h2>Desks</h2>
+    <p class="cap">From the <code>Desk:</code> commit trailer.${contrib.desks.untagged ? ` ${contrib.desks.untagged} commit(s) carry no trailer and are not counted here; history cannot be tagged retroactively.` : ''}</p></figcaption>
+  ${hbar(contrib.desks.desks.map((d) => ({
+    label: d.desk, value: d.commits, max: Math.max(...contrib.desks.desks.map((x) => x.commits)),
+    tone: 'high', hint: `${d.estimatedHours} est. hours`,
+  })))}
+</figure>` : `
+<figure class="card muted"><figcaption><h2>Desks</h2></figcaption>
+  <p class="empty">No commit carries a <code>Desk:</code> trailer, so per-desk attribution is unavailable.
+  Adopting the trailer works going forward only — history cannot be tagged retroactively.</p></figure>`;
+
+  const cov = taskCoverage(contrib, plan);
+  const coverage = cov ? `
+<figure class="card">
+  <figcaption><h2>Spec to build</h2>
+    <p class="cap">Items named by at least one commit subject. A low number is often a commit convention —
+    subjects that describe the defect rather than the ticket — not abandoned work. Read it as a question.</p></figcaption>
+  ${hbar([
+    { label: 'Named by a commit', value: cov.withCommits, max: cov.rows.length, tone: 'high', hint: `of ${cov.rows.length} items` },
+    { label: 'Never named', value: cov.withoutCommits, max: cov.rows.length, tone: 'none', hint: cov.claimedButUnreferenced ? `${cov.claimedButUnreferenced} of these report progress` : '' },
+  ])}
+</figure>` : '';
+
+  return `
+<section class="tiles">
+  ${tile(String(t.commits), 'commits', `${t.first} → ${t.last}`)}
+  ${tile(`${Math.round((t.aiAssisted / t.commits) * 100)}%`, 'AI-assisted', `${t.aiAssisted} of ${t.commits}`)}
+  ${tile(`${q.reworkRate}%`, 'rework rate', `a file re-touched within ${q.reworkWindowDays} days`)}
+  ${tile(`${q.conventionalRate}%`, 'conventional subjects', `${q.reverts} revert(s)`)}
+</section>
+<p class="cap sect">Delivery — derived entirely from <code>git log</code>. <strong>Not a measure of prompt
+quality</strong>: a repository cannot see a prompt. These are outcomes under their real names.</p>
+<div class="grid2">${velocity}${agents}</div>
+${people}
+<div class="grid2">${desks}${coverage}</div>`;
 }
 
 /* ------------------------------------------------------------------ assets */
@@ -345,6 +459,11 @@ figcaption { display:block; }
 .pct { font-size:12.5px; }
 .pill { display:inline-block; padding:2px 9px; border-radius:999px; font-size:12px; color:#fff; white-space:nowrap; }
 .pill.t-none,.pill.t-unknown { color:var(--ink); }
+.sect { margin:26px 0 12px; font-size:13.5px; }
+.mini-table { border-collapse:collapse; width:100%; font-size:13.5px; min-width:520px; }
+.mini-table th,.mini-table td { border-bottom:1px solid var(--line); padding:7px 10px; text-align:left; }
+.mini-table th.num,.mini-table td.num { text-align:right; white-space:nowrap; font-variant-numeric:tabular-nums; }
+.mini-table tbody tr:hover { background:var(--code-bg); }
 .stamp { color:var(--muted); font-size:12px; }
 abbr { text-decoration:none; cursor:help; color:var(--muted); }
 :root { --st-good:${STATUS.light.good}; --st-warning:${STATUS.light.warning};
