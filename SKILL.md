@@ -3,7 +3,7 @@ name: docs-atlas
 description: Build and maintain an extensive, source-grounded project knowledgebase — a generated wiki over a repository's markdown, with a cluster taxonomy, backlinks, client-side search, and mechanical rot detection. Use when asked to create, update, audit, index, or reorganise project documentation; to write a developer manual, onboarding guide, architecture overview, or engineering wiki; or when documentation drift is suspected — stale docs, dead links, forked or duplicate documents, unresolvable code citations, missing indexes. Triggers on "wiki", "knowledgebase", "knowledge base", "docs index", "documentation health", "doc rot", "developer manual", "onboarding docs", "document the project", "audit the docs".
 ---
 
-# docs-atlas
+# docs-atlas — skill instructions
 
 Turn a repository's scattered markdown into a navigable, verifiable knowledgebase — and keep it true.
 
@@ -81,7 +81,7 @@ ignored, which is the failure mode that kills these systems.
 ```bash
 S=.claude/skills/docs-atlas/scripts/atlas.mjs
 
-node $S init                  # write llm-wiki.config.json, detecting the repo's layout
+node $S init                  # write docs-atlas.config.json, detecting the repo's layout
 node $S scan                  # build the index; --json for the raw model
 node $S tasks [filter]        # the planning document, with progress bars
 node $S health                # rot report; --verbose for every instance; exit 1 on blocking

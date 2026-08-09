@@ -1,5 +1,5 @@
 /**
- * llm-wiki · configuration
+ * docs-atlas · configuration
  *
  * Defaults are written to be reasonable in a repository that has never seen this tool. Every one of them is
  * overridable, because a taxonomy that fits one project fits no other.
@@ -8,7 +8,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-export const CONFIG_NAME = 'llm-wiki.config.json';
+export const CONFIG_NAME = 'docs-atlas.config.json';
+/** The project's earlier working name. Still read if present, so an existing setup keeps working. */
+export const LEGACY_CONFIG_NAME = 'llm-wiki.config.json';
 
 /** Convert a glob to a RegExp. Supports `**`, `*`, `?`, and `{a,b}`. Paths are posix, repo-relative. */
 export function globToRegExp(glob) {
@@ -82,7 +84,7 @@ export const DEFAULT_CLUSTERS = [
 ];
 
 export const DEFAULT_CONFIG = {
-  $schema: 'https://github.com/llm-wiki/schema/v1',
+  $schema: 'https://github.com/rmaurya/docs-atlas/schema/v1',
   siteTitle: null,              // defaults to the repository directory name
   roots: ['.'],
   include: ['**/*.md'],
@@ -111,7 +113,11 @@ export const DEFAULT_CONFIG = {
 };
 
 export function resolveConfig(root, explicitPath) {
-  const file = explicitPath ? path.resolve(explicitPath) : path.join(root, CONFIG_NAME);
+  let file = explicitPath ? path.resolve(explicitPath) : path.join(root, CONFIG_NAME);
+  if (!explicitPath && !fs.existsSync(file)) {
+    const legacy = path.join(root, LEGACY_CONFIG_NAME);
+    if (fs.existsSync(legacy)) file = legacy;      // an existing setup keeps working under the old name
+  }
   let user = {};
   let found = false;
   if (fs.existsSync(file)) {
@@ -119,7 +125,7 @@ export function resolveConfig(root, explicitPath) {
       user = JSON.parse(fs.readFileSync(file, 'utf8'));
       found = true;
     } catch (err) {
-      throw new Error(`${CONFIG_NAME} is not valid JSON (${err.message}). Fix or delete it — the tool will not guess.`);
+      throw new Error(`${path.basename(file)} is not valid JSON (${err.message}). Fix or delete it — the tool will not guess.`);
     }
   }
   const cfg = { ...DEFAULT_CONFIG, ...user };

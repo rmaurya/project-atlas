@@ -1,6 +1,6 @@
 # Configuration reference
 
-`llm-wiki.config.json` at the repository root. Generate a starting point with `atlas init`; every key below is
+`docs-atlas.config.json` at the repository root. Generate a starting point with `atlas init`; every key below is
 optional and falls back to the documented default.
 
 ---

@@ -98,7 +98,7 @@ async function main() {
 
   if (cmd === 'tasks') {
     const plan = readPlanning(root, cfg);
-    if (!plan) { console.error('No planning source configured. Set planning.source in llm-wiki.config.json.'); process.exitCode = 1; return; }
+    if (!plan) { console.error('No planning source configured. Set planning.source in docs-atlas.config.json.'); process.exitCode = 1; return; }
     if (plan.missing) { console.error(`${plan.source} not found.`); process.exitCode = 1; return; }
     if (flag('json')) { console.log(JSON.stringify(plan, null, 2)); return; }
     say(formatTasks(plan, positionals[0], color));

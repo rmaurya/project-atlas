@@ -84,7 +84,7 @@ function fixture(name, files, { remote = null } = {}) {
 }
 
 function analyse(dir, configOverrides = {}) {
-  const cfgPath = path.join(dir, 'llm-wiki.config.json');
+  const cfgPath = path.join(dir, 'docs-atlas.config.json');
   if (Object.keys(configOverrides).length) fs.writeFileSync(cfgPath, JSON.stringify(configOverrides), 'utf8');
   const cfg = resolveConfig(dir);
   const index = buildIndex(dir, cfg);
@@ -796,7 +796,7 @@ test('cli · health exits 0 on a clean corpus', () => {
 test('cli · init writes a config and refuses to clobber it', () => {
   const dir = fixture('cli-init', { 'docs/A.md': '# A\n' });
   eq(cli(dir, ['init']).code, 0);
-  ok(fs.existsSync(path.join(dir, 'llm-wiki.config.json')));
+  ok(fs.existsSync(path.join(dir, 'docs-atlas.config.json')));
   eq(cli(dir, ['init']).code, 1, 'a second init without --force must refuse');
 });
 

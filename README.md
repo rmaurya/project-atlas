@@ -127,7 +127,7 @@ These are why the tool is worth trusting, and they are not negotiable in contrib
 
 ## Configuration
 
-`atlas init` writes `llm-wiki.config.json` after inspecting your layout. Everything is overridable: the
+`atlas init` writes `docs-atlas.config.json` after inspecting your layout. Everything is overridable: the
 cluster taxonomy, which signals block, the stale window, forbidden terms, cross-reference pairs, suppressions,
 the planning source, and the deck source.
 
