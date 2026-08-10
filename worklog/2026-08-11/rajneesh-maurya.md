@@ -6,9 +6,9 @@ _Written by `atlas worklog`. Measured from git and the corpus; no prompt text, a
 
 | | |
 |---|---|
-| Commits | 8 |
-| Lines | +2,976 / −110 |
-| Rework rate | 81% — a file re-touched within 3 days |
+| Commits | 9 |
+| Lines | +3,314 / −125 |
+| Rework rate | 81.2% — a file re-touched within 3 days |
 | Reverts | 0 |
 | Documentation | 0 blocking finding(s) at end of day |
 
@@ -30,6 +30,9 @@ _Written by `atlas worklog`. Measured from git and the corpus; no prompt text, a
 - **A-17** The dashboard recovers itself — 100%
 - **A-4** SOP obligations — 10%
 - **A-18** The design record can be started, never written — 100%
+- **P-7** Every signal, including the ones that found nothing — 100%
+- **A-19** One doorway to every dashboard — 100%
+- **A-3** Task list reconciliation — 100%
 
 ## Commits
 
@@ -41,6 +44,7 @@ _Written by `atlas worklog`. Measured from git and the corpus; no prompt text, a
 - `bd8b569` feat(backlog): 45 of 49 rows were finished work nobody opened the page to see (P-6, A-14, A-15)
 - `579ab22` feat(decisions): a record saying 'chose X' answers what, never why (A-16, A-17)
 - `6c5b7ba` feat(sop,design): a drifted SOP is not stale, it is wrong instructions being followed (A-4, A-18)
+- `01f94c0` feat(signals,launcher): a check nobody configured looks exactly like a check that passes (P-7, A-19, A-3)
 
 ---
 

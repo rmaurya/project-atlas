@@ -34,6 +34,7 @@ export const PANELS = {
   testcases: 'The test inventory — cases by area, and how many exist because something broke',
   decisions: 'Decision records, and how many decisions have not reached them',
   signals: 'Every rot signal this tool checks for, including the ones that found nothing',
+  charts: 'Contribution, effort and plan composition, derived from git and the plan',
   designRecord: 'Which design artifacts exist: HLD, LLD, data flow, decision records, specifications',
   undesigned: 'Code areas no design document cites',
   citations: 'Per design document: how many code citations, and how many still resolve',
@@ -50,7 +51,7 @@ export const DEFAULT_VIEWS = [
   {
     id: 'dashboard', title: 'Overview', nav: true,
     blurb: 'Everything, in the order a maintainer reads it.',
-    panels: ['tiles', 'progress', 'status', 'health', 'signals', 'clusters', 'deliveryTiles', 'velocity', 'models', 'people', 'desks', 'coverage', 'items', 'caveats'],
+    panels: ['tiles', 'progress', 'charts', 'status', 'health', 'signals', 'clusters', 'deliveryTiles', 'velocity', 'models', 'people', 'desks', 'coverage', 'items', 'caveats'],
   },
   {
     // Its own page, not a panel on someone else's. The item table elsewhere is a scanning tool — an id, a
@@ -76,7 +77,7 @@ export const DEFAULT_VIEWS = [
     id: 'delivery', title: 'Delivery', nav: true,
     blurb: 'Throughput and where it is concentrated. Rhythm, not value — a commit count measures neither difficulty nor worth.',
     clusters: ['planning', 'operations'],
-    panels: ['deliveryTiles', 'velocity', 'worklog', 'recent', 'people', 'desks', 'status', 'documents', 'caveats'],
+    panels: ['deliveryTiles', 'charts', 'velocity', 'worklog', 'recent', 'people', 'desks', 'status', 'documents', 'caveats'],
   },
   {
     id: 'architecture', title: 'Architecture', nav: true,

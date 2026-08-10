@@ -26,6 +26,7 @@ import { writeDay, contributorSlug } from '../scripts/lib/worklog.mjs';
 import { buildPrompt } from '../scripts/lib/prompt.mjs';
 import { readDeck } from '../scripts/lib/deck.mjs';
 import { RAMP, STATUS, INK, viewPage } from '../scripts/lib/dashboard.mjs';
+import { CAT, CAT_MAX, donut, lineChart } from '../scripts/lib/charts.mjs';
 import { automationAllows } from '../scripts/lib/config.mjs';
 import { buildWikiPages, wikiPageName, isSafePageName, exportSingleFile, exportBundle, RESERVED, gitlabPagesJob, stageWiki } from '../scripts/lib/publish.mjs';
 import { readContrib, estimateHours, taskCoverage } from '../scripts/lib/contrib.mjs';
@@ -690,7 +691,17 @@ test('dashboard · both themes declare every ramp and status step', () => {
   eq(Object.keys(STATUS.light).sort(), Object.keys(STATUS.dark).sort());
 });
 
-test('dashboard · uses no categorical palette — only the ordinal ramp and status colours', () => {
+test('dashboard · every colour comes from a validated set, categorical included', () => {
+  // **This contract widened in 0.1.62, deliberately.** It used to read "uses no categorical palette", and
+  // the reasoning was sound while it held: there was no chart whose job was identity, and a categorical
+  // palette with no categorical chart is decoration. Contributor and desk breakdowns are identity charts,
+  // so one had to exist.
+  //
+  // The rule the test actually enforces is unchanged and is the one that matters: **no colour without a
+  // validation behind it.** CAT joins the allow-list on the same terms as INK — both sets were run through
+  // the palette validator (lightness band, chroma floor, CVD separation, normal-vision separation, contrast
+  // against their own surface), and dark is a separate selection rather than the light set flipped, because
+  // flipping put a slot outside the band on the first attempt.
   const cfg = resolveConfig(planRepo);
   cfg.planning = { source: 'docs/TASKS.md' };
   const index = buildIndex(planRepo, cfg);
@@ -702,7 +713,8 @@ test('dashboard · uses no categorical palette — only the ordinal ramp and sta
   // test enforces is "no colour without a validation behind it" — not "no colour".
   const allowed = new Set([...Object.values(RAMP.light), ...Object.values(RAMP.dark),
                            ...Object.values(STATUS.light), ...Object.values(STATUS.dark),
-                           ...Object.values(INK.light), ...Object.values(INK.dark)]);
+                           ...Object.values(INK.light), ...Object.values(INK.dark),
+                           ...CAT.light, ...CAT.dark]);
   const hexes = [...new Set((html.match(/#[0-9a-fA-F]{6}/g) || []).map((h) => h.toLowerCase()))];
   // Any hex in the dashboard's own markup must come from a validated set; theme tokens live in atlas.css.
   const stray = hexes.filter((h) => !allowed.has(h));
@@ -4204,6 +4216,14 @@ test('signals · the catalogue lists checks that found nothing, and never calls 
 
   // Every signal in the catalogue appears, fired or not.
   for (const id of Object.keys(SIGNALS)) includes(html, `<code>${id}</code>`);
+
+  // **The counts must actually bind.** The first version read `f.id`; findings carry `f.signal`, so every
+  // finding bucketed under `undefined` and all sixteen rows rendered `ok` while the summary line below them
+  // said "48 findings" — the same page disagreeing with itself, with nothing thrown. Only a screenshot
+  // caught it, which is why the assertion is now on the number rather than on the markup existing.
+  const h1 = (health.findings || []).filter((f) => f.signal === 'H1' && !f.suppressed).length;
+  ok(h1 > 0, 'the fixture must actually produce an H1 finding for this assertion to mean anything');
+  includes(html, `>${h1} · blocking<`, 'a fired blocking signal shows its count, not ok');
   includes(html, 'blocks', 'a blocking signal is marked as one');
   includes(html, 'ok', 'signals that found nothing are shown as ok rather than omitted');
   // H9 has no pairs configured in this fixture, so it could not run — and must not read as clean.
@@ -4232,6 +4252,54 @@ test('launcher · lists every project, and states that it cannot check them', ()
   const solo = launcherProjects([], { root: '/tmp/three', port: 4203 });
   eq(solo.length, 1);
   eq(solo[0].url, 'http://127.0.0.1:4203/');
+});
+
+console.log('\ncharts');
+
+test('charts · a breakdown that cannot divide says so instead of drawing a circle', () => {
+  // With one contributor a share chart is a circle labelled 100%, which every reader already knew. The
+  // honest output is the number and the name.
+  const one = donut({ title: 'Commits by contributor', slices: [{ label: 'Ann Example', value: 109 }], unit: ' commits' });
+  ok(!one.includes('<path'), 'a single slice must not be drawn as a ring');
+  includes(one, 'Ann Example');
+  includes(one, 'Only one contributor');
+
+  const none = donut({ title: 'x', slices: [] });
+  includes(none, 'No data to divide');
+
+  const two = donut({ title: 'x', slices: [{ label: 'a', value: 3 }, { label: 'b', value: 1 }], unit: ' h' });
+  includes(two, '<path', 'two slices are a real chart');
+  includes(two, '75%');
+  includes(two, '25%');
+});
+
+test('charts · identity is never colour alone, and hues are never cycled', () => {
+  // The palette validator passed with adjacent tritan separation of ΔE 3.8 on dark, which is legal ONLY
+  // with secondary encoding. Direct labels in the legend are that encoding, so they are load-bearing
+  // rather than decorative.
+  const slices = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'].map((l, i) => ({ label: l, value: 10 - i }));
+  const html = donut({ title: 'many', slices, unit: '' });
+  for (const l of ['a', 'b', 'c', 'd', 'e']) includes(html, `>${l} · `, 'every slice is named beside its swatch');
+
+  // A ninth series folds into "other" rather than reusing a hue: a repeated colour claims two different
+  // things are the same thing.
+  includes(html, 'other');
+  const used = [...new Set(html.match(/--cat-\d/g) || [])];
+  ok(used.length <= CAT_MAX, `at most ${CAT_MAX} categorical slots may be used, saw ${used.length}`);
+});
+
+test('charts · a gap in a series breaks the line rather than being drawn through', () => {
+  // A straight segment across a gap claims nothing happened, which is a different statement from not
+  // knowing. The path restarts instead.
+  const html = lineChart({
+    title: 'weekly', labels: ['w1', 'w2', 'w3', 'w4'],
+    series: [{ label: 'commits', values: [4, null, 6, 8] }],
+  });
+  const d = /d="([^"]+)"/.exec(html)[1];
+  eq((d.match(/M/g) || []).length, 2, 'the path restarts at the gap rather than spanning it');
+
+  const flat = lineChart({ title: 'x', labels: ['a'], series: [{ label: 'y', values: [1] }] });
+  includes(flat, 'Not enough history', 'one point is not a trend');
 });
 
 console.log(`\n${pass} passed, ${fail} failed${skipped ? `, ${skipped} skipped on ${process.platform}` : ''}\n`);

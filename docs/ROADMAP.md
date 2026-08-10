@@ -1,6 +1,6 @@
 # Roadmap — project-atlas
 
-**Last updated:** 2026-08-10 · **Version:** 0.1.61 · **Status:** pre-release, dogfooding
+**Last updated:** 2026-08-10 · **Version:** 0.1.62 · **Status:** pre-release, dogfooding
 
 Open work, with an honest completion figure against each item. A figure marked `*` is estimated rather than
 measured against the code — the same distinction the tool preserves everywhere else, applied to itself.
@@ -32,7 +32,7 @@ measured against the code — the same distinction the tool preserves everywhere
 | S-7 | 100 | M-1 | 0 | M-2 | 0 |
 | A-13 | 100 | A-14 | 100 | A-15 | 100 |
 | A-16 | 100 | A-17 | 100 | A-18 | 100 |
-| A-19 | 100 | P-7 | 100 | | | | | | |
+| A-19 | 100 | P-7 | 100 | P-8 | 100 | | | | |
 
 ---
 
@@ -518,6 +518,21 @@ a permanent entry in the editor's footer.*
 page cannot know whether a server is up and does not imply it — a status dot it could not have earned would
 be the same lie as a build stamp nobody checked. What it can rely on is that a port is a pure function of a
 repository path, so a recorded link stays correct for that checkout whether or not the server is running.*
+
+**P-8 · Charts whose job is identity** — **P2 · Medium**
+*Shipped in 0.1.62.* *Contribution, effort, weekly rhythm and plan composition, as donuts, lines and stacked
+areas. This required the first categorical palette in the project — the design note in `dashboard.mjs` said
+there was none "because there is no chart whose job is identity", which was true until a contributor
+breakdown existed.*
+***The palette was computed, not chosen.*** *Both sets were run through the validator against their own
+surface; the first two candidates failed (a teal reading as grey on light, two steps outside the band on
+dark). Dark is a separate selection, because flipping the light set failed immediately. Adjacent tritan
+separation on dark is ΔE 3.8, below the safe floor — legal only with secondary encoding — so every slice is
+direct-labelled and the labels are load-bearing rather than decorative.*
+*Three refusals are the point: a breakdown of one contributor prints the name and the number instead of a
+circle labelled 100%; a gap in a series breaks the line rather than being drawn through, because a straight
+segment across a gap claims nothing happened; and untagged work is its own slice rather than dropped, since
+dropping it would make the tagged remainder look like the whole.*
 
 **P-7 · Every signal, including the ones that found nothing** — **P2 · Medium**
 *Shipped in 0.1.61.* *The signal catalogue lived only on the Health page, one navigation away from the page

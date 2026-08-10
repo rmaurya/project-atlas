@@ -27,6 +27,7 @@ import { read as readJournalFor } from './journal.mjs';
 import { PANELS } from './views.mjs';
 import { readChanges } from './changes.mjs';
 import { flatName } from './render-shared.mjs';
+import { donut, lineChart, stackedArea, catTokens } from './charts.mjs';
 
 /**
  * Ordinal progress ramps — one per theme, each validated against the surface it actually sits on.
@@ -156,6 +157,7 @@ function panel(id, { index, health, plan, cfg, contrib, view, nameFor, repo }) {
     case 'items': return hasPlan ? itemTable(plan) : null;
     case 'backlog': return hasPlan ? backlogPanel(plan, contrib, index, pageOf) : null;
     case 'worklog': return worklogPanel(cfg, repo);
+    case 'charts': return chartsPanel(contrib, plan, health);
     case 'signals': return signalCataloguePanel(health, cfg);
     case 'health': return healthChart(health, cfg);
     case 'clusters': return clusterChart(index);
@@ -169,7 +171,7 @@ function panel(id, { index, health, plan, cfg, contrib, view, nameFor, repo }) {
     case 'documents': return documentsPanel(index, health, view, pageOf);
     case 'recent': return hasContrib ? recentPanel(contrib, plan) : null;
     case 'testcases': return testcasesPanel(repo);
-    case 'designRecord': return designRecordPanel(index);
+    case 'designRecord': return designRecordPanel(index, pageOf);
     case 'undesigned': return undesignedPanel(repo, index);
     case 'citations': return citationsPanel(index, pageOf);
     case 'caveats': return caveats(plan, health, contrib);
@@ -414,9 +416,14 @@ function signalCataloguePanel(health, cfg) {
   const blocking = new Set(cfg.blocking || []);
   const counts = new Map();
   const suppressed = new Map();
+  // `signal`, not `id`. Reading the wrong field bucketed every finding under `undefined`, so the catalogue
+  // rendered a clean `ok` for all sixteen signals while the summary line beneath it said "48 findings" —
+  // the two disagreeing on the same page. That is precisely the failure this panel was built to prevent,
+  // committed by the panel, and it took a screenshot to see: nothing errored.
   for (const f of health.findings || []) {
-    if (f.suppressed) suppressed.set(f.id, (suppressed.get(f.id) || 0) + 1);
-    else counts.set(f.id, (counts.get(f.id) || 0) + 1);
+    const id = f.signal;
+    if (f.suppressed) suppressed.set(id, (suppressed.get(id) || 0) + 1);
+    else counts.set(id, (counts.get(id) || 0) + 1);
   }
   const unevaluated = new Set(health.unevaluated || []);
 
@@ -450,6 +457,95 @@ function signalCataloguePanel(health, cfg) {
     <tbody>${rows}</tbody>
   </table></div>
   <p class="det">${fired} finding(s) across ${counts.size} signal(s); ${Object.keys(SIGNALS).length - counts.size} found nothing.</p>
+</section>`;
+}
+
+/**
+ * The chart wall.
+ *
+ * Every figure here is derived from git and the plan, and every one of them states what it is derived from.
+ * Three rules the panel holds to, each of which is a way this could otherwise lie:
+ *
+ *  - **Estimated is labelled.** Hours are inferred from gaps between commits. They measure commit rhythm,
+ *    not time worked, and they are a floor — thinking that produces one commit registers as thirty minutes.
+ *    A chart that presented them as measured would be the most confident lie on the page.
+ *  - **A breakdown that cannot divide says so.** With one author, a contributor share chart is a circle
+ *    labelled 100%. `donut()` refuses below two slices and names the single contributor instead.
+ *  - **Untagged work is a slice, not a rounding error.** Commits carrying no desk trailer are shown as
+ *    their own share rather than dropped, because dropping them would make the tagged remainder look like
+ *    the whole.
+ */
+function chartsPanel(contrib, plan, health) {
+  if (!contrib?.available) {
+    return `<section class="card"><h2>Charts</h2>
+      <p class="empty">No git history to chart — these are all derived from commits.</p></section>`;
+  }
+
+  const figs = [];
+
+  // Identity: who did the work. Honest about a single-author repository rather than drawing a circle.
+  const people = (contrib.people || []).map((x) => ({ label: x.name, value: x.commits }));
+  figs.push(donut({
+    title: 'Commits by contributor', slices: people, unit: ' commits',
+    note: 'Counted from git authorship. Co-authored commits count once, for the author.',
+  }));
+
+  // Magnitude across categories, with the untagged remainder kept visible.
+  const d = contrib.desks;
+  if (d?.configured) {
+    const slices = (d.desks || []).map((x) => ({ label: x.desk, value: Math.round(x.estimatedHours || 0) }));
+    if (d.untagged) slices.push({ label: 'untagged', value: null });
+    figs.push(donut({
+      title: 'Estimated effort by desk', unit: ' h',
+      slices: slices.filter((x) => x.value),
+      note: `Estimated from gaps between commits — commit rhythm, not time worked, and a floor rather than a total.` +
+            (d.untagged ? ` ${d.untagged} commit(s) carry no desk trailer and are not in this chart.` : ''),
+    }));
+  }
+
+  // Change over time. Two series on one scale — never two scales, which can be drawn to say anything.
+  const weeks = contrib.weeks || [];
+  if (weeks.length >= 2) {
+    const labels = weeks.map((w) => w.week.slice(5));
+    figs.push(lineChart({
+      title: 'Commits per week', labels, unit: ' commits',
+      series: [
+        { label: 'all commits', values: weeks.map((w) => w.commits) },
+        { label: 'AI-assisted', values: weeks.map((w) => w.ai || 0) },
+      ],
+      note: 'AI-assisted is read from Co-Authored-By trailers, so it counts what was recorded, not what happened.',
+    }));
+
+    figs.push(stackedArea({
+      title: 'Lines added and removed, by week', labels, unit: ' lines',
+      series: [
+        { label: 'added', values: weeks.map((w) => w.added || 0) },
+        { label: 'removed', values: weeks.map((w) => w.removed || 0) },
+      ],
+      note: 'Shown because they are cheap to compute, not because they measure value. Deleting code is work.',
+    }));
+  }
+
+  // Composition of the plan itself — the one chart here not derived from git.
+  if (plan && !plan.missing) {
+    const bands = new Map();
+    for (const i of plan.items) {
+      const k = i.status?.label || 'Unknown';
+      bands.set(k, (bands.get(k) || 0) + 1);
+    }
+    figs.push(donut({
+      title: 'Plan by status', unit: ' items',
+      slices: [...bands].map(([label, value]) => ({ label, value })),
+      note: 'Read from the plan, which is maintained by hand — so this chart is exactly as current as that document.',
+    }));
+  }
+
+  return `<section class="card" id="charts">
+  <h2>Charts</h2>
+  <p class="cap">Derived from git history and the plan. <strong>Estimated figures say so</strong>, a
+    breakdown that cannot divide says that instead of drawing one, and untagged work is shown as its own
+    share rather than dropped.</p>
+  <div class="chart-wall">${figs.join('')}</div>
 </section>`;
 }
 
@@ -1178,6 +1274,11 @@ abbr { text-decoration:none; cursor:help; color:var(--muted); }
  * above the first task, so the page opened on nothing but filters. A flex-basis small enough for two to
  * share a row halves that, and the selects still grow to fill whatever width is going. */
 .bl-f { display:flex; flex-direction:column; gap:3px; flex:1 1 132px; min-width:0; }
+${catTokens()}
+.chart-wall { display:grid; grid-template-columns:repeat(auto-fit, minmax(260px, 1fr)); gap:22px 26px; margin-top:14px; }
+.chart { margin:0; min-width:0; }
+.chart figcaption { font-size:13px; font-weight:620; color:var(--ink); margin-bottom:8px; }
+.chart svg { max-width:100%; height:auto; display:block; }
 .sig-table code { font-size:12px; }
 .sig-b { font-size:10px; text-transform:uppercase; letter-spacing:.05em; padding:1px 5px; border-radius:4px;
   background:var(--bad); color:#fff; vertical-align:middle; }
@@ -1678,7 +1779,7 @@ function testcasesPanel(repo) {
 /* ------------------------------------------------------------------ architecture: the design record */
 
 /** An absence is the most valuable thing on this panel, and a list of what exists cannot show one. */
-function designRecordPanel(index) {
+function designRecordPanel(index, pageOf) {
   const record = designRecord(index.documents);
   return `<section class="card">
   <h2>Design record</h2>
@@ -1696,7 +1797,13 @@ function designRecordPanel(index) {
       return `
       <tr><td>${escapeHtml(r.label)}</td>
         <td class="${tone}">${escapeHtml(r.state)}</td>
-        <td class="cap">${r.documents.length ? escapeHtml(r.documents.slice(0, 3).join(', ')) : '—'}</td></tr>`;
+        <td class="cap">${r.documents.length
+          // Linked, not printed. A path a reader can see but cannot open is a reference they have to go and
+          // resolve by hand — the friction this whole site exists to remove.
+          ? r.documents.slice(0, 3).map((d) => pageOf
+              ? `<a href="pages/${escapeAttr(pageOf(d))}">${escapeHtml(d)}</a>`
+              : escapeHtml(d)).join(', ')
+          : '—'}</td></tr>`;
     }).join('')}
     </tbody>
   </table></div>

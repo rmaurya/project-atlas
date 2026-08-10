@@ -13,6 +13,30 @@ versions follow [Semantic Versioning](https://semver.org/).
 - `atlas plan` — propose the git route for the working tree and wait for approval, rather than only refusing a
   commit once it is attempted.
 
+## [0.1.62] — 2026-08-11
+
+### Added
+- **Charts** (P-8): contribution, estimated effort by desk, commits per week, lines added/removed over
+  time, and plan composition — donuts, lines and stacked areas, inline SVG with no dependency.
+- **The first categorical palette in this project, computed rather than chosen.** Both light and dark sets
+  were run through the palette validator against their own surface; two candidates failed first (a teal
+  that read as grey; two steps outside the lightness band on dark). Dark is a separate selection — flipping
+  the light set failed on the first check. Adjacent tritan separation on dark is ΔE 3.8, below the safe
+  floor and legal only with secondary encoding, so every slice is direct-labelled.
+- Design record paths are now links rather than printed text.
+
+### Fixed
+- **The signal catalogue reported every signal as `ok` while its own summary line said "48 findings".** It
+  read `f.id`; findings carry `f.signal`, so every finding bucketed under `undefined`. Nothing threw — the
+  page simply disagreed with itself, in the panel built to prevent exactly that, and only a screenshot
+  caught it. The test now asserts a real count rather than the markup existing.
+
+### Changed
+- The contract "the dashboard uses no categorical palette" widened to "every colour comes from a validated
+  set". The original reasoning held while there was no chart whose job was identity; contributor and desk
+  breakdowns are identity charts. The rule that matters — no colour without a validation behind it — is
+  unchanged.
+
 ## [0.1.61] — 2026-08-11
 
 ### Added
