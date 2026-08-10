@@ -27,7 +27,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { resolveConfig, DEFAULT_CONFIG, DEFAULT_CLUSTERS, CONFIG_NAME } from './lib/config.mjs';
+import { resolveConfig, DEFAULT_CONFIG, DEFAULT_CLUSTERS, CONFIG_NAME , automationAllows } from './lib/config.mjs';
 import { buildIndex, discover } from './lib/scan.mjs';
 import { readPlanning } from './lib/planning.mjs';
 import { runHealth, formatReport } from './lib/health.mjs';
@@ -649,7 +649,7 @@ async function main() {
   // to its own exit 2, which is the only code that stops a tool call.
   // The plan gate. Reads the commit message from stdin so the hook never has to quote it back into a shell.
   if (cmd === 'spec' && flag('gate')) {
-    if (!cfg.__configPath || cfg.automation.specOnCommit === false) return;
+    if (!cfg.__configPath || !automationAllows(cfg, 'specOnCommit')) return;
     const plan = readPlanning(root, cfg);
     if (plan.missing || !plan.items.length) return;      // no plan to hold anyone to
     const staged = gitLines(root, ['diff', '--cached', '--name-only']);
@@ -665,7 +665,7 @@ async function main() {
   if (cmd === 'health' && flag('gate')) {
     // Same opt-in rule as `build --auto`: no config, no gate. Refusing commits in a repository that never
     // adopted the tool would be a plugin deciding someone else's policy for them.
-    if (!cfg.__configPath || cfg.automation.healthOnCommit === false) return;
+    if (!cfg.__configPath || !automationAllows(cfg, 'healthOnCommit')) return;
     const index = buildIndex(root, cfg, { withGit });
     const health = runHealth(index, cfg, root);
     if (!health.blockingCount) return;
@@ -694,7 +694,7 @@ async function main() {
     // either way. A hook that fails because a feature is disabled would block the edit that triggered it.
     // No config file means this repository never opted in. The plugin is installed user-wide, so without this
     // every markdown edit in every unrelated repository would generate a docs/_wiki nobody asked for.
-    if (flag('auto') && (!cfg.__configPath || cfg.automation.buildOnWrite === false)) return;
+    if (flag('auto') && (!cfg.__configPath || !automationAllows(cfg, 'buildOnWrite'))) return;
     const r = doBuild(root, cfg, withGit, cmd === 'all', { stamp: flag('stamp') });
     // `--verify` audits what was just written. The tool checked other people's markdown and never its own
     // HTML; six defects shipped in one afternoon and a person found every one of them.

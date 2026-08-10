@@ -26,6 +26,7 @@ import { writeDay, contributorSlug } from '../scripts/lib/worklog.mjs';
 import { buildPrompt } from '../scripts/lib/prompt.mjs';
 import { readDeck } from '../scripts/lib/deck.mjs';
 import { RAMP, STATUS, INK, viewPage } from '../scripts/lib/dashboard.mjs';
+import { automationAllows } from '../scripts/lib/config.mjs';
 import { buildWikiPages, wikiPageName, isSafePageName, exportSingleFile, exportBundle, RESERVED, gitlabPagesJob, stageWiki } from '../scripts/lib/publish.mjs';
 import { readContrib, estimateHours, taskCoverage } from '../scripts/lib/contrib.mjs';
 import { readTokens, formatTokens, formatSessions, assertNotPublishable, transcriptDir } from '../scripts/lib/tokens.mjs';
@@ -2723,6 +2724,36 @@ test('design · undesigned areas are the inverse, and small areas are excluded',
   eq(gaps.find((g) => g.area === 'src').citations, 1);
   eq(gaps.find((g) => g.area === 'lib').citations, 0);
   ok(!gaps.some((g) => g.area === 'tiny'), 'one file is not an area');
+});
+
+test('config · one master switch turns off every automatic action', () => {
+  // A feature that can only be disabled key by key is a feature nobody disables: you turn off the one that
+  // annoyed you, the rest keep running, and the next person cannot tell what is on. Three call sites each
+  // read `cfg.automation.<key> === false` directly, which is how a master switch gets added and then quietly
+  // ignored by the fourth caller — and a switch some code respects and other code does not is worse than no
+  // switch, because it is believed.
+  const on = { automation: { enabled: true, buildOnWrite: true, healthOnCommit: true, specOnCommit: true } };
+  for (const k of ['buildOnWrite', 'healthOnCommit', 'specOnCommit']) ok(automationAllows(on, k), `${k} on`);
+
+  const off = { automation: { enabled: false, buildOnWrite: true, healthOnCommit: true, specOnCommit: true } };
+  for (const k of ['buildOnWrite', 'healthOnCommit', 'specOnCommit']) {
+    eq(automationAllows(off, k), false, `${k} must be off when the master switch is off, whatever it says`);
+  }
+
+  // An individual key still turns its own action off with the master switch on.
+  eq(automationAllows({ automation: { enabled: true, buildOnWrite: false } }, 'buildOnWrite'), false);
+  // And the defaults are on, so adoption does not require configuring anything.
+  ok(automationAllows({}, 'buildOnWrite'), 'absent configuration means on, not off');
+  ok(DEFAULT_CONFIG.automation.enabled, 'the shipped default is on');
+
+  // The key is validated like the others, so `enabled` cannot be a typo that silently does nothing.
+  const dir = fixture('automation-master', {
+    'docs/A.md': '# A\n',
+    'project-atlas.config.json': JSON.stringify({ automation: { enabld: false } }),
+  });
+  let refused = '';
+  try { resolveConfig(dir); } catch (e) { refused = String(e.message); }
+  ok(/enabld/.test(refused), `a misspelled switch must be refused, not ignored — got ${JSON.stringify(refused)}`);
 });
 
 test('dashboard · every status pill clears 4.5:1 against the step it sits on', () => {

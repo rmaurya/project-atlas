@@ -1,6 +1,6 @@
 # Roadmap — project-atlas
 
-**Last updated:** 2026-08-10 · **Version:** 0.1.49 · **Status:** pre-release, dogfooding
+**Last updated:** 2026-08-10 · **Version:** 0.1.50 · **Status:** pre-release, dogfooding
 
 Open work, with an honest completion figure against each item. A figure marked `*` is estimated rather than
 measured against the code — the same distinction the tool preserves everywhere else, applied to itself.
@@ -23,7 +23,7 @@ measured against the code — the same distinction the tool preserves everywhere
 | D-7 | 100 | D-8 | 100 | D-9 | 100 |
 | D-10 | 100 | I-1 | 100 | | |
 | I-3 | 100 | D-11 | 100 | I-2 | 100 |
-| A-1 | 20 | A-2 | 0 | A-3 | 0 |
+| A-1 | 100 | A-2 | 0 | A-3 | 0 |
 | A-4 | 0 | A-5 | 0 | A-6 | 0 |
 | A-7 | 0 | A-8 | 0 | A-9 | 0 |
 | A-10 | 0 | A-11 | 0 | A-12 | 0 |
@@ -338,8 +338,14 @@ project exists to detect, reproduced in its own operation. Designed in
 and stops at anything outward-facing.*
 
 **A-1 · The autonomy switch** — **P1 · High**
-*One `autonomy` config block, default on, with a single `enabled: false` that turns off every automatic
-action. A feature that can only be disabled key by key is a feature nobody disables.*
+*Shipped in 0.1.50.*
+*One config block, default on, with a single `enabled: false` that turns off every automatic action. A
+feature that can only be disabled key by key is a feature nobody disables.*
+Written as `automation.enabled` rather than the new `autonomy` block this item first specified: the config
+already carried an `automation` block with the three switches and a validated key list, and a second block
+governing the same three actions would have been two vocabularies for one thing — the drift this project
+exists to detect. One resolver, `automationAllows(cfg, key)`, answers it for every call site, because a
+master switch some code respects and other code ignores is worse than none: it is believed.
 
 **A-2 · Derived output maintains itself** — **P1 · High**
 *Build, stats, worklog and analysis refresh when their inputs change, rather than when someone remembers.

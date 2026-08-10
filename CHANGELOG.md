@@ -13,6 +13,19 @@ versions follow [Semantic Versioning](https://semver.org/).
 - `atlas plan` — propose the git route for the working tree and wait for approval, rather than only refusing a
   commit once it is attempted.
 
+## [0.1.50] — 2026-08-10
+
+### Added
+- **One switch turns off every automatic action** (A-1). `automation` carried three independent keys and no
+  way to say "none of it" — so disabling automation meant knowing all three names, and the next key added
+  would have silently switched itself back on for everyone who thought they had opted out. `enabled: false`
+  now overrides all three regardless of their own values, and every call site reads one resolver,
+  `automationAllows(cfg, key)`, rather than testing `cfg.automation.<key> === false` itself. A master switch
+  the fourth caller forgets to honour is worse than no switch, because it is believed.
+- The roadmap specified this as a new `autonomy` block. It is `automation.enabled` instead: a second block
+  governing the same three actions would be two vocabularies for one thing, which is the drift this tool
+  exists to report. `enabled` joins the validated key list, so a misspelling is still refused as a typo.
+
 ## [0.1.49] — 2026-08-10
 
 ### Fixed

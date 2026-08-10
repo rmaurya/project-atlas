@@ -262,6 +262,13 @@ export const DEFAULT_CONFIG = {
   // the reason hand-maintained documentation rots is that keeping it current was always a separate decision.
   // Set either to false to go back to running `atlas build` and `atlas health` yourself.
   automation: {
+    // The master switch. Every automatic action is off when this is false, whatever the individual keys say
+    // — because a feature that can only be disabled key by key is a feature nobody disables: you turn off the
+    // one that annoyed you, the rest keep running, and the next person cannot tell what is on.
+    //
+    // Default true. Automation that has to be remembered is the failure this whole tool exists to detect,
+    // so the useful default is on and the useful escape is a single line.
+    enabled: true,
     buildOnWrite: true,      // rebuild the site when a session writes markdown
     healthOnCommit: true,    // refuse a commit that introduces a blocking signal
     specOnCommit: true,      // refuse a shipped change that names no roadmap item
@@ -361,8 +368,23 @@ const SCHEMA = {
   analysis: [T.object, 'an object'],
 };
 
+/**
+ * Is one automatic action allowed?
+ *
+ * The single place that answers it. Three call sites each read `cfg.automation.<key> === false` directly,
+ * which is how a master switch gets added and then quietly ignored by the fourth caller — and an
+ * `enabled: false` that some code respects and other code does not is worse than no switch at all, because
+ * it is believed.
+ */
+export function automationAllows(cfg, key) {
+  const a = cfg?.automation || {};
+  if (a.enabled === false) return false;
+  return a[key] !== false;
+}
+
 /** Every switch under `automation`, and what it turns off. Anything else there is refused as a typo. */
 export const AUTOMATION_KEYS = {
+  enabled: 'the master switch — false turns off every automatic action below',
   buildOnWrite: 'rebuild the site when a session writes markdown',
   healthOnCommit: 'refuse a commit that introduces a blocking signal',
   specOnCommit: 'refuse a shipped change that names no roadmap item',
