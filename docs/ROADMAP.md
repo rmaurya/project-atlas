@@ -1,6 +1,6 @@
 # Roadmap — project-atlas
 
-**Last updated:** 2026-08-10 · **Version:** 0.1.51 · **Status:** pre-release, dogfooding
+**Last updated:** 2026-08-10 · **Version:** 0.1.52 · **Status:** pre-release, dogfooding
 
 Open work, with an honest completion figure against each item. A figure marked `*` is estimated rather than
 measured against the code — the same distinction the tool preserves everywhere else, applied to itself.
@@ -26,7 +26,7 @@ measured against the code — the same distinction the tool preserves everywhere
 | A-1 | 100 | A-2 | 0 | A-3 | 0 |
 | A-4 | 0 | A-5 | 0 | A-6 | 0 |
 | A-7 | 0 | A-8 | 0 | A-9 | 0 |
-| A-10 | 0 | A-11 | 0 | A-12 | 0 |
+| A-10 | 100 | A-11 | 0 | A-12 | 0 |
 | S-1 | 100 | S-2 | 100 | S-3 | 0 |
 | S-4 | 100 | S-5 | 100 | S-6 | 100 |
 | S-7 | 100 | M-1 | 0 | M-2 | 0 |
@@ -384,6 +384,7 @@ human to write the rest. One signal, H13: the handoff names a commit far behind 
 handoff is a cost, not a hazard).*
 
 **A-10 · Continuity: state that survives a termination** — **P0 · Critical**
+*Shipped in 0.1.52.*
 *A handoff written at the end of a session is written exactly when it cannot be — the session that is killed,
 compacted or interrupted never reaches its own last step. `.atlas/journal.jsonl`, append-only, one flushed
 line per record, written by every agent as work happens and tagged with which agent wrote it, so a subagent's

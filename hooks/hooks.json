@@ -31,6 +31,36 @@
           }
         ]
       }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "S=\"${CLAUDE_PLUGIN_ROOT}/hooks/on-continuity.sh\"; [ -r \"$S\" ] && sh \"$S\" stop; exit 0"
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "S=\"${CLAUDE_PLUGIN_ROOT}/hooks/on-continuity.sh\"; [ -r \"$S\" ] && sh \"$S\" subagent; exit 0"
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "S=\"${CLAUDE_PLUGIN_ROOT}/hooks/on-continuity.sh\"; [ -r \"$S\" ] && sh \"$S\" precompact; exit 0"
+          }
+        ]
+      }
     ]
   }
 }

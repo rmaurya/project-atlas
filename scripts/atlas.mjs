@@ -12,6 +12,8 @@
  *   atlas diff     one file's diff, local or across the branch
  *   atlas tokens   where the tokens went, from LOCAL session transcripts (opt-in, never published)
  *   atlas sessions how sessions went — turns, interruptions, friction (NOT prompt quality)
+ *   atlas note     append one continuity record — what was decided or touched, never what was said
+ *   atlas state    what a resuming session reads first, reconstructed from the journal
  *   atlas contrib  who did what, from git: people, agents, desks, hours, outcomes
  *   atlas health   report rot signals         (--verbose | --verbose=all)  exit 1 on blocking
  *   atlas build    generate the static site (index, dashboard, deck, health)
@@ -49,6 +51,7 @@ import { route, formatRoute } from './lib/plan.mjs';
 import { dayKey, commitsOn, renderDay, writeDay } from './lib/worklog.mjs';
 import { ownership, summariseOwnership } from './lib/ownership.mjs';
 import { survivingLines, formatSurviving } from './lib/surviving.mjs';
+import { note, read as readJournal, formatState, KINDS } from './lib/journal.mjs';
 
 const argv = process.argv.slice(2);
 
@@ -57,7 +60,7 @@ const argv = process.argv.slice(2);
  * boolean, so a positional after a boolean flag stays positional — `atlas tasks --json safety` keeps `safety`
  * as the filter rather than swallowing it as `--json`'s value.
  */
-const VALUE_FLAGS = new Set(['target', 'page', 'out', 'root', 'config', 'interval']);
+const VALUE_FLAGS = new Set(['target', 'page', 'out', 'root', 'config', 'interval', 'refs', 'agent', 'since', 'day']);
 
 const { cmd, positionals, flags } = parseArgs(argv);
 
@@ -401,6 +404,55 @@ async function main() {
       say('\nNot generated, and why:');
       for (const s2 of assets.skipped) say(`  · ${s2}`);
     }
+    return;
+  }
+
+  /*
+   * `atlas note` — append one record to the journal.
+   *
+   * Deliberately the smallest possible command. It is called by hooks at moments when a session is being
+   * torn down, so anything it depends on is something that can fail exactly when the record matters most:
+   * no index, no health run, no git log. It resolves an identity, appends a line, and returns.
+   */
+  if (cmd === 'note') {
+    const kind = positionals[0];
+    const text = positionals.slice(1).join(' ');
+    if (!kind || !text) {
+      say('');
+      say('  atlas note <kind> "<what happened>" [--refs a,b] [--agent name]');
+      say('');
+      for (const [k, why] of Object.entries(KINDS)) say(`    ${k.padEnd(9)} ${why}`);
+      say('');
+      say('  Records what was decided and touched — never what was said. Never published.');
+      say('');
+      return;
+    }
+    const refs = typeof flag('refs') === 'string' ? String(flag('refs')).split(',').map((s) => s.trim()) : [];
+    const rec = note(root, cfg, {
+      kind, text, refs,
+      agent: typeof flag('agent') === 'string' ? flag('agent') : 'main',
+      identity: gitLines(root, ['config', 'user.name'])[0] || null,
+    });
+    if (!flag('quiet')) say(`Recorded ${rec.kind}: ${rec.text}`);
+    return;
+  }
+
+  /*
+   * `atlas state` — what a resuming session reads first.
+   *
+   * Ordered by what a person needs before they can act: where they are, what is uncommitted, and then what
+   * the journal recorded. It groups and orders; it does not summarise. Summarising would be the tool writing
+   * prose about work it did not do.
+   */
+  if (cmd === 'state') {
+    const journal = readJournal(root, { since: typeof flag('since') === 'string' ? flag('since') : null });
+    if (flag('json')) { console.log(JSON.stringify(journal, null, 2)); return; }
+    say(formatState({
+      journal,
+      branch: branchStatus(root, cfg),
+      version: runningBuild().version,
+      handoffAt: null,
+    }));
     return;
   }
 
@@ -995,6 +1047,8 @@ function usage() {
   atlas tokens [--out FILE]  token accounting from local session transcripts — opt-in, never published
   atlas sessions [--out F]   how sessions went — turns, interruptions, friction, rework
   atlas prompt [--out FILE]  a system prompt assembled from this repository's own rules and state
+  atlas note <kind> "<text>"  append one record to the journal — survives a killed session
+  atlas state [--json]       what a resuming session reads first: where you are, what was recorded
   atlas contrib [--json]     who did what, from git history alone
   atlas health [--verbose]   report rot signals; exit 1 if any blocking signal fires
   atlas build                generate the static site (index, dashboard, deck, health)

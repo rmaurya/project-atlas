@@ -2,3 +2,8 @@ node_modules/
 .DS_Store
 *.log
 docs/_wiki/
+
+# The journal itself IS committed: it is the record that survives a machine, and a teammate reading it is
+# the point. Only the stop marker is ignored — it is overwritten on every turn that moves HEAD, so tracking
+# it would put a one-line diff in front of every commit and teach people to ignore the diff.
+.atlas/last-stop

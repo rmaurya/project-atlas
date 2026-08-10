@@ -98,6 +98,31 @@ project-atlas 0.1.3
 
 `--offline` skips the network entirely; `--check` forces a fetch rather than reading the day's cache.
 
+## Continuity — `Stop`, `SubagentStop`, `PreCompact`
+
+A handoff written at the end of a session is written exactly when it cannot be: the session that gets
+killed, compacted or interrupted never reaches its own last step. An instruction telling an agent to journal
+is advisory, and a terminated agent reads nothing — so the harness fires these three whether or not the
+agent cooperated.
+
+They append to `.atlas/journal/<contributor>.jsonl`, one line per record, and record **what was decided and
+touched, never what was said**. The payload is drained and discarded: it carries `transcript_path`, and
+these never open it.
+
+- **`PreCompact`** always records. Context is about to be discarded, and whatever is not on disk when it is
+  will not survive. It is rare, so it cannot flood anything.
+- **`SubagentStop`** always records, tagged `subagent`. A subagent's reasoning is discarded by design and
+  only its final message reaches the main session.
+- **`Stop`** records **only when HEAD moved**. It fires at the end of every assistant turn, so recording
+  unconditionally would write hundreds of identical lines and bury the records a person actually wrote. A
+  turn that moved HEAD is a boundary; a turn that did not is a heartbeat, and heartbeats do not belong in an
+  append-only file. The comparison uses `.atlas/last-stop`, which is deliberately *not* part of the journal —
+  it is overwritten every time, and the journal is never rewritten.
+
+All three are inert unless the repository has a `project-atlas.config.json`, and all three exit 0 always:
+they fire while a session is being torn down, and failing there would turn a missing record into a visible
+error at the least useful possible moment.
+
 ## Turning them off
 
 Both switches live in `project-atlas.config.json`, both default to `true`:

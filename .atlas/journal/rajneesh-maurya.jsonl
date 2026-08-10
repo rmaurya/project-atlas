@@ -1,0 +1,3 @@
+{"at":"2026-08-10T18:04:32.427Z","agent":"main","kind":"decision","text":"journal adopts A-12's per-contributor path now; an append-only file is the worst possible merge","refs":["scripts/lib/journal.mjs","docs/references/autonomy.md"]}
+{"at":"2026-08-10T18:04:32.545Z","agent":"main","kind":"trap","text":"git add -A swept unrelated work into a fix commit; stage explicitly on a shared branch","refs":[]}
+{"at":"2026-08-10T18:10:24.438Z","agent":"main","kind":"trap","text":"Stop fires every turn — an unconditional hook record buries real records under heartbeats","refs":["hooks/on-continuity.sh"]}

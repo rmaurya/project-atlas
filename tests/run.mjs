@@ -44,6 +44,7 @@ import { route, inferType } from '../scripts/lib/plan.mjs';
 import { dayKey, commitsOn, renderDay } from '../scripts/lib/worklog.mjs';
 import { ownership, areaOf, summariseOwnership } from '../scripts/lib/ownership.mjs';
 import { survivingLines } from '../scripts/lib/surviving.mjs';
+import { note as journalNote, read as journalRead, MAX_TEXT } from '../scripts/lib/journal.mjs';
 import { testInventory, casesInFile } from '../scripts/lib/testcases.mjs';
 import { designRecord, undesigned, citationHealth, EXPECTED } from '../scripts/lib/design.mjs';
 import { manifestUrl, checkForUpdate, fetchLatest, readCache, writeCache, isFresh } from '../scripts/lib/update.mjs';
@@ -3510,6 +3511,95 @@ test('dashboard · the first poll compares against the embedded stamp rather tha
     (o) => o.scripts);
   includes(js, "getAttribute('data-built')");
   includes(js, 'was !== t');
+});
+
+console.log('\ncontinuity');
+
+/** Assert a call throws, and that its message says why. There is no shared helper; this is the local one. */
+function refuses(fn, pattern, msg) {
+  let threw = null;
+  try { fn(); } catch (e) { threw = e; }
+  ok(threw, msg || 'expected the call to be refused');
+  ok(pattern.test(threw.message), `refusal message did not match ${pattern}\n  got: ${threw.message}`);
+}
+
+test('journal · a record survives the process that wrote it being killed mid-line', () => {
+  // This is the entire reason the file exists. A summary held in memory and flushed at exit fails precisely
+  // in the case it was written for, so every record is one appendFileSync — and the cost of that design is a
+  // truncated final line when the kill lands mid-write. Skipping it silently would hide the kill; throwing
+  // would let one truncated byte destroy every record before it.
+  const dir = fixture('journal-kill', { 'docs/A.md': '# A\n' });
+  const cfg = resolveConfig(dir);
+  journalNote(dir, cfg, { kind: 'decision', text: 'first', identity: 'Ann Example' });
+  journalNote(dir, cfg, { kind: 'finding', text: 'second', identity: 'Ann Example' });
+
+  const file = path.join(dir, '.atlas', 'journal', 'ann-example.jsonl');
+  fs.appendFileSync(file, '{"at":"2026-08-10T00:00:00Z","kind":"tra');   // killed here
+
+  const out = journalRead(dir);
+  eq(out.records.length, 2, 'every complete record before the kill must survive');
+  eq(out.skipped, 1, 'the truncated line is counted, not silently dropped');
+  eq(out.records[0].text, 'first');
+  eq(out.records[1].text, 'second');
+});
+
+test('journal · two contributors cannot contend, and reading merges them in time order', () => {
+  // One journal is the worst possible merge: git resolves an append-only file by interleaving two people's
+  // records, which is neither a conflict it can see nor an ordering either person wrote.
+  const dir = fixture('journal-two', { 'docs/A.md': '# A\n' });
+  const cfg = resolveConfig(dir);
+  journalNote(dir, cfg, { kind: 'decision', text: 'hers', identity: 'Ann Example', at: '2026-08-10T10:00:00Z' });
+  journalNote(dir, cfg, { kind: 'decision', text: 'his', identity: 'Bob Other', at: '2026-08-10T09:00:00Z' });
+
+  ok(fs.existsSync(path.join(dir, '.atlas', 'journal', 'ann-example.jsonl')), 'one file per contributor');
+  ok(fs.existsSync(path.join(dir, '.atlas', 'journal', 'bob-other.jsonl')), 'one file per contributor');
+
+  const out = journalRead(dir);
+  eq(out.records.map((r) => r.text).join(','), 'his,hers', 'merged oldest-first across contributors');
+  eq(out.contributors.length, 2);
+  eq(out.records[0].by, 'bob-other', 'each record says which file it came from');
+});
+
+test('journal · refuses an unknown kind, an empty note, and one long enough to be a transcript', () => {
+  // The kind vocabulary is fixed because `atlas state` reconstructs by grouping it; free-form kinds
+  // reconstruct into a list, which is what the terminal already gave you. The length cap cannot detect
+  // prompt text — nothing can — but a record is a sentence, and the cap makes pasting a conversation loud.
+  const dir = fixture('journal-refuse', { 'docs/A.md': '# A\n' });
+  const cfg = resolveConfig(dir);
+  refuses(() => journalNote(dir, cfg, { kind: 'musing', text: 'x' }), /Unknown record kind/);
+  refuses(() => journalNote(dir, cfg, { kind: 'decision', text: '' }), /records nothing/);
+  refuses(() => journalNote(dir, cfg, { kind: 'decision', text: 'x'.repeat(MAX_TEXT + 1) }), /never carries conversation/);
+  eq(journalRead(dir).available, false, 'a refused record must not create the journal');
+});
+
+test('journal · refuses to write itself into a directory that gets published', () => {
+  // `.atlas/` is outside the output directory under every default, so this cannot fire as shipped. It is
+  // here because "already outside" is a property of the current defaults, not of the design: someone setting
+  // output to the repository root would otherwise silently start publishing an operational log.
+  const dir = fixture('journal-publish', { 'docs/A.md': '# A\n' });
+  const cfg = { ...resolveConfig(dir), output: '.' };
+  refuses(() => journalNote(dir, cfg, { kind: 'decision', text: 'x', identity: 'Ann Example' }),
+    /Refusing to write the journal/);
+});
+
+test("journal · a subagent's record outlives the subagent, tagged with who wrote it", () => {
+  // A subagent's reasoning is discarded by design and only its final message reaches the main session, so a
+  // finding it established is lost unless it was written down as it happened.
+  const dir = fixture('journal-agent', { 'docs/A.md': '# A\n' });
+  const cfg = resolveConfig(dir);
+  journalNote(dir, cfg, { kind: 'finding', text: 'wikiPageName emits a leading dot', agent: 'explore-1',
+    refs: ['scripts/lib/publish.mjs:61'], identity: 'Ann Example' });
+  const rec = journalRead(dir).records[0];
+  eq(rec.agent, 'explore-1');
+  eq(rec.refs[0], 'scripts/lib/publish.mjs:61');
+});
+
+test('journal · a repository with no journal is reported as absent, not as empty', () => {
+  // "No records" and "no journal" are different states and a resuming session acts differently on each.
+  const dir = fixture('journal-none', { 'docs/A.md': '# A\n' });
+  const out = journalRead(dir);
+  eq(out.available, false);
+  eq(out.records.length, 0);
 });
 
 console.log(`\n${pass} passed, ${fail} failed${skipped ? `, ${skipped} skipped on ${process.platform}` : ''}\n`);

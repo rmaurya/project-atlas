@@ -13,6 +13,26 @@ versions follow [Semantic Versioning](https://semver.org/).
 - `atlas plan` — propose the git route for the working tree and wait for approval, rather than only refusing a
   commit once it is attempted.
 
+## [0.1.52] — 2026-08-10
+
+### Added
+- **A record that survives the session being killed** (A-10). `atlas note <kind> "<text>"` appends one line
+  to `.atlas/journal/<contributor>.jsonl`; `atlas state` reconstructs what a resuming session needs. A
+  handoff written at the end of a session is written exactly when it cannot be — the session that is killed,
+  compacted or interrupted never reaches its own last step — so state accumulates as work happens instead.
+- **A truncated final line is expected, counted, and survivable.** Every record is one `appendFileSync`, so
+  a process killed mid-write loses at most the record it was writing. `read()` skips unparseable lines and
+  reports how many: dropping them silently would hide the kill, and throwing would let one truncated byte
+  destroy every record before it.
+- **Three hooks, because prose does not survive a crash either.** `PreCompact` and `SubagentStop` always
+  record. `Stop` records **only when HEAD moved** — it fires every turn, and an unconditional record would
+  bury the records a person actually wrote under hundreds of heartbeats.
+- Per-contributor files from the start, reusing the identity `atlas contrib` already groups by. An
+  append-only file is the worst possible merge: git resolves it by interleaving two people's records, which
+  is neither a conflict it can see nor an ordering either person wrote.
+- Never carries prompt text (the hooks drain the payload without opening `transcript_path`), never
+  published, and `assertUnpublished()` states that as a check rather than an assumption.
+
 ## [0.1.51] — 2026-08-10
 
 ### Fixed
