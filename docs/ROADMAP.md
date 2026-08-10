@@ -32,7 +32,8 @@ measured against the code — the same distinction the tool preserves everywhere
 | S-7 | 100 | M-1 | 0 | M-2 | 0 |
 | A-13 | 100 | A-14 | 100 | A-15 | 100 |
 | A-16 | 100 | A-17 | 100 | A-18 | 100 |
-| A-19 | 100 | P-7 | 100 | P-8 | 100 | | | | |
+| A-19 | 100 | P-7 | 100 | P-8 | 100 |
+| A-20 | 0 | | | | | | | | |
 
 ---
 
@@ -578,6 +579,16 @@ exists to detect, attached to the decisions people trust most.*
 somebody sat down to write; this is the reasoning that accumulates during the work and is otherwise lost
 when the session ends. A project with both should have them agree — which is a crossref pair, and therefore
 already H9's job.*
+
+**A-20 · A journal record must not name an agent that never ran** — **P2 · Medium**
+*The continuity hooks recorded `a subagent finished on main at b23b05f` in a session where no subagent ran.
+The boundary event is real — something fired `SubagentStop` — but the sentence attributes it to an actor
+that does not exist, and a record whose whole value is being trustworthy cannot carry an attribution nobody
+checked.*
+*Not patched blind. The hook takes the event name as an argument and cannot see what the harness actually
+fired, so the fix needs to establish which event occurs when — guessing would replace a wrong record with a
+differently wrong one. Until then the record stays as written, because deleting it would hide the evidence
+the fix depends on.*
 
 **A-7 · The boundary holds** — **P0 · Critical**
 *Shipped in 0.1.55.*
