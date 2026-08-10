@@ -24,7 +24,7 @@ measured against the code — the same distinction the tool preserves everywhere
 | I-3 | 100 | D-11 | 100 | I-2 | 100 |
 | A-1 | 0 | A-2 | 0 | A-3 | 0 |
 | A-4 | 0 | A-5 | 0 | A-6 | 0 |
-| A-7 | 0 | A-8 | 0 | | |
+| A-7 | 0 | A-8 | 0 | A-9 | 0 |
 
 ---
 
@@ -296,6 +296,14 @@ a build stamp and `atlas watch` moves it — so what is missing is the trigger w
 hook on the planning source alone, rebuilding the dashboard alone, detached so the edit never waits. That
 reopens the `PostToolUse` decision this project made and reversed once; if a dashboard-only rebuild cannot be
 made invisible, this stays with `atlas watch` and says so.*
+
+**A-9 · Memory and handoff** — **P1 · High**
+*A session ends and everything it learned that was not written down is gone; the next one rediscovers the
+same traps by hitting them. [`HANDOFF.md`](HANDOFF.md) holds what cannot be derived — decisions taken, traps
+paid for, work in flight — and the tool never generates it, because a machine can see that a commit happened
+but not that a decision was argued and settled. `atlas handoff` prints the derived half as a prompt for a
+human to write the rest. One signal, H13: the handoff names a commit far behind HEAD (advisory — a stale
+handoff is a cost, not a hazard).*
 
 **A-7 · The boundary holds** — **P0 · Critical**
 *Tests that assert autonomy never pushes, never publishes, never rewrites prose and never acts on an

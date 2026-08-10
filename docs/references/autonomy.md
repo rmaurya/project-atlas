@@ -109,6 +109,37 @@ feature should not ship:
 If a dashboard-only rebuild cannot be made fast enough to be invisible, the honest answer is to leave this to
 `atlas watch` and say so, rather than shipping a hook people will disable.
 
+## Memory and handoff
+
+A session ends and everything it learned that was not written down is gone. The next one re-derives what it
+can and rediscovers the rest by hitting it again — which is how the same trap costs time twice.
+
+Two artefacts, and the split between them is the whole design:
+
+**`HANDOFF.md` — what cannot be derived.** Decisions already taken, traps already paid for, work in flight,
+and the reasoning behind a boundary so it is not re-litigated. The tool must never generate this: a machine
+can see that a commit happened, not that a decision was argued and settled. What the tool *can* do is keep
+its header honest — the commit and version it was last written against — and raise a signal when the corpus
+has moved a long way past it.
+
+**Everything else — derived, and therefore not in the handoff.** The plan, the history, the health report,
+the statistics. `HANDOFF.md` carries a standing instruction to delete any fact that can be read from the
+repository, because a handoff that duplicates derived state goes stale exactly the way this project exists to
+detect. `ROADMAP.md` already carries a warning about that failure happening to itself, twice.
+
+One signal:
+
+| Signal | Fires when | Class |
+|---|---|---|
+| **H13** | `HANDOFF.md` names a commit more than N commits behind `HEAD` (default 50) | advisory |
+
+Advisory, not blocking. A stale handoff is a cost, not a hazard, and a blocking signal on a file this
+subjective would train people to suppress it.
+
+`atlas handoff` prints the derived half — what changed since the recorded commit, which items moved, what
+health says now — as a **prompt for a human to write the rest**, never as the file itself. The distinction is
+the same one the tool makes everywhere: it reports, and the words stay yours.
+
 ## SOPs
 
 An SOP is a document that is *wrong* rather than merely stale when it drifts, so it carries obligations an
