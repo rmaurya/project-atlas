@@ -587,7 +587,11 @@ function healthPage(index, health, cfg, nav, nameFor) {
     <span class="count ${skipped ? 'warn' : items.length ? (isBlocking ? 'bad' : 'warn') : 'ok'}">${skipped ? 'not evaluated' : items.length}</span></h2>
   <p class="blurb">${escapeHtml(s.why)} ${isBlocking ? '<strong>Blocking</strong> — no legitimate cause.' : 'Advisory — legitimate exceptions exist.'}</p>
   ${items.length ? `<ul class="findings">${items.slice(0, 300).map((f) =>
-      `<li><a href="pages/${escapeAttr(nameFor(f.doc))}">${escapeHtml(f.doc)}</a> <span class="det">${escapeHtml(f.detail || '')}</span></li>`).join('')}
+      (f.corpus
+        // Not a document: H15 names a kind that is missing and H16 names a code area, and neither has a page
+        // to link to. Rendered as text rather than as a link to a file that was never written.
+        ? `<li><span class="mono">${escapeHtml(f.doc)}</span> <span class="det">${escapeHtml(f.detail || '')}</span></li>`
+        : `<li><a href="pages/${escapeAttr(nameFor(f.doc))}">${escapeHtml(f.doc)}</a> <span class="det">${escapeHtml(f.detail || '')}</span></li>`)).join('')}
       ${items.length > 300 ? `<li class="det">… and ${items.length - 300} more (run <code>atlas health --verbose=all</code>)</li>` : ''}</ul>` : ''}
 </section>`;
   }).join('\n');

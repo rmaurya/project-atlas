@@ -2333,6 +2333,36 @@ test('dashboard · a tone from outside the known set cannot escape its class att
   includes(html, 't-unknown', 'an unrecognised tone falls back to the unknown class');
 });
 
+
+test('health · the design record is enforced, and a check that could not run says so', () => {
+  // design.mjs recognised HLD, LLD, architecture, data flow, decision records and specifications since it
+  // was written, and health.mjs referenced none of it: a repository could ship with every design artifact
+  // missing and report clean. H14 is stricter than H6 on purpose — a design document is a claim about how
+  // the code works, so a citation that no longer resolves makes it wrong rather than merely old.
+  const dir = fixture('design-signals', {
+    'docs/HLD.md': '# HLD\n\nThe engine lives in src/engine.ts:1 and the gone bit in src/removed.ts:4.\n',
+    'src/engine.ts': 'export const x = 1;\n',
+    'src/other/a.ts': 'export const a = 1;\n',
+    'src/other/b.ts': 'export const b = 2;\n',
+  });
+  const { health } = analyse(dir, {});
+
+  const h14 = health.findings.filter((f) => f.signal === 'H14');
+  eq(h14.length, 1, 'a design document with a citation that does not resolve is a finding');
+  includes(h14[0].detail, 'src/removed.ts');
+
+  // The corpus has an HLD and nothing else, so the other expected kinds are absent — reported per kind,
+  // because there is no document to attach the finding to.
+  const kinds = health.findings.filter((f) => f.signal === 'H15').map((f) => f.kind);
+  eq(kinds.includes('hld'), false, 'an artifact that exists is not reported absent');
+  ok(kinds.includes('lld'), 'an artifact that is missing is reported');
+
+  // Neither H15 nor H16 may print a bare null where a document path goes.
+  for (const f of health.findings.filter((x) => x.signal === 'H15' || x.signal === 'H16')) {
+    ok(f.doc && f.doc !== 'null', `a corpus-level finding needs a subject, got ${JSON.stringify(f.doc)}`);
+  }
+});
+
 test('backlog · every task in full, with its sources and an absence stated rather than left blank', () => {
   // The backlog view exists because the item table cannot hold this: it is a scanning tool with a summary
   // clamped to two lines. The three additions are the description, the documents that specify the task, and
@@ -2674,13 +2704,29 @@ test('design · undesigned areas are the inverse, and small areas are excluded',
   ok(!gaps.some((g) => g.area === 'tiny'), 'one file is not an area');
 });
 
-test('design · "not checked" is kept apart from "does not resolve"', () => {
+test('design · "not checked" is kept apart from "does not resolve", against real scanner output', () => {
   // Collapsing them reports a document as sound because nobody looked.
-  const rows = citationHealth([{ path: 'd.md', citations: [
-    { path: 'a.js', resolved: true }, { path: 'b.js', resolved: false }, { path: 'c.js', resolved: null }] }]);
-  eq(rows[0].resolved, 1);
-  eq(rows[0].broken, 1);
-  eq(rows[0].unchecked, 1);
+  //
+  // This test used to hand-build `{resolved: true}` and `{resolved: false}` — a shape the scanner has never
+  // produced. It resolves a citation to the resolved PATH, or to null when there is no such file. So the
+  // assertions passed against invented data while `citationHealth` counted `=== true` and reported "0
+  // resolved" for every document in the corpus, on the page whose job is to report citation health. A test
+  // that invents its input cannot notice that the producer disagrees with it.
+  const dir = fixture('cite-states', {
+    'docs/HLD.md': '# HLD\n\nLives at src/engine.ts:1, gone from src/removed.ts:4.\n',
+    'src/engine.ts': 'export const x = 1;\n',
+  });
+  const { index } = analyse(dir, {});
+  const doc = index.documents.find((d) => d.path === 'docs/HLD.md');
+  eq(doc.citations.map((c) => typeof c.resolved), ['string', 'object'],
+     'the scanner emits a resolved path or null — never a boolean');
+
+  const rows = citationHealth(index.documents).filter((r) => r.path === 'docs/HLD.md');
+  eq([rows[0].total, rows[0].resolved, rows[0].broken], [2, 1, 1]);
+  eq(rows[0].unchecked, 0, 'a scanned citation is never "unchecked"');
+  // And the genuinely-unchecked case still reads as unchecked rather than as broken.
+  const never = citationHealth([{ path: 'x.md', citations: [{ path: 'a.js' }] }]);
+  eq([never[0].broken, never[0].unchecked], [0, 1]);
 });
 
 test('design · a document citing no code is grounded:false, not broken', () => {

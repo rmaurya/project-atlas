@@ -13,7 +13,35 @@ versions follow [Semantic Versioning](https://semver.org/).
 - `atlas plan` — propose the git route for the working tree and wait for approval, rather than only refusing a
   commit once it is attempted.
 
-## [0.1.41] — 2026-08-10
+## [0.1.42] — 2026-08-10
+
+### Added
+- **The design record is enforced, not only reported** (`S-2`). `design.mjs` has recognised HLD, LLD,
+  architecture, data flow, decision records and specifications since it was written, and `health.mjs`
+  referenced none of it — a repository could ship for a year with every design artifact missing and the
+  corpus reported clean. Three signals: **H14** a design document cites code that no longer resolves
+  (stricter than H6 on purpose — a design document is a claim about how the code works, so a broken citation
+  makes it wrong rather than merely old); **H15** an expected artifact is absent (advisory: a small
+  repository legitimately has no LLD); **H16** a code area no design document cites (advisory, and phrased
+  as a question).
+
+### Fixed
+- **The Architecture page reported "0 resolved" citations for every document in the corpus.**
+  `citationHealth` counted `resolved === true` and `resolved === false`, but the scanner emits the resolved
+  *path* or `null` — never a boolean. Every document therefore read as zero resolved, with totals that did
+  not add up to their parts, on the page whose job is to report citation health. The test that covered it
+  hand-built `{resolved: true}`, a shape the scanner has never produced, so it agreed with the wrong
+  assumption; it now runs against real scanner output.
+- H14's first implementation made the identical mistake and reported clean on a document whose citations
+  were all broken. Caught because the test was written before the signal was believed.
+- **H16 initially read `index.codeFiles`, which does not exist**, so it never ran and printed `ok` — a check
+  that did not run, reported as clean. It now sources the tracked file list itself and, when it cannot,
+  declares itself **unevaluated** under *Not checked* instead.
+- Corpus-level findings (H15, H16) are marked `corpus` and rendered as text. Given a readable subject they
+  were linked as document paths, generating dead links to pages that were never written — caught by
+  `build --verify`.
+
+
 
 ### Changed
 - **Backlog rows are accordions, closed by default.** Forty-seven fully expanded tasks made a page nobody

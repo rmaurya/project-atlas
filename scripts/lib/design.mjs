@@ -32,6 +32,11 @@ export const EXPECTED = [
   { id: 'specs', label: 'Specifications', re: /(^|\/)(specs?|rfc)\/|[-_](spec|srs)\.md$/i },
 ];
 
+/** True when a document is any kind of design artifact — the predicate the health signals filter by. */
+export function isDesignDoc(pathname) {
+  return EXPECTED.some((e) => e.re.test(pathname));
+}
+
 /** Which expected artifacts the corpus has, and which it does not. An absence is a finding, not a blank. */
 export function designRecord(documents) {
   return EXPECTED.map((e) => {
@@ -51,9 +56,13 @@ export function citationHealth(documents) {
   return documents
     .map((d) => {
       const cites = d.citations || [];
-      const resolved = cites.filter((c) => c.resolved === true).length;
-      const broken = cites.filter((c) => c.resolved === false).length;
-      const unchecked = cites.filter((c) => c.resolved === null || c.resolved === undefined).length;
+      // `resolved` is the resolved PATH when a citation was matched, and `null` when it was not. It is never
+      // a boolean — so `=== true` counted nothing and `=== false` counted nothing, and this panel reported
+      // "0 resolved" for every document in the corpus while the totals disagreed with the parts. `undefined`
+      // is kept as the genuinely-unchecked case: a citation list that was never populated at all.
+      const resolved = cites.filter((c) => typeof c.resolved === 'string' && c.resolved).length;
+      const broken = cites.filter((c) => c.resolved === null).length;
+      const unchecked = cites.filter((c) => c.resolved === undefined).length;
       return {
         path: d.path, title: d.title || d.path,
         total: cites.length, resolved, broken, unchecked,

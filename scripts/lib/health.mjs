@@ -12,8 +12,10 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { execFileSync } from 'node:child_process';
 import { matchesAny, suppressionFor, compileRule } from './config.mjs';
 import { SIGNALS } from './signals.mjs';
+import { designRecord, undesigned, isDesignDoc } from './design.mjs';
 
 export { SIGNALS };
 
@@ -163,6 +165,67 @@ export function runHealth(index, cfg, root) {
 
   /* H8 · missing title */
   for (const d of index.documents) if (!d.title) add('H8', d.path, 'no H1 heading');
+
+  /* H14, H15, H16 · the design record
+   *
+   * design.mjs has recognised HLD, LLD, architecture, data flow, decision records and specifications since
+   * it was written, and nothing here referenced any of it: a repository could ship for a year with every
+   * design artifact missing and the corpus reported clean. The record was detected, charted, and never
+   * enforced.
+   */
+  const designDocs = index.documents.filter((d) => isDesignDoc(d.path));
+
+  // H14 — stricter than H6 on purpose. H6 asks whether a document is older than the code it cites, which for
+  // most prose is a prompt to re-read. A design document is a *claim about how the code works*, so a
+  // citation that no longer resolves means the claim is wrong rather than merely aging, and there is no
+  // grace period for wrong.
+  for (const d of designDocs) {
+    // `null`, not `false`: an unresolved citation carries null, and `=== false` matched nothing at all —
+    // H14 reported clean on a design document whose citations were all broken. Same shape of mistake as the
+    // one in citationHealth, found because this test was written before the signal was believed.
+    const broken = (d.citations || []).filter((c) => c.resolved === null);
+    if (broken.length) {
+      add('H14', d.path, `${broken.length} citation(s) no longer resolve: ${broken.slice(0, 6).map((c) => c.path).join(', ')}${broken.length > 6 ? ' …' : ''}`,
+        { broken: broken.slice(0, 10).map((c) => c.path), brokenTotal: broken.length });
+    }
+  }
+
+  // H15 — an absence, reported once per missing kind rather than once per document, because there is no
+  // document to attach it to. Advisory: a small repository legitimately has no LLD, and a tool that demands
+  // one is asking for a file rather than for design.
+  for (const kind of designRecord(index.documents)) {
+    // The subject is the kind, not a path: this finding is about a document that does not exist, so there is
+    // nothing to attach it to. `null` printed literally as "null" in the report, which reads like a bug.
+    // `corpus: true` marks a finding whose subject is not a document. The report links `doc` to a generated
+    // page, so a label put there produced links to pages/-no-hld--82adea20.html and friends — dead links the
+    // site verifier caught. The subject stays readable; the renderer is told not to treat it as a path.
+    if (!kind.present) add('H15', `(no ${kind.id})`, `no ${kind.label.toLowerCase()} in the corpus`, { kind: kind.id, label: kind.label, corpus: true });
+  }
+
+  // H16 — `undesigned` already computed this for the architecture page and nothing acted on it. Advisory,
+  // and phrased as a question: not every area needs a design document, and the useful reading is which
+  // *important* area has none.
+  //
+  // The code file list is not on the index — the build takes it from `git ls-files` and hands it to the
+  // panels — so health asks for it too. When it cannot (no repository, or --no-git), the signal is declared
+  // **unevaluated**, never reported as clean. The first version of this checked `index.codeFiles`, which
+  // does not exist: H16 silently never ran and printed "ok", which is precisely the lie the Not-checked
+  // section exists to prevent.
+  let codeFiles = null;
+  try {
+    codeFiles = execFileSync('git', ['-C', root, 'ls-files'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })
+      .split('\n').filter(Boolean)
+      .filter((f) => /\.(m?[jt]sx?|py|go|rs|java|rb|swift|kt|c|h|cpp|cs|php|sh)$/i.test(f));
+  } catch { /* handled below, as an absence of evidence rather than evidence of absence */ }
+
+  if (!codeFiles) {
+    unevaluated.add('H16');
+    refusedPatterns.push('H16 was NOT evaluated — the tracked file list could not be read (no git repository, or --no-git). No area was checked for design coverage.');
+  } else {
+    for (const a of undesigned(codeFiles, designDocs)) {
+      if (a.citations === 0) add('H16', a.area, `${a.files} file(s), cited by no design document`, { area: a.area, files: a.files, corpus: true });
+    }
+  }
 
   const blocking = new Set(cfg.blocking || []);
   for (const f of findings) f.blocking = blocking.has(f.signal) && !f.suppressed;
