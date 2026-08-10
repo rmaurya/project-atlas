@@ -13,6 +13,17 @@ versions follow [Semantic Versioning](https://semver.org/).
 - `atlas plan` — propose the git route for the working tree and wait for approval, rather than only refusing a
   commit once it is attempted.
 
+## [0.1.25] — 2026-08-10
+
+### Fixed
+- **A single card before the tile strip left two thirds of the row blank.** `column-span:all` splits a
+  multi-column flow into fragments: everything before the spanning element is balanced on its own. On the
+  Quality view that fragment held one card, so it took column one and left the rest empty — the exact hole
+  masonry was added in 0.1.8 to remove, reintroduced by the mechanism that removed it.
+
+  Full-width panels are hoisted to the top, leaving one contiguous run of cards to pack. It reads better
+  too: a summary strip belongs above the detail, which is the order the Overview page already used.
+
 ## [0.1.24] — 2026-08-10
 
 ### Added

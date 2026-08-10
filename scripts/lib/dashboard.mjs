@@ -81,7 +81,18 @@ export function viewPage(view, ctx, shell) {
 
   // The item table is wide; on a view that shows it, it takes the side column and everything else the main.
   const showsItems = rendered.some((b) => b.id === 'items');
-  const main = rendered.filter((b) => b.id !== 'items').map((b) => b.html).join('\n');
+  // **Full-width panels lead.**
+  //
+  // `column-span:all` splits a multi-column flow into fragments: everything before the spanning element is
+  // balanced on its own, everything after starts a new run. On the Quality view a single card came before
+  // the tile strip, so that fragment had one item to balance across three columns — it took column one and
+  // left two-thirds of the row blank, which is the hole that masonry was meant to remove.
+  //
+  // Hoisting every spanning panel to the top leaves one contiguous run of cards to pack. It also reads
+  // better: a summary strip belongs above the detail, which is the order the Overview page already used.
+  const spans = (b) => /class="(tiles|sect)/.test(b.html) || /^<p class="cap sect/.test(b.html.trim());
+  const body0 = rendered.filter((b) => b.id !== 'items');
+  const main = [...body0.filter(spans), ...body0.filter((b) => !spans(b))].map((b) => b.html).join('\n');
   const side = rendered.filter((b) => b.id === 'items').map((b) => b.html).join('\n');
 
   const body = `

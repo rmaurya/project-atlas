@@ -2376,6 +2376,33 @@ test('automation · neither hook acts in a repository that never adopted the too
   eq(cli(dir, ['health', '--gate']).code, 0, 'no config, no gate');
 });
 
+/* ================================================================== full-width panels lead */
+
+console.log('\npanel order');
+
+test('views · every full-width panel precedes the cards, or masonry leaves a hole', () => {
+  // column-span:all splits a multi-column flow into fragments. One card before the tile strip is a fragment
+  // of one, balanced across three columns — it takes column one and leaves two thirds of the row blank,
+  // which is the exact hole masonry was added to remove.
+  const dir = fixture('panel-order', { 'docs/A.md': '# A\n', 'docs/B.md': '# B\n', 'docs/C.md': '# C\n' });
+  const cfg = resolveConfig(dir);
+  const index = buildIndex(dir, cfg);
+  renderSite(index, runHealth(index, cfg, dir), cfg, dir);
+
+  for (const f of fs.readdirSync(path.join(dir, cfg.output)).filter((x) => x.startsWith('view-'))) {
+    const html = fs.readFileSync(path.join(dir, cfg.output, f), 'utf8');
+    const i = html.indexOf('class="dash-single"');
+    if (i === -1) continue;                       // a view showing the item table uses the two-column layout
+    const seg = html.slice(i);
+    const firstCard = seg.indexOf('class="card"');
+    for (const span of ['class="tiles"', 'cap sect']) {
+      const at = seg.indexOf(span);
+      if (at === -1 || firstCard === -1) continue;
+      ok(at < firstCard, `${f}: ${span} appears after the first card, which fragments the column flow`);
+    }
+  }
+});
+
 /* ================================================================== the drift path, actually run */
 
 console.log('\nwiki drift');
