@@ -13,6 +13,24 @@ versions follow [Semantic Versioning](https://semver.org/).
 - `atlas plan` — propose the git route for the working tree and wait for approval, rather than only refusing a
   commit once it is attempted.
 
+## [Unreleased]
+
+### Fixed
+- **This repository was indexing its own worklog.** `DEFAULT_CONFIG` excludes `worklog/**` — but a config
+  that sets `exclude` **replaces** the default list rather than extending it, so a repository that had ever
+  customised exclusions silently lost every default the tool added afterwards. One file per day was landing
+  in the corpus. Fixed here; the merge behaviour itself is worth revisiting, because the same trap applies to
+  `citationExtensions` and `blocking`.
+- Four documents fell through to `uncategorised` because this repository's own cluster rules predate the
+  taxonomy widened for tool repos in 0.1.23. `CODE_OF_CONDUCT.md` and `SECURITY.md` live at the root here,
+  not under `.github/`; `hooks/**` is what an assistant is *governed by* rather than asked, so it joins the
+  agent cluster; `docs/ANALYSIS.md` is what the figures mean, so it joins planning.
+- The illustrative `src/auth.ts:88` in the review skill is suppressed with a stated reason — the same case
+  as the example citation already suppressed under `docs/references/`.
+
+  **Health is now clean on every signal except orphans**, which are 16 skill and community files that
+  nothing links to by design.
+
 ## [0.1.29] — 2026-08-10
 
 ### Added
