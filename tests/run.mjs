@@ -4001,6 +4001,51 @@ test('lock · a build waits for another, and a dead owner never wedges the tool'
   fourth.release();
 });
 
+test('journal · a decision can carry its reasoning, and the reasoning is bounded like everything else', () => {
+  // A record saying "chose X" answers what. The expensive question is why — the next person's instinct is
+  // to undo it, and they will, unless the argument is written where they are standing.
+  const dir = fixture('journal-why', { 'docs/A.md': '# A\n' });
+  const cfg = resolveConfig(dir);
+  journalNote(dir, cfg, { kind: 'decision', text: 'chose X', why: 'because Y fails under Z', identity: 'Ann Example' });
+  const rec = journalRead(dir).records[0];
+  eq(rec.why, 'because Y fails under Z');
+
+  // Absent rather than null when not given: a field always present but usually empty trains the reader to
+  // skip it, and this is the field worth reading.
+  journalNote(dir, cfg, { kind: 'trap', text: 'no reasoning here', identity: 'Ann Example' });
+  ok(!('why' in journalRead(dir).records[1]), 'an absent reason is omitted, not written as null');
+
+  let threw = null;
+  try { journalNote(dir, cfg, { kind: 'decision', text: 'x', why: 'y'.repeat(2001), identity: 'Ann Example' }); }
+  catch (e) { threw = e; }
+  ok(threw && /reasoning is 2001/.test(threw.message), 'the reasoning is bounded — a record, not a transcript');
+});
+
+test('architecture · the decisions panel publishes the written record and never the journal', () => {
+  // The architecture page publishes; A-11 says the journal never does. Embedding journalled decisions here
+  // would publish the journal through the back door — worse than not shipping the panel, because it breaks
+  // a boundary quietly, in the one place a reader would not look for the breach. So the panel carries the
+  // corpus decision documents plus a COUNT, which is a statistic and not content.
+  const dir = fixture('arch-decisions', {
+    'project-atlas.config.json': JSON.stringify({ planning: { source: 'docs/ROADMAP.md' } }),
+    'docs/decisions/0001-use-x.md': '# Use X\n\nWe chose X.\n',
+    'docs/ROADMAP.md': '# Plan\n\n| Item | % |\n|---|---|\n| A-1 | 0 |\n\n**A-1 · One** — **P1 · High**\n',
+  });
+  const cfg = resolveConfig(dir);
+  journalNote(dir, cfg, { kind: 'decision', text: 'SECRET-JOURNAL-DECISION',
+    why: 'SECRET-JOURNAL-REASONING', identity: 'Ann Example' });
+
+  const index = buildIndex(dir, cfg);
+  const health = runHealth(index, cfg, dir);
+  const html = viewPage({ id: 'architecture', title: 'Architecture', panels: ['decisions'] },
+    { index, health, plan: null, cfg: { ...cfg, __root: dir }, contrib: null, nav: [] }, (o) => o.body);
+
+  includes(html, 'Use X', 'the written decision record appears');
+  ok(!html.includes('SECRET-JOURNAL-DECISION'), 'journal text must never reach a published page');
+  ok(!html.includes('SECRET-JOURNAL-REASONING'), 'journal reasoning must never reach a published page');
+  includes(html, '1</strong> decision(s)', 'the count is derived and safe to publish');
+});
+
 console.log(`\n${pass} passed, ${fail} failed${skipped ? `, ${skipped} skipped on ${process.platform}` : ''}\n`);
 if (fail) {
   console.log('Failures:');

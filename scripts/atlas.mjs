@@ -465,6 +465,7 @@ async function main() {
     const refs = typeof flag('refs') === 'string' ? String(flag('refs')).split(',').map((s) => s.trim()) : [];
     const rec = note(root, cfg, {
       kind, text, refs,
+      why: typeof flag('why') === 'string' ? flag('why') : null,
       agent: typeof flag('agent') === 'string' ? flag('agent') : 'main',
       identity: gitLines(root, ['config', 'user.name'])[0] || null,
     });

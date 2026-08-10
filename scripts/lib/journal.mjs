@@ -72,6 +72,16 @@ export const KINDS = {
 export const MAX_TEXT = 500;
 
 /**
+ * The reasoning behind a decision, which is the part worth keeping.
+ *
+ * A record saying "chose X" answers *what*. The expensive question is always *why* — because the next
+ * person's instinct is to undo it, and they will, unless the argument against is written where they are
+ * standing. Given more room than `text` because an argument needs room; still bounded, for the same reason
+ * `text` is: this records what was settled, never the conversation that settled it.
+ */
+export const MAX_WHY = 2000;
+
+/**
  * Contributors whose display names slugify to the same directory.
  *
  * Two people called "Alex Turner" and "Alex-Turner" both become `alex-turner`, and the failure is silent in
@@ -122,7 +132,7 @@ export function assertUnpublished(root, cfg, file) {
  * lost unless it was written down as it happened. Tagging the writer is what lets the main session tell a
  * subagent's conclusion from its own.
  */
-export function note(root, cfg, { kind, text, refs = [], agent = 'main', identity = null, at = null }) {
+export function note(root, cfg, { kind, text, why = null, refs = [], agent = 'main', identity = null, at = null }) {
   if (!KINDS[kind]) {
     throw new Error(`Unknown record kind "${kind}". One of: ${Object.keys(KINDS).join(', ')}.`);
   }
@@ -138,6 +148,13 @@ export function note(root, cfg, { kind, text, refs = [], agent = 'main', identit
   assertUnpublished(root, cfg, file);
   fs.mkdirSync(path.dirname(file), { recursive: true });
 
+  const reason = why == null ? null : String(why).trim();
+  if (reason && reason.length > MAX_WHY) {
+    throw new Error(
+      `That reasoning is ${reason.length} characters; the limit is ${MAX_WHY}. Record what was settled and ` +
+      `what it rules out — not the conversation that settled it.`);
+  }
+
   const rec = {
     at: at || new Date().toISOString(),
     agent: String(agent || 'main'),
@@ -145,6 +162,9 @@ export function note(root, cfg, { kind, text, refs = [], agent = 'main', identit
     text: body,
     refs: (Array.isArray(refs) ? refs : [refs]).filter(Boolean).map(String),
   };
+  // Omitted rather than written as null when absent: a record is read back by people, and a field that is
+  // always present but usually empty trains the reader to skip it.
+  if (reason) rec.why = reason;
   // One line, one call. `appendFileSync` opens with O_APPEND, so concurrent writers — a subagent and the
   // main session running at once — cannot overwrite each other's offset.
   fs.appendFileSync(file, JSON.stringify(rec) + '\n', 'utf8');

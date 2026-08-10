@@ -32,6 +32,7 @@ export const PANELS = {
   recent: 'Recent commits — what changed, and when',
   changes: 'What changed, and which documents cite the files you touched',
   testcases: 'The test inventory — cases by area, and how many exist because something broke',
+  decisions: 'Decision records, and how many decisions have not reached them',
   designRecord: 'Which design artifacts exist: HLD, LLD, data flow, decision records, specifications',
   undesigned: 'Code areas no design document cites',
   citations: 'Per design document: how many code citations, and how many still resolve',
@@ -80,7 +81,7 @@ export const DEFAULT_VIEWS = [
     id: 'architecture', title: 'Architecture', nav: true,
     blurb: 'The design record — HLD, LLD, specifications — and where it has drifted from the code it cites.',
     clusters: ['engineering', 'specs'],
-    panels: ['designRecord', 'undesigned', 'citations', 'documents', 'health', 'clusters', 'caveats'],
+    panels: ['designRecord', 'decisions', 'undesigned', 'citations', 'documents', 'health', 'clusters', 'caveats'],
   },
   {
     id: 'developer', title: 'Developer', nav: true,

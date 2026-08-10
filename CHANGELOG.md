@@ -13,6 +13,21 @@ versions follow [Semantic Versioning](https://semver.org/).
 - `atlas plan` — propose the git route for the working tree and wait for approval, rather than only refusing a
   commit once it is attempted.
 
+## [0.1.59] — 2026-08-11
+
+### Added
+- **Decisions carry their reasoning** (A-16). `atlas note decision "…" --why "…"` records the argument, not
+  just the choice — a record saying "chose X" answers what, and the expensive question is why, because the
+  next person's instinct is to undo it. A **Decisions** panel on the Architecture view shows the written
+  decision record plus a count of decisions the journal holds that the written record does not.
+- **The panel publishes no journal content, deliberately.** The Architecture view publishes and A-11 says
+  the journal never does; embedding journalled decisions there would breach that boundary quietly, in the
+  one place a reader would not look for it. The count is a statistic and carries none of the words.
+- **The dashboard recovers itself** (A-17). Every markdown write ensures the server is up — idempotent,
+  cheap when it already is, backgrounded so no edit waits. Nothing previously restarted it after a crash,
+  a stray kill or an idle timeout, and a dead server looks exactly like a live one to the page in front of
+  you. The session hook now also prints the URL, so the link is surfaced without anyone asking.
+
 ## [0.1.58] — 2026-08-11
 
 ### Added

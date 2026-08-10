@@ -1,6 +1,6 @@
 # Roadmap — project-atlas
 
-**Last updated:** 2026-08-10 · **Version:** 0.1.58 · **Status:** pre-release, dogfooding
+**Last updated:** 2026-08-10 · **Version:** 0.1.59 · **Status:** pre-release, dogfooding
 
 Open work, with an honest completion figure against each item. A figure marked `*` is estimated rather than
 measured against the code — the same distinction the tool preserves everywhere else, applied to itself.
@@ -31,7 +31,7 @@ measured against the code — the same distinction the tool preserves everywhere
 | S-4 | 100 | S-5 | 100 | S-6 | 100 |
 | S-7 | 100 | M-1 | 0 | M-2 | 0 |
 | A-13 | 100 | A-14 | 100 | A-15 | 100 |
-| A-16 | 0 | | | | |
+| A-16 | 100 | A-17 | 100 | | | | |
 
 ---
 
@@ -481,7 +481,24 @@ tool already parses with `percentCellPattern`, in a table whose format it define
 deterministically is the same class of act as regenerating a dashboard — and the roadmap's own header says
 that maintaining these figures by hand does not work.*
 
+**A-17 · The dashboard recovers itself** — **P1 · High**
+*Shipped in 0.1.59.* *The session hook starts the server and nothing brought it back if it later died — a
+crash, a stray kill, an idle timeout, a sleeping machine. The failure is silent in the worst way: the page in
+front of someone keeps looking like a dashboard while serving nothing, which is exactly the confusion this
+project already spent a session chasing. Every markdown write now also ensures it is up (idempotent, cheap
+when it already is, backgrounded so no edit waits), and the session hook prints the URL so the link is
+surfaced without anyone asking for it.*
+
 **A-16 · The reasoning behind a decision outlives the session that made it** — **P1 · High**
+*Shipped in 0.1.59, with one part deliberately not built the way it was specified.*
+*The item said "surface it on the Architecture view". The Architecture view **publishes** — to a wiki, to
+Pages, into a shared artifact — and A-11 draws the line that the journal never travels. Embedding journalled
+decisions there would publish the journal through the back door: worse than not shipping the panel, because
+it breaks a boundary quietly, in the one place a reader would not look for the breach. So the panel carries
+the **written** decision record, which is curated prose somebody wrote for readers, plus a **count** of
+decisions the journal holds that the written record does not — a statistic, carrying none of the words.
+That count is the useful half anyway: "twelve decisions were made and three are written down" is drift,
+reported the way this tool reports every other kind, with the fix left to a person.*
 *The journal already records that a decision was taken (`kind: decision`), and `atlas state` reads it back.
 What it does not do is keep the **reasoning** anywhere a reader will find it later: a record saying "chose X"
 answers what, and the expensive question is always why — because the next person's instinct is to undo it,

@@ -23,6 +23,17 @@ case "$p" in
   *) exit 0 ;;
 esac
 
+# **Recover the dashboard if it died.**
+#
+# The session-start hook brings the server up, and nothing brought it back if it later stopped — a crash, a
+# stray kill, an idle timeout, a machine asleep. The failure is silent in the worst way: the page in front of
+# someone keeps looking like a dashboard while serving nothing, which is the exact confusion this project
+# spent a session chasing. So every markdown write also makes sure it is up.
+#
+# `atlas serve` is idempotent and cheap when the server is already running — it reads a pidfile, finds a live
+# pid and returns. Backgrounded regardless, because an edit must never wait on a dashboard.
+("${CLAUDE_PLUGIN_ROOT:-.}/bin/atlas" serve --quiet --no-open >/dev/null 2>&1 &)
+
 out=$("${CLAUDE_PLUGIN_ROOT:-.}/bin/atlas" build --auto --quiet 2>&1)
 st=$?
 if [ $st -ne 0 ]; then

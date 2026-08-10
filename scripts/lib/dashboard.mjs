@@ -23,6 +23,7 @@ import { escapeHtml, escapeAttr, renderMarkdown } from './markdown.mjs';
 import { SIGNALS } from './health.mjs';
 import { taskCoverage } from './contrib.mjs';
 import { DEFAULT_PLANNING } from './planning.mjs';
+import { read as readJournalFor } from './journal.mjs';
 import { PANELS } from './views.mjs';
 import { readChanges } from './changes.mjs';
 import { flatName } from './render-shared.mjs';
@@ -142,6 +143,7 @@ ${omitted.length ? `<section class="card muted"><h2>Not shown on this page</h2>
 /** Returns the panel's HTML, or null when it has nothing to say. */
 function panel(id, { index, health, plan, cfg, contrib, view, nameFor, repo }) {
   const hasPlan = plan && !plan.missing;
+  if (id === 'decisions') return decisionsPanel(index, cfg, cfg.__root, nameFor);
   const hasContrib = contrib && contrib.available;
   // Falls back to the plain mapping when a caller has not supplied the collision-resolved map — the two agree
   // for every path that does not collide, which is all of them in the common case.
@@ -370,6 +372,63 @@ function countBy(items, of) {
   const m = new Map();
   for (const i of items) { const k = of(i); if (k) m.set(k, (m.get(k) || 0) + 1); }
   return m;
+}
+
+/**
+ * The decision record, and how far the written one has fallen behind the one being made.
+ *
+ * **This panel deliberately shows no journal content.** The Architecture page is published — to a wiki, to
+ * Pages, into a shared artifact — and A-11 draws the line that the journal never travels. Embedding
+ * journalled decisions here would publish the journal through the back door, which is worse than not
+ * shipping the panel: it would break a boundary quietly, in the one place a reader would not think to look
+ * for the breach.
+ *
+ * So it shows two things that are safe to publish and useful together:
+ *
+ *   - the **decision documents in the corpus**, which are curated prose somebody wrote for readers;
+ *   - a **count** of decisions the journal holds that the written record does not — a derived statistic,
+ *     the same class of thing as a commit count, carrying none of the words.
+ *
+ * That count is the point. "Twelve decisions were made and three are written down" is drift, reported the
+ * way this tool reports every other kind — and the fix stays a person's to make, because a machine can see
+ * that a choice happened but not what was argued.
+ */
+function decisionsPanel(index, cfg, root, pageOf) {
+  const docs = index.documents.filter((d) => /(^|\/)(adr|decisions?)\//i.test(d.path) || /(^|\/)ADR[-_ ]?\d+/i.test(d.path));
+
+  // The journal is read for arithmetic only. Nothing from it reaches the markup.
+  let journalled = 0, withReasoning = 0, available = false;
+  try {
+    const j = readJournalFor(root);
+    available = j.available;
+    const decisions = (j.records || []).filter((r) => r.kind === 'decision');
+    journalled = decisions.length;
+    withReasoning = decisions.filter((r) => r.why).length;
+  } catch { available = false; }
+
+  if (!docs.length && !journalled) return null;
+
+  const rows = docs.map((d) => {
+    const page = pageOf ? pageOf(d.path) : null;
+    const title = escapeHtml(d.title || d.path);
+    return `<li>${page ? `<a href="${escapeAttr(page)}">${title}</a>` : title}
+      <span class="det">${escapeHtml(d.path)}</span></li>`;
+  }).join('');
+
+  const gap = journalled - docs.length;
+  return `<section class="card" id="decisions">
+  <h2>Decisions</h2>
+  <p class="cap">Why the architecture is the shape it is. The written record publishes; the working journal
+    never does, so only its count appears here.</p>
+  ${docs.length ? `<ul class="dec-list">${rows}</ul>`
+    : `<p class="empty">No decision document in the corpus. An <code>adr/</code> or <code>decisions/</code>
+       directory is where the reasoning becomes something a reader can find.</p>`}
+  ${available ? `<p class="det">The journal holds <strong>${journalled}</strong> decision(s)` +
+      `${withReasoning ? `, ${withReasoning} with the reasoning recorded` : ''}` +
+      `, against <strong>${docs.length}</strong> written up.` +
+      `${gap > 0 ? ` <strong>${gap}</strong> have not reached the written record — run <code>atlas decisions</code> to see them.` : ''}</p>`
+    : `<p class="det">No journal on this machine, so nothing can be said about decisions taken but unwritten.</p>`}
+</section>`;
 }
 
 function backlogPanel(plan, contrib, index, pageOf) {
@@ -1056,6 +1115,8 @@ abbr { text-decoration:none; cursor:help; color:var(--muted); }
  * above the first task, so the page opened on nothing but filters. A flex-basis small enough for two to
  * share a row halves that, and the selects still grow to fill whatever width is going. */
 .bl-f { display:flex; flex-direction:column; gap:3px; flex:1 1 132px; min-width:0; }
+.dec-list { margin:0; padding-left:18px; }
+.dec-list li { margin:3px 0; }
 .bl-f-toggle { flex-direction:row; align-items:center; gap:6px; }
 .bl-f-toggle input { width:15px; height:15px; margin:0; accent-color:var(--accent); }
 .bl-f-toggle span { font-size:12px; color:var(--ink-soft); }

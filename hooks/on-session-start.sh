@@ -44,5 +44,16 @@ S="${CLAUDE_PLUGIN_ROOT:-.}/bin/atlas"
 [ "${ATLAS_SERVE:-1}" = "0" ] && exit 0
 root=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
 [ -f "$root/project-atlas.config.json" ] || exit 0
+# Started in the background so the session never waits, then the URL is printed once it is answering. A
+# SessionStart hook's stdout becomes context, so this is the one place a link can be surfaced at the top of
+# every session without anyone running a command to ask for it.
 "$S" serve --quiet --no-open >/dev/null 2>&1 &
+i=0
+while [ $i -lt 20 ]; do
+  url=$("$S" serve --status 2>/dev/null | sed -n 's|.*\(http://127\.0\.0\.1:[0-9]*/\).*|\1|p' | head -1)
+  [ -n "$url" ] && break
+  i=$((i + 1))
+  sleep 0.25
+done
+[ -n "$url" ] && echo "project-atlas: live dashboard at $url (rebuilds and patches itself on every change)"
 exit 0
