@@ -81,6 +81,18 @@ Built, tested, and dogfooded on a 387-file corpus.
 
 **P-2 · Dashboard and deck** — **P1 · High**
 *Charts, a sortable item table, and a browser slide deck from a markdown source.*
+
+**The deck path has now run on real content.** For its whole life this repository had no `DECK.md`, so every
+build printed *"Deck: none"* and the renderer was exercised only by three unit tests — the same shape as the
+wiki drift path that went nineteen releases without touching a real wiki. `docs/atlas/DECK.md` is now a real
+eleven-slide deck about the project, and it renders: title and section classes, presenter notes, the
+overview list, the counter, and a print path.
+
+*Remaining: slide-to-slide navigation is unconfirmed. Smooth scrolling does not animate under browser
+automation, so every measurement of "did it advance" was meaningless — the counter moved and the view did
+not, which looks exactly like a defect and is indistinguishable from the test harness. It needs one human
+with the deck open and the arrow keys.*
+
 Built. **The breakpoints have now been checked in a real viewport, and they were wrong.** At 390px the top
 navigation rendered 778px wide and `overflow-x:hidden` clipped it, so every link past the second was
 invisible and unscrollable while nothing appeared broken. Fixed in 0.1.35 and verified at 320, 390, 430, 768,
