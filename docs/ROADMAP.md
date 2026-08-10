@@ -1,6 +1,6 @@
 # Roadmap — project-atlas
 
-**Last updated:** 2026-08-10 · **Version:** 0.1.33 · **Status:** pre-release, dogfooding
+**Last updated:** 2026-08-10 · **Version:** 0.1.34 · **Status:** pre-release, dogfooding
 
 Open work, with an honest completion figure against each item. A figure marked `*` is estimated rather than
 measured against the code — the same distinction the tool preserves everywhere else, applied to itself.
@@ -25,6 +25,7 @@ measured against the code — the same distinction the tool preserves everywhere
 | A-1 | 0 | A-2 | 0 | A-3 | 0 |
 | A-4 | 0 | A-5 | 0 | A-6 | 0 |
 | A-7 | 0 | A-8 | 0 | A-9 | 0 |
+| A-10 | 0 | A-11 | 0 | | |
 
 ---
 
@@ -304,6 +305,19 @@ paid for, work in flight — and the tool never generates it, because a machine 
 but not that a decision was argued and settled. `atlas handoff` prints the derived half as a prompt for a
 human to write the rest. One signal, H13: the handoff names a commit far behind HEAD (advisory — a stale
 handoff is a cost, not a hazard).*
+
+**A-10 · Continuity: state that survives a termination** — **P0 · Critical**
+*A handoff written at the end of a session is written exactly when it cannot be — the session that is killed,
+compacted or interrupted never reaches its own last step. `.atlas/journal.jsonl`, append-only, one flushed
+line per record, written by every agent as work happens and tagged with which agent wrote it, so a subagent's
+findings outlive the subagent. `atlas note` appends; `atlas state` reconstructs. Enforced by `SubagentStop`,
+`Stop` and `PreCompact` hooks, because an instruction to journal is advisory and a terminated agent reads
+nothing. Never carries prompt text and is never published — the same rule `atlas tokens` already holds to.*
+
+**A-11 · Handoff travels to the wiki, the journal never does** — **P2 · Medium**
+*`HANDOFF.md` is part of the corpus and publishes with it. The journal is excluded by construction, the way a
+token report is refused a path inside the output directory. The distinction is the point: curated prose is
+for readers, an operational record is not.*
 
 **A-7 · The boundary holds** — **P0 · Critical**
 *Tests that assert autonomy never pushes, never publishes, never rewrites prose and never acts on an

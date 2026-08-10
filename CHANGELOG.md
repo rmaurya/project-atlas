@@ -13,6 +13,24 @@ versions follow [Semantic Versioning](https://semver.org/).
 - `atlas plan` — propose the git route for the working tree and wait for approval, rather than only refusing a
   commit once it is attempted.
 
+## [0.1.34] — 2026-08-10
+
+### Fixed
+- **The wiki writer produced page names its own reader refuses, which silently disabled the drift guard.**
+  `wikiPageName` turned `.github/DISCUSSIONS-WELCOME.md` into `.github-DISCUSSIONS-WELCOME`, and
+  `isSafePageName` — correctly — rejects a leading dot, because a page name is joined onto a path and a
+  manifest is editable by anyone with wiki write access. So from the very first publish the manifest could
+  not be read back: every later publish reported atlas's own page as `unsafe-name` drift, refused, and
+  skipped the drift check for that page. The protection read as tampering because the writer and the reader
+  disagreed about one character. Leading dots are now stripped, and the regression is a **property** —
+  every name the writer produces, over a list of adversarial paths and over this repository's whole corpus,
+  must satisfy the reader — rather than one example that would not have caught the next variant.
+
+### Changed
+- Pages already published under a dotted name (`.github-…`) will be re-created under the corrected name on
+  the next publish. The old page remains in the wiki until deleted by hand; publish does not remove pages it
+  no longer recognises, deliberately.
+
 ## [0.1.33] — 2026-08-10
 
 ### Fixed

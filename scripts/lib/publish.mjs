@@ -63,7 +63,13 @@ export function wikiPageName(relPath, cfg) {
     .map((seg) => seg.replace(/[^A-Za-z0-9._ -]/g, '-'))
     .join('-')
     .replace(/-{2,}/g, '-')
-    .replace(/^-|-$/g, '') || 'Untitled';
+    .replace(/^-|-$/g, '')
+    // A leading dot, stripped, because `isSafePageName` refuses one and this function must never produce a
+    // name its own reader rejects. `.github/DISCUSSIONS-WELCOME.md` became `.github-DISCUSSIONS-WELCOME`,
+    // which published fine and then failed to read back: every later publish reported atlas's own page as a
+    // manifest it did not write, refused, and skipped the drift check for it — the protection reading as
+    // tampering because the writer and the reader disagreed about one character.
+    .replace(/^\.+/, '') || 'Untitled';
   return RESERVED.has(name) ? `${name}-doc` : name;
 }
 

@@ -24,7 +24,7 @@ import { renderMarkdown, inline } from '../scripts/lib/markdown.mjs';
 import { readPlanning, DEFAULT_PLANNING } from '../scripts/lib/planning.mjs';
 import { readDeck } from '../scripts/lib/deck.mjs';
 import { RAMP, STATUS, viewPage } from '../scripts/lib/dashboard.mjs';
-import { buildWikiPages, wikiPageName, exportSingleFile, exportBundle, RESERVED, gitlabPagesJob, stageWiki } from '../scripts/lib/publish.mjs';
+import { buildWikiPages, wikiPageName, isSafePageName, exportSingleFile, exportBundle, RESERVED, gitlabPagesJob, stageWiki } from '../scripts/lib/publish.mjs';
 import { readContrib, estimateHours, taskCoverage } from '../scripts/lib/contrib.mjs';
 import { readTokens, formatTokens, formatSessions, assertNotPublishable, transcriptDir } from '../scripts/lib/tokens.mjs';
 import { readChanges, fileDiff, formatChanges } from '../scripts/lib/changes.mjs';
@@ -1335,6 +1335,30 @@ test('host · an enabled wiki that was never initialised reads as half, not on',
   eq(g.ok, false);
   includes(g.reason, 'does not exist yet');
   includes(g.hint, 'Create the first page');
+});
+
+test('publish · every name the writer produces, the reader accepts', () => {
+  // Round-trip, asserted as a property rather than by example. `.github/DISCUSSIONS-WELCOME.md` produced
+  // `.github-DISCUSSIONS-WELCOME`; isSafePageName refuses a leading dot, so from the first publish onward the
+  // manifest could not be read back. Every later publish reported atlas's own page as a manifest it did not
+  // write, refused, and skipped the drift check for it — the protection reading as tampering because the
+  // writer and the reader disagreed about one character.
+  const paths = [
+    '.github/DISCUSSIONS-WELCOME.md', '.github/PULL_REQUEST_TEMPLATE.md', '.hidden.md', '...odd.md',
+    'docs/HANDOFF.md', 'docs/references/autonomy.md', 'README.md', 'a/b/c/d.md',
+    'docs/-leading-dash.md', 'docs/trailing-dash-.md', 'docs/../escape.md', 'docs/Home.md',
+  ];
+  for (const p of paths) {
+    const name = wikiPageName(p, {});
+    ok(isSafePageName(name), `${p} produced an unreadable page name: ${JSON.stringify(name)}`);
+  }
+  // And over this repository's real corpus, which is where the defect actually came from.
+  const cfg = resolveConfig(process.cwd());
+  const index = buildIndex(process.cwd(), cfg);
+  for (const doc of index.documents) {
+    const name = wikiPageName(doc.path, cfg);
+    ok(isSafePageName(name), `${doc.path} produced an unreadable page name: ${JSON.stringify(name)}`);
+  }
 });
 
 test('host · a cached "no wiki yet" is re-checked, because the refusal told the user to change it', () => {

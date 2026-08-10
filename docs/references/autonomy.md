@@ -127,6 +127,54 @@ the statistics. `HANDOFF.md` carries a standing instruction to delete any fact t
 repository, because a handoff that duplicates derived state goes stale exactly the way this project exists to
 detect. `ROADMAP.md` already carries a warning about that failure happening to itself, twice.
 
+### Continuity — surviving a termination
+
+A handoff written at the end of a session is written exactly when it cannot be: the session that gets killed,
+compacted, or interrupted never reaches its own last step. So state has to accumulate *as work happens*, not
+be summarised afterwards.
+
+That means two files, not one, and conflating them is the mistake to avoid:
+
+| | `docs/HANDOFF.md` | `.atlas/journal.jsonl` |
+|---|---|---|
+| Written by | a human, or an agent proposing a draft | every agent, continuously |
+| Contains | decisions, traps, reasoning | what was touched, what was decided, where it got to |
+| Shape | prose | append-only records, one JSON object per line |
+| Survives a kill | only if it was written | yes — each line is flushed as it happens |
+| Published | yes, it is part of the corpus | **no** |
+
+The journal is append-only and each record is a single `write()` of one line, so a process killed mid-run
+loses at most the record it was writing and never corrupts what came before. A summary held in memory and
+flushed at exit is the design that fails precisely when it is needed.
+
+**Subagents write to the same journal, tagged.** Each record carries the agent that wrote it, so a main
+session can read back what a subagent established before it ended — the case where context is most often
+lost, because a subagent's reasoning is discarded by design and only its final message survives.
+
+```jsonc
+{"at":"2026-08-10T14:22:31Z","agent":"main","kind":"decision",
+ "text":"autonomy stops at the repository edge","refs":["docs/references/autonomy.md"]}
+{"at":"2026-08-10T14:31:04Z","agent":"explore-1","kind":"finding",
+ "text":"wikiPageName emits a leading dot that isSafePageName rejects","refs":["scripts/lib/publish.mjs:61"]}
+```
+
+`atlas note <kind> <text>` appends one record. `atlas state` prints the current reconstruction — branch,
+version, what is uncommitted, what the journal has recorded since the last handoff — which is what a resuming
+session reads first.
+
+**Enforcement is a hook, because prose does not survive a crash either.** An instruction telling agents to
+journal is advisory, and an agent that is terminated does not read instructions. The harness fires
+`SubagentStop` and `Stop` whether or not the agent cooperated, and `PreCompact` before context is discarded —
+those are the moments state must be flushed, and they are the tool's to claim.
+
+This is the third time this project has weighed adding a hook, and the earlier objection still applies: a
+check that makes every action slower is a check people disable. The test is the same — one file, appended,
+detached — and if it cannot be made invisible it does not ship.
+
+**The journal never carries prompt text.** Same rule as `atlas tokens` and `atlas sessions`, and for the same
+reason: it records what was decided and touched, never what was said. It is also excluded from publishing by
+construction, in the same way a token report is refused a path inside the output directory.
+
 One signal:
 
 | Signal | Fires when | Class |
