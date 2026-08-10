@@ -13,6 +13,19 @@ versions follow [Semantic Versioning](https://semver.org/).
 - `atlas plan` — propose the git route for the working tree and wait for approval, rather than only refusing a
   commit once it is attempted.
 
+## [0.1.33] — 2026-08-10
+
+### Fixed
+- **A cached "no wiki yet" outlived the thing it described, and the refusal kept advising an action already
+  taken.** 0.1.30 stored `wikiInitialised` so `publish` could reuse the probe's answer instead of paying for
+  a second `ls-remote`. But the two directions are not symmetric: a wiki that exists does not stop existing,
+  while a negative is precisely the state the refusal message instructs the user to go and fix — so it is
+  stale seconds later. The result was `publish --target wiki` refusing for up to an hour *after* the first
+  page was saved, printing "create the first page, then re-run" to someone who had just done exactly that.
+  Worse than what it replaced: before 0.1.30, publish always ran a live check and would have succeeded
+  immediately. A cached `true` is still trusted; a cached `false` is re-probed, in both the publish gate and
+  the `caps` report, so the two cannot disagree.
+
 ## [0.1.32] — 2026-08-10
 
 ### Fixed

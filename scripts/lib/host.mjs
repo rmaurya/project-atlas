@@ -91,7 +91,17 @@ export async function probeCapabilities(root, host, { timeoutMs = 6000, offline 
 
   if (!fresh) {
     const cached = readCache(root, host.slug);
-    if (cached) return { ...cached, cached: true };
+    if (cached) {
+      // One field is re-checked rather than served from cache: an uninitialised wiki. The report for that
+      // state prints instructions to go and create the first page, so the user acts and the cached answer is
+      // wrong within seconds — for the rest of the hour the tool keeps telling them to do the thing they
+      // just did. Only the negative is refreshed; a wiki that exists does not stop existing, and the API
+      // half of the answer is what the hour of caching is actually for.
+      if (cached.wiki && cached.wikiInitialised === false) {
+        return { ...cached, cached: true, wikiInitialised: wikiRepoExists(host) };
+      }
+      return { ...cached, cached: true };
+    }
   }
 
   let json;
@@ -209,9 +219,13 @@ export function gateTarget(target, host, caps) {
     // `has_wiki: true` means the FEATURE is enabled, not that the wiki repository exists. GitHub only creates
     // `<repo>.wiki.git` when the first page is saved in the UI, and pushing before that fails as
     // "Repository not found" — which reads as an auth or naming problem and is neither.
-    // `caps.wikiInitialised` is the same check, already run by the probe. Reuse it rather than paying for a
-    // second `ls-remote`; a cache written before this field existed reports `undefined`, so probe then.
-    const initialised = caps.wikiInitialised ?? wikiRepoExists(host);
+    // Trust a cached `true`, never a cached `false`. The two are not symmetric: a wiki that exists does not
+    // stop existing, so a positive stays valid for the whole hour — but a negative is precisely the state the
+    // refusal message just told the user to go and fix, so it is stale from the moment they act on it.
+    // Reusing it made publish refuse for up to an hour *after* the first page was saved, and the advice it
+    // printed was the thing that had already been done. Re-probing a negative costs one `ls-remote` on the
+    // path where the answer is most likely to have changed.
+    const initialised = caps.wikiInitialised === true ? true : wikiRepoExists(host);
     if (!initialised) {
       return {
         ok: false,

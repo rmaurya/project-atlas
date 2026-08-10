@@ -1337,6 +1337,23 @@ test('host · an enabled wiki that was never initialised reads as half, not on',
   includes(g.hint, 'Create the first page');
 });
 
+test('host · a cached "no wiki yet" is re-checked, because the refusal told the user to change it', () => {
+  // The refusal for an uninitialised wiki prints "create the first page, then re-run". The user does exactly
+  // that, and for the rest of the hour-long cache the tool kept refusing and kept printing the same
+  // instruction — advice to perform an action already performed. Introduced by reusing the probe's stored
+  // answer to save an `ls-remote`, on the one path where the answer is most likely to have just changed.
+  const dir = fixture('host-wiki-stale', { 'docs/A.md': '# A\n' }, { remote: 'git@github.com:acme/widget.git' });
+  const h = detectHost(dir, {});
+  const caps = { checked: true, slug: 'acme/widget', wiki: true, wikiInitialised: false,
+                 pages: true, issues: true, discussions: true, visibility: 'public', defaultBranch: 'main' };
+
+  // acme/widget has no wiki, so a live re-probe still says no — the point is that it re-probes rather than
+  // answering from the stored false. A cached `true` is the asymmetric case and must NOT cost a probe.
+  eq(gateTarget('wiki', h, caps).ok, false);
+  eq(gateTarget('wiki', h, { ...caps, wikiInitialised: true }).ok, true,
+     'a cached positive is trusted: a wiki that exists does not stop existing');
+});
+
 test('host · an initialised wiki passes the gate, and an unprobed one is not treated as absent', () => {
   const dir = fixture('host-wiki-ok', { 'docs/A.md': '# A\n' }, { remote: 'git@github.com:acme/widget.git' });
   const h = detectHost(dir, {});
