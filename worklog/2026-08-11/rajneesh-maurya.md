@@ -6,9 +6,9 @@ _Written by `atlas worklog`. Measured from git and the corpus; no prompt text, a
 
 | | |
 |---|---|
-| Commits | 13 |
-| Lines | +3,805 / −150 |
-| Rework rate | 81.4% — a file re-touched within 3 days |
+| Commits | 14 |
+| Lines | +3,820 / −153 |
+| Rework rate | 81.5% — a file re-touched within 3 days |
 | Reverts | 0 |
 | Documentation | 0 blocking finding(s) at end of day |
 
@@ -34,6 +34,7 @@ _Written by `atlas worklog`. Measured from git and the corpus; no prompt text, a
 - **A-19** One doorway to every dashboard — 100%
 - **A-3** Task list reconciliation — 100%
 - **P-8** Charts whose job is identity — 100%
+- **A-20** A journal record must not name an agent that never ran — 0%
 
 ## Commits
 
@@ -50,6 +51,7 @@ _Written by `atlas worklog`. Measured from git and the corpus; no prompt text, a
 - `1443522` chore(config): enable H10 and H12 now the installed build knows them (A-4)
 - `b23b05f` chore(plan): A-4 was finished and the table still read 10% (A-4)
 - `2e4c1fb` chore(record): the session's own journal and worklog, written by the tool
+- `f7df892` docs(plan): file A-20 — a journal record named a subagent that never ran
 
 ---
 
