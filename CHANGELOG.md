@@ -13,6 +13,30 @@ versions follow [Semantic Versioning](https://semver.org/).
 - `atlas plan` — propose the git route for the working tree and wait for approval, rather than only refusing a
   commit once it is attempted.
 
+## [0.1.37] — 2026-08-10
+
+### Fixed
+- **Every published dashboard polled a file that will never exist, every three seconds, forever.** The build
+  stamp is written only when a caller asks for live reload, so a plain `atlas build` emits none — and the
+  poll ran regardless. Verified against the live site: `build-stamp.txt` returned 404 and each open tab asked
+  again every three seconds, roughly 1,200 requests an hour, on a page that could never update. Three
+  consecutive misses now stop the timer. Not the first miss: `atlas build` removes the whole output directory
+  and writes the stamp afterwards, so under `atlas watch` every rebuild has a window with no stamp file, and
+  stopping on one miss killed live reload permanently the first time a poll landed in it.
+
+### Changed
+- **A rebuild updates the dashboard in place instead of reloading the page.** `location.reload()` discarded
+  scroll position, sort order, every per-column filter and the search box — on a page whose value is that you
+  were part-way through reading it. The new markup is fetched, `<main>` is swapped, the table is re-wired and
+  the reading state is restored. State is restored **by value, not by index**, because a rebuild can add or
+  remove columns and a filter reapplied to the wrong column silently shows the wrong rows; a select whose
+  option vanished is left alone rather than forced to a value it no longer has.
+
+Verified in a browser against a running rebuild: an item's figure changed in place with the navigation type
+still `navigate` rather than `reload`, the active filter, its row count and the scroll offset all preserved,
+and the update survived the window where the stamp file does not exist. Separately, against a site with no
+stamp at all: three requests, then silence.
+
 ## [0.1.36] — 2026-08-10
 
 ### Fixed

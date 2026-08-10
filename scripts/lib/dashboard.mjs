@@ -708,6 +708,9 @@ abbr { text-decoration:none; cursor:help; color:var(--muted); }
 
 const TABLE_JS = `
 (function () {
+  // Wiring lives in a function so it can be re-run against replaced markup. Everything below closes over
+  // elements that a live update swaps out, so a refresh has to re-bind rather than patch references.
+  function wire() {
   var tbl = document.getElementById('itbl'); if (!tbl) return;
   var tb = tbl.tBodies[0], rows = Array.prototype.slice.call(tb.rows);
   var q = document.getElementById('tq'), cnt = document.getElementById('tcount');
@@ -819,20 +822,112 @@ const TABLE_JS = `
   q.addEventListener('input', filter);
   if (doneBox) doneBox.addEventListener('change', filter);
   filter();
+  }
+  wire();
 
-  var stamp = document.getElementById('stamp');
-  // Near-live refresh: the build writes a stamp file; when it changes, the page reloads itself.
-  var seen = null;
+  /* ---------------------------------------------------------------- live update
+   *
+   * Two things were wrong with the previous version of this.
+   *
+   * **It polled forever against nothing.** The stamp is written only when a caller asks for live reload, so
+   * a plain \`atlas build\` emits none — and the poll ran regardless. Verified against the published site:
+   * build-stamp.txt returns 404, and every open tab asked for it every three seconds, indefinitely. Roughly
+   * 1,200 requests an hour per tab, on a page that could never update. A 404 is now a final answer: the
+   * timer stops. Where live reload is running the stamp is there, the first request succeeds, and polling
+   * continues as before.
+   *
+   * **It called location.reload().** A full reload throws away scroll position, sort order, every
+   * per-column filter and the search box — on a page whose entire value is that you were part-way through
+   * reading it. Now the new markup is fetched, \`<main>\` is swapped, the table is re-wired and the reading
+   * state is put back.
+   *
+   * The state is restored by *value*, not by index: a rebuild can add or remove columns, and a filter
+   * reapplied to the wrong column silently shows the wrong rows, which is worse than losing it.
+   */
+  // Re-queried on every use, never cached: #stamp lives inside <main>, and a live update replaces <main>.
+  // A held reference survives as a detached node — writes to it succeed and land nowhere, which is how the
+  // "built HH:MM:SS" indicator silently went blank after the first refresh.
+  function stampEl() { return document.getElementById('stamp'); }
+  var seen = null, timer = null, misses = 0;
+
+  function readState() {
+    var s = { scroll: window.scrollY, filters: {} };
+    var qq = document.getElementById('tq');
+    if (qq) s.q = qq.value;
+    var db = document.getElementById('tdone');
+    if (db) s.done = db.checked;
+    var frow = document.getElementById('tfilters');
+    if (frow) Array.prototype.forEach.call(frow.querySelectorAll('[data-kind]'), function (c) {
+      if (c.value) s.filters[c.dataset.kind] = c.value;
+    });
+    return s;
+  }
+
+  function applyState(s) {
+    var qq = document.getElementById('tq');
+    if (qq && s.q) qq.value = s.q;
+    var db = document.getElementById('tdone');
+    if (db && typeof s.done === 'boolean') db.checked = s.done;
+    var frow = document.getElementById('tfilters');
+    if (frow) Array.prototype.forEach.call(frow.querySelectorAll('[data-kind]'), function (c) {
+      var v = s.filters[c.dataset.kind];
+      if (v == null) return;
+      // A select whose option vanished in the rebuild is left alone rather than forced to a value it no
+      // longer has, which would filter every row away and read as "no data".
+      if (c.tagName === 'SELECT' && !Array.prototype.some.call(c.options, function (o) { return o.value === v; })) return;
+      c.value = v;
+    });
+    if (qq) qq.dispatchEvent(new Event('input'));
+    window.scrollTo(0, s.scroll);
+  }
+
+  function refresh(built) {
+    var state = readState();
+    fetch(location.pathname + '?_=' + Date.now(), { cache: 'no-store' })
+      .then(function (r) { return r.ok ? r.text() : null; })
+      .then(function (html) {
+        if (html === null) return;
+        var doc = new DOMParser().parseFromString(html, 'text/html');
+        var fresh = doc.querySelector('main'), here = document.querySelector('main');
+        if (!fresh || !here) { location.reload(); return; }   // shape changed; a reload is the honest fallback
+        here.innerHTML = fresh.innerHTML;
+        wire();
+        applyState(state);
+        // After the swap, never before. #stamp lives inside <main>, so writing it first put the text on a
+        // node that was about to be discarded — the indicator went blank on every live update.
+        var e = stampEl();
+        if (e && built) e.textContent = '\u00b7 built ' + built;
+      })
+      .catch(function () {});
+  }
+
   function poll() {
-    fetch('build-stamp.txt', { cache: 'no-store' }).then(function (r) { return r.ok ? r.text() : null; })
+    fetch('build-stamp.txt', { cache: 'no-store' })
+      .then(function (r) {
+        // A 404 means "not right now", not "never". atlas build removes the whole output directory and
+        // writes the stamp afterwards, so under atlas watch every rebuild has a window with no stamp file
+        // — stopping on the first miss killed live reload permanently the first time a poll landed in it.
+        // Three consecutive misses is a published site with no live reload at all: three requests, then
+        // silence, instead of 1,200 an hour forever. One success resets the count.
+        if (!r.ok) {
+          if (++misses >= 3 && timer) { clearInterval(timer); timer = null; }
+          return null;
+        }
+        misses = 0;
+        return r.text();
+      })
       .then(function (t) {
         if (t === null) return;
         t = t.trim();
-        if (seen === null) { seen = t; if (stamp) stamp.textContent = '· built ' + t; return; }
-        if (t !== seen) location.reload();
-      }).catch(function () {});
+        if (seen === null) { seen = t; var e0 = stampEl(); if (e0) e0.textContent = '\u00b7 built ' + t; return; }
+        if (t !== seen) { seen = t; refresh(t); }
+      })
+      // A transient failure is not an answer. Only a definitive 404 stops the timer — the first version
+      // cleared it on any rejection, so a single connection reset during a rebuild (trivially reproducible
+      // against a single-threaded dev server) disabled live updates for the rest of the session, silently.
+      .catch(function () {});
   }
-  poll(); setInterval(poll, 3000);
+  poll(); timer = setInterval(poll, 3000);
 })();
 `;
 
