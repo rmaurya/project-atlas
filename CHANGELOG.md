@@ -13,6 +13,21 @@ versions follow [Semantic Versioning](https://semver.org/).
 - `atlas plan` — propose the git route for the working tree and wait for approval, rather than only refusing a
   commit once it is attempted.
 
+## [0.1.51] — 2026-08-10
+
+### Fixed
+- **A published page could sit there stale under a "built <new time>" label that had never been checked.**
+  The live-update poller adopted whatever stamp it fetched as "what this page is": on the first poll it set
+  `seen` to the fetched value and concluded the page was current. GitHub Pages serves HTML with
+  `cache-control: max-age=600`, so for ten minutes after a deploy a fresh load can be stale — and that is
+  exactly when the poller declared it fresh, wrote the new build time into the indicator, and never
+  refreshed. Reported repeatedly as "the dashboard is never up to date", and every check of the deployed
+  files found them correct, because they were: the defect was in the page's belief about itself, not the
+  data. Pages now carry `data-built` — the stamp they were actually rendered with — and the first poll
+  compares against it, refreshing immediately when they differ. The stamp is computed before rendering
+  rather than after, which is what makes the page able to know it.
+- An unstamped page makes no claim at all rather than rendering an empty indicator.
+
 ## [0.1.50] — 2026-08-10
 
 ### Added

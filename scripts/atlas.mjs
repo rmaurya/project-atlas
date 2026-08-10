@@ -863,14 +863,21 @@ function doBuild(root, cfg, withGit, withReport, { stamp = false } = {}) {
   const index = buildIndex(root, cfg, { withGit });
   const health = runHealth(index, cfg, root);
   if (withReport) say(formatReport(health, index, { verbose: !!flag('verbose'), color }), '\n');
-  const { outDir, pages, truncated, plan, deck, collisions } = renderSite(index, health, cfg, root);
+
+  // The stamp is computed *before* the pages are rendered so each page can carry the value it was built
+  // with. It used to be written afterwards, and the page had no idea when it was built — which is what made
+  // a stale page indistinguishable from a current one. See the `data-built` note in dashboard.mjs.
+  //
   // Watch shows a time of day, which is all you need when the rebuild happened seconds ago. A deployed site
   // is read hours or days after it was built, so `--stamp` writes the date too — a bare "14:03:22" on a
   // published page is a number with no year attached to it.
-  if (stamp || flag('watch')) {
-    const now = new Date().toISOString();
-    writeBuildStamp(root, cfg, flag('watch') ? now.slice(11, 19) : now.replace('T', ' ').slice(0, 19) + ' UTC');
-  }
+  const stamping = stamp || flag('watch');
+  const now = new Date().toISOString();
+  const stampValue = flag('watch') ? now.slice(11, 19) : now.replace('T', ' ').slice(0, 19) + ' UTC';
+  if (stamping) cfg = { ...cfg, __stamp: stampValue };
+
+  const { outDir, pages, truncated, plan, deck, collisions } = renderSite(index, health, cfg, root);
+  if (stamping) writeBuildStamp(root, cfg, stampValue);
 
   // `pages` is counted from the files actually written, not from the index — see render.mjs. A collision that
   // had to be renamed is stated rather than left to look like an ordinary build.

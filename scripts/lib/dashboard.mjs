@@ -118,7 +118,8 @@ export function viewPage(view, ctx, shell) {
   const body = `
 <h1>${escapeHtml(view.title)}</h1>
 <p class="lede">${escapeHtml(view.blurb || '')}
-<span class="stamp" id="stamp"></span></p>
+<span class="stamp" id="stamp"${cfg.__stamp ? ` data-built="${escapeHtml(cfg.__stamp)}"` : ''}>${
+  cfg.__stamp ? `· built ${escapeHtml(cfg.__stamp)}` : ''}</span></p>
 ${showsItems ? `<div class="dash"><div class="dash-main">${main}</div><aside class="dash-side">${side}</aside></div>`
              : isReading ? `<div class="dash-read">${main}</div>`
              : `<div class="dash-single">${main}</div>`}
@@ -1323,7 +1324,20 @@ const TABLE_JS = `
       .then(function (t) {
         if (t === null) return;
         t = t.trim();
-        if (seen === null) { seen = t; var e0 = stampEl(); if (e0) e0.textContent = '\u00b7 built ' + t; return; }
+        // The first poll is the one that matters, and it used to be the one that got it wrong. It adopted
+        // whatever stamp it fetched as "what this page is", so a page served stale from a CDN \u2014 GitHub Pages
+        // sends cache-control: max-age=600 on HTML \u2014 set seen to the *new* stamp, concluded it was current,
+        // and never refreshed. The page then sat there showing old content under a correct-looking
+        // "built <new time>" label, which is worse than showing nothing: the indicator asserted freshness it
+        // had not checked. Comparing against the stamp the page was actually built with is the whole fix.
+        if (seen === null) {
+          seen = t;
+          var e0 = stampEl();
+          var was = e0 && e0.getAttribute('data-built');
+          if (e0) e0.textContent = '\u00b7 built ' + t;
+          if (was && was !== t) { quiet = 0; reschedule(0); refresh(t); }
+          return;
+        }
         if (t !== seen) { seen = t; quiet = 0; reschedule(0); refresh(t); return; }
         // Four quiet polls at a step widen the gap. The counter is per step, not cumulative, so a page that
         // has been idle for an hour still returns to three seconds the moment something moves.

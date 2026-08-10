@@ -3472,6 +3472,46 @@ for (const { name, p } of pendingAsync) {
 for (const d of made) fs.rmSync(d, { recursive: true, force: true });
 fs.rmSync(tmpRoot, { recursive: true, force: true });
 
+test('dashboard · a page carries the stamp it was built with, so a stale cached copy is detectable', () => {
+  // The live-update poller adopted whatever stamp it fetched as "what this page is". GitHub Pages serves
+  // HTML with cache-control: max-age=600, so for ten minutes after a deploy a fresh load could be stale —
+  // and the poller would set `seen` to the NEW stamp, conclude the page was current, and never refresh.
+  // The page then displayed old content under a correct-looking "built <new time>" label: an indicator
+  // asserting freshness it had never checked. Comparing against what the page was actually built with is
+  // the fix, and it only works if the page carries that value.
+  const dir = fixture('stamp-embedded', { 'docs/A.md': '# A\n' });
+  const cfg = resolveConfig(dir);
+  const index = buildIndex(dir, cfg);
+  const health = runHealth(index, cfg, dir);
+  const view = { id: 'product', title: 'Product', panels: ['status'] };
+  const ctx = (c) => ({ index, health, plan: null, cfg: c, contrib: null, nav: [] });
+
+  const stamped = viewPage(view, ctx({ ...cfg, __root: dir, __stamp: '2026-08-10 17:51:42 UTC' }), (o) => o.body);
+  includes(stamped, 'data-built="2026-08-10 17:51:42 UTC"');
+  includes(stamped, '· built 2026-08-10 17:51:42 UTC');
+
+  // No stamp means no claim. A page built without --stamp must not assert a build time it does not know,
+  // and must not carry an empty data-built that would compare unequal to every real stamp and refresh
+  // forever.
+  const plain = viewPage(view, ctx({ ...cfg, __root: dir }), (o) => o.body);
+  ok(!plain.includes('data-built'), 'an unstamped page must make no claim about when it was built');
+});
+
+test('dashboard · the first poll compares against the embedded stamp rather than adopting what it fetched', () => {
+  // Guards the fix at the point it can regress: the poller is a string of JavaScript inside a template, so
+  // no test can execute it here — but the comparison either appears in the emitted script or it does not,
+  // and its absence is exactly the silent-stale-page bug returning.
+  const dir = fixture('stamp-poller', { 'docs/A.md': '# A\n' });
+  const cfg = resolveConfig(dir);
+  const index = buildIndex(dir, cfg);
+  const health = runHealth(index, cfg, dir);
+  const js = viewPage({ id: 'product', title: 'Product', panels: ['status'] },
+    { index, health, plan: null, cfg: { ...cfg, __root: dir, __stamp: 'x' }, contrib: null, nav: [] },
+    (o) => o.scripts);
+  includes(js, "getAttribute('data-built')");
+  includes(js, 'was !== t');
+});
+
 console.log(`\n${pass} passed, ${fail} failed${skipped ? `, ${skipped} skipped on ${process.platform}` : ''}\n`);
 if (fail) {
   console.log('Failures:');
