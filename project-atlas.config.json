@@ -41,7 +41,7 @@
     {
       "id": "planning",
       "title": "Planning & history",
-      "blurb": "What is open, what changed, what the figures mean — and the state a new session cannot derive. Handoff is shared at the top and per contributor below it, so two people writing at once never contend for one file.",
+      "blurb": "What is open, what changed, what the figures mean \u2014 and the state a new session cannot derive. Handoff is shared at the top and per contributor below it, so two people writing at once never contend for one file.",
       "match": [
         "docs/ROADMAP.md",
         "CHANGELOG.md",
@@ -61,7 +61,7 @@
     {
       "id": "community",
       "title": "Community",
-      "blurb": "Issue and PR templates, conduct and security policy — the files GitHub surfaces itself.",
+      "blurb": "Issue and PR templates, conduct and security policy \u2014 the files GitHub surfaces itself.",
       "match": [
         ".github/**",
         "CODE_OF_CONDUCT.md",
@@ -112,7 +112,7 @@
     {
       "signal": "H2",
       "path": "skills/**",
-      "reason": "The review skill quotes src/auth.ts:88 inside an example of a well-written review sentence. It is deliberately not a real path here, and resolving it would be meaningless — the same case as the illustrative citation already suppressed under docs/references/."
+      "reason": "The review skill quotes src/auth.ts:88 inside an example of a well-written review sentence. It is deliberately not a real path here, and resolving it would be meaningless \u2014 the same case as the illustrative citation already suppressed under docs/references/."
     },
     {
       "signal": "H6",
@@ -140,5 +140,8 @@
       "reason": "GitHub renders a pull-request template as the body of a new PR, where an H1 would become a stray heading in every description. It is a form, not a document."
     }
   ],
-  "$schema": "https://github.com/rmaurya/project-atlas/schema/v1"
+  "$schema": "https://github.com/rmaurya/project-atlas/schema/v1",
+  "branching": {
+    "posture": "enforce"
+  }
 }

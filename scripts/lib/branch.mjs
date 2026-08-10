@@ -46,23 +46,48 @@ export function branchStatus(root, cfg = {}) {
   const onProtected = protectedBranches.has(current);
   const followsConvention = CONVENTION.test(current);
 
+  /*
+   * A-5 · follow, warn, unfollow.
+   *
+   * A branching strategy is a team's decision, not this tool's, and a tool that only knows how to refuse
+   * gets switched off entirely by the first team whose workflow it does not fit — taking every other check
+   * with it. So the posture is a setting: `enforce` refuses, `warn` says so and proceeds, `off` is silent
+   * about the convention.
+   *
+   * **`off` still reports.** Unfollowing the strategy is allowed; unfollowing it *silently* is not, which is
+   * why even `off` leaves the state visible in `atlas branch` — it stops objecting, it does not stop telling
+   * you where you are. A posture that could hide the fact would be a switch for making the repository lie
+   * about itself.
+   *
+   * **The default is `enforce`, not the `warn` the plan specified.** That deviation is deliberate: this
+   * guard already exists and already refuses, so shipping `warn` as the default would silently remove
+   * protection from every repository that upgrades — a weakened safety default, applied to people who never
+   * asked for it and would not be told. That is the exact class of change this project exists to catch.
+   * Relaxing it stays available and stays a decision someone makes on purpose.
+   */
+  const posture = ['enforce', 'warn', 'off'].includes(cfg.branching?.posture) ? cfg.branching.posture : 'enforce';
+  const level = posture === 'enforce' ? 'block' : 'warn';
+
   const problems = [];
-  if (onProtected) {
+  if (onProtected && posture !== 'off') {
     problems.push({
-      level: 'block',
+      level,
       text: `You are on \`${current}\`, which is protected. Branch before making changes.`,
       fix: 'atlas branch <type> <slug>',
     });
-  } else if (!followsConvention) {
+  } else if (!followsConvention && posture !== 'off') {
     problems.push({
+      // Always advisory, at every posture. A name that does not match the convention is a readability
+      // question, not a safety one — blocking work over it would make `enforce` unusable and teach people
+      // to switch the whole posture off, taking the protected-branch guard with it.
       level: 'warn',
       text: `\`${current}\` does not match \`type/short-slug\`. Types: ${Object.keys(TYPES).join(', ')}.`,
       fix: null,
     });
   }
-  if (onProtected && dirty) {
+  if (onProtected && dirty && posture !== 'off') {
     problems.push({
-      level: 'block',
+      level,
       text: `${dirty} uncommitted change(s) on a protected branch. Move them to a branch before committing.`,
       fix: 'atlas branch <type> <slug>   (carries the changes across)',
     });
@@ -70,8 +95,10 @@ export function branchStatus(root, cfg = {}) {
 
   return {
     ok: true, current, main, dirty, ahead,
-    onProtected, followsConvention,
-    safeToCommit: !onProtected,
+    onProtected, followsConvention, posture,
+    // Only `enforce` makes a protected branch unsafe to commit on. Under `warn` the commit proceeds and the
+    // warning stands in the record — which is the whole point of allowing a team to unfollow deliberately.
+    safeToCommit: posture === 'enforce' ? !onProtected : true,
     problems,
   };
 }

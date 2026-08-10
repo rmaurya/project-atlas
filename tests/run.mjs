@@ -45,7 +45,8 @@ import { dayKey, commitsOn, renderDay } from '../scripts/lib/worklog.mjs';
 import { ownership, areaOf, summariseOwnership } from '../scripts/lib/ownership.mjs';
 import { survivingLines } from '../scripts/lib/surviving.mjs';
 import { setItemPercent, itemFromBranch, contradictsPlan, STARTED_PERCENT } from '../scripts/lib/progress.mjs';
-import { note as journalNote, read as journalRead, MAX_TEXT } from '../scripts/lib/journal.mjs';
+import { handoffAge, handoffsIn, formatHandoffPrompt } from '../scripts/lib/handoff.mjs';
+import { note as journalNote, read as journalRead, MAX_TEXT, slugCollisions } from '../scripts/lib/journal.mjs';
 import { testInventory, casesInFile } from '../scripts/lib/testcases.mjs';
 import { designRecord, undesigned, citationHealth, EXPECTED } from '../scripts/lib/design.mjs';
 import { manifestUrl, checkForUpdate, fetchLatest, readCache, writeCache, isFresh } from '../scripts/lib/update.mjs';
@@ -3829,6 +3830,120 @@ test('progress · a commit naming an item the plan says never started is a contr
   const items = [{ id: 'A-1', percent: 0 }, { id: 'A-2', percent: 60 }, { id: 'A-3', percent: 100 }];
   eq(contradictsPlan(['A-1'], items).join(','), 'A-1');
   eq(contradictsPlan(['A-2', 'A-3'], items).length, 0, 'an item already in progress or done is no contradiction');
+});
+
+test('branch · posture decides whether the convention refuses, warns, or stays quiet', () => {
+  // A branching strategy is a team's decision. A tool that only knows how to refuse gets switched off
+  // entirely by the first team it does not fit, taking every other check with it — so the posture is a
+  // setting rather than a law.
+  const dir = fixture('branch-posture', { 'docs/A.md': '# A\n' });
+  const base = resolveConfig(dir);
+  const on = (posture) => branchStatus(dir, { ...base, branching: { ...(base.branching || {}), posture } });
+
+  // The fixture sits on its default branch, which is protected.
+  const enforce = on('enforce');
+  eq(enforce.posture, 'enforce');
+  eq(enforce.safeToCommit, false, 'enforce must refuse a protected branch');
+  ok(enforce.problems.some((p) => p.level === 'block'), 'enforce raises a blocking problem');
+
+  const warn = on('warn');
+  eq(warn.safeToCommit, true, 'warn allows the commit');
+  ok(warn.problems.some((p) => p.level === 'warn'), 'warn still says so');
+  ok(!warn.problems.some((p) => p.level === 'block'), 'warn never blocks');
+
+  // `off` stops objecting. It does not stop reporting: the branch and its state are still there, because a
+  // posture that could hide them would be a switch for making the repository lie about itself.
+  const off = on('off');
+  eq(off.problems.length, 0, 'off raises nothing');
+  eq(off.onProtected, true, 'off must still report that the branch is protected');
+  eq(off.current, enforce.current, 'off still says where you are');
+
+  // An unrecognised value falls back rather than disabling the guard — a typo must never mean "off".
+  eq(on('enfroce').posture, 'enforce', 'a misspelled posture falls back to the strict default, never to silence');
+
+  // The default is `enforce`, deviating from the plan's `warn`. Shipping `warn` would silently remove a
+  // guard that already refuses, from every repository that upgrades and was never asked.
+  eq(branchStatus(dir, base).posture, 'enforce', 'the default posture must not weaken on upgrade');
+});
+
+test('journal · two contributors whose names slugify alike are reported, never merged', () => {
+  // The silent version of this failure is the worst kind: their records interleave into one file and each
+  // person reads the other's as their own. Reported rather than resolved — picking a winner would be the
+  // tool deciding which of two people keeps their name.
+  const c = slugCollisions(['Alex Turner', 'Alex-Turner', 'Bo Zhang']);
+  eq(c.length, 1);
+  eq(c[0].slug, 'alex-turner');
+  eq(c[0].identities.join('|'), 'Alex Turner|Alex-Turner');
+  eq(slugCollisions(['Ann Example', 'Bo Zhang']).length, 0, 'distinct names must not be reported');
+});
+
+test('publish · the journal never reaches the wiki, and the shared handoff does', () => {
+  // A-11. Curated prose is for readers; an operational record is not. The journal is excluded by
+  // construction — it lives outside the docs root — and this asserts the construction rather than trusting
+  // it, because "outside" is a property of the layout, not a rule anything enforces.
+  const dir = fixture('publish-journal', {
+    'docs/handoff/SHARED.md': '# Shared handoff\n\nWhat constrains everyone.\n',
+    'docs/A.md': '# A\n',
+  });
+  const cfg = resolveConfig(dir);
+  journalNote(dir, cfg, { kind: 'decision', text: 'JOURNAL-SHOULD-NOT-PUBLISH', identity: 'Ann Example' });
+
+  const index = buildIndex(dir, cfg);
+  const health = runHealth(index, cfg, dir);
+  const { pages } = buildWikiPages(index, health, null, cfg, dir);
+  const all = [...pages.values()].join('\n');
+
+  ok(!all.includes('JOURNAL-SHOULD-NOT-PUBLISH'), 'a journal record must never appear in a published page');
+  ok(!index.documents.some((d) => d.path.startsWith('.atlas/')), 'the journal is not part of the corpus at all');
+  includes(all, 'What constrains everyone.');
+});
+
+test('handoff · the tool prints the derived half and writes nothing', () => {
+  // A machine can see that a commit happened; it cannot see that a decision was argued and settled. A
+  // generated handoff would be confident prose nobody reviewed — the thing this project exists to detect.
+  const dir = fixture('handoff-prompt', { 'docs/A.md': '# A\n' });
+  const file = path.join(dir, 'docs', 'handoff', 'ann-example', 'HANDOFF.md');
+  const out = formatHandoffPrompt({
+    branch: { ok: true, current: 'feat/x', dirty: 2 }, version: '0.1.55',
+    journal: { records: [{ kind: 'trap', text: 'a trap worth not repeating' }] },
+    plan: { missing: false, items: [{ id: 'A-1', percent: 40 }, { id: 'A-2', percent: 100 }] },
+    changes: null, age: { exists: false }, identity: 'Ann Example', file: 'docs/handoff/ann-example/HANDOFF.md',
+  });
+  includes(out, 'A-1 (40%)');
+  ok(!out.includes('A-2'), 'a finished item is not in flight');
+  includes(out, 'a trap worth not repeating');
+  includes(out, 'the words stay yours');
+  ok(!fs.existsSync(file), 'atlas handoff must never create the file it prompts for');
+});
+
+test('handoff · an unmeasurable age is never reported as current', () => {
+  // "How far behind" that cannot be computed is null, not zero. Reporting zero would say "current" about a
+  // document nobody checked — the failure this whole tool is aimed at.
+  const dir = fixture('handoff-age', {
+    'docs/handoff/ann/HANDOFF.md': '# Handoff\n\nWritten at commit deadbeef1234.\n',
+    'docs/A.md': '# A\n',
+  });
+  const age = handoffAge(dir, path.join(dir, 'docs', 'handoff', 'ann', 'HANDOFF.md'));
+  eq(age.exists, true);
+  eq(age.commit, 'deadbeef1234');
+  eq(age.distance, null, 'a commit not in this history yields an unknown distance, never 0');
+  includes(age.reason, 'not in this history');
+
+  const none = handoffAge(dir, path.join(dir, 'docs', 'handoff', 'nobody', 'HANDOFF.md'));
+  eq(none.exists, false);
+});
+
+test('handoff · contributors are enumerated from disk, and SHARED.md is not one of them', () => {
+  // A person who joins gets their handoff checked without anyone adding them to a list. SHARED.md is the
+  // team's standing constraints, which do not go stale by a commit count the way a personal note does.
+  const dir = fixture('handoff-enum', {
+    'docs/handoff/SHARED.md': '# Shared\n',
+    'docs/handoff/ann/HANDOFF.md': '# Ann\n',
+    'docs/handoff/bo/HANDOFF.md': '# Bo\n',
+    'docs/A.md': '# A\n',
+  });
+  const found = handoffsIn(dir, {}).map((h) => h.slug).sort();
+  eq(found.join(','), 'ann,bo');
 });
 
 console.log(`\n${pass} passed, ${fail} failed${skipped ? `, ${skipped} skipped on ${process.platform}` : ''}\n`);

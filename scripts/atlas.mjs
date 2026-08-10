@@ -53,6 +53,7 @@ import { ownership, summariseOwnership } from './lib/ownership.mjs';
 import { survivingLines, formatSurviving } from './lib/surviving.mjs';
 import { note, read as readJournal, formatState, KINDS } from './lib/journal.mjs';
 import { setItemPercent, itemFromBranch, contradictsPlan, STARTED_PERCENT } from './lib/progress.mjs';
+import { handoffPath, handoffAge, formatHandoffPrompt, DEFAULT_STALE_AFTER } from './lib/handoff.mjs';
 import { startServer, spawnDetached, serverStatus, stopServer, writePid, clearPid, openInBrowser, portInUse,
          portForRoot, readRegistry, registerServer, deregisterServer, DEFAULT_PORT, DEFAULT_IDLE_MS } from './lib/serve.mjs';
 
@@ -479,6 +480,29 @@ async function main() {
       branch: branchStatus(root, cfg),
       version: runningBuild().version,
       handoffAt: null,
+    }));
+    return;
+  }
+
+  /*
+   * `atlas handoff` — the derived half, as a prompt.
+   *
+   * It never writes the file. A machine can see that a commit happened; it cannot see that a decision was
+   * argued and settled. A generated handoff would be confident prose nobody reviewed, going stale from the
+   * moment it was written — which is the thing this tool exists to detect.
+   */
+  if (cmd === 'handoff') {
+    const identity = gitLines(root, ['config', 'user.name'])[0] || null;
+    const file = handoffPath(root, cfg, identity);
+    const age = handoffAge(root, file);
+    if (flag('json')) { console.log(JSON.stringify({ file, age }, null, 2)); return; }
+    say(formatHandoffPrompt({
+      branch: branchStatus(root, cfg),
+      version: runningBuild().version,
+      journal: readJournal(root),
+      plan: readPlanning(root, cfg),
+      changes: readChanges(root, cfg, null),
+      age, identity, file: path.relative(root, file),
     }));
     return;
   }
@@ -1085,7 +1109,7 @@ function formatTasks(plan, filter, useColor) {
   return L.join('\n');
 }
 
-function doBuild(root, cfg, withGit, withReport, { stamp = false } = {}) {
+function doBuild(root, cfg, withGit, withReport, { stamp = false, autoDerived = true } = {}) {
   const index = buildIndex(root, cfg, { withGit });
   const health = runHealth(index, cfg, root);
   if (withReport) say(formatReport(health, index, { verbose: !!flag('verbose'), color }), '\n');
@@ -1104,6 +1128,37 @@ function doBuild(root, cfg, withGit, withReport, { stamp = false } = {}) {
 
   const { outDir, pages, truncated, plan, deck, collisions } = renderSite(index, health, cfg, root);
   if (stamping) writeBuildStamp(root, cfg, stampValue);
+
+  /*
+   * A-2 · derived output maintains itself. A-6 · the artifact is generated, never shared.
+   *
+   * The worklog and the standalone page are derived, and everything derived here is safe to delete — which
+   * is exactly what makes it safe to regenerate without asking. They were produced only when someone
+   * remembered to ask, so they were usually absent or stale; a derived file that is usually stale is worse
+   * than one that does not exist, because it gets read.
+   *
+   * **Generating the artifact is not sharing it.** The file is written beside the site and goes nowhere: a
+   * shared artifact is outward-facing, and outward-facing stays a thing a person asks for, every time.
+   *
+   * Failures are reported and swallowed. This runs after the build has already succeeded, and turning a
+   * successful build into a failure because a secondary artefact could not be written would punish the
+   * caller for the wrong thing.
+   */
+  if (autoDerived && automationAllows(cfg, 'buildOnWrite')) {
+    try {
+      const contrib = readContrib(root, cfg);
+      const day = dayKey(Date.now());
+      const identity = gitLines(root, ['config', 'user.name'])[0] || null;
+      writeDay(root, cfg, renderDay({
+        day, identity, contrib, health, plan: readPlanning(root, cfg), commits: commitsOn(contrib, day),
+      }), day, identity);
+    } catch (e) { say(`  worklog not refreshed: ${e.message}`); }
+
+    try {
+      const out = path.join(outDir, 'all.standalone.html');
+      fs.writeFileSync(out, exportBundle(root, cfg, null, { generatedAt: new Date().toISOString().slice(0, 16).replace('T', ' ') + ' UTC' }), 'utf8');
+    } catch (e) { say(`  standalone page not refreshed: ${e.message}`); }
+  }
 
   // `pages` is counted from the files actually written, not from the index — see render.mjs. A collision that
   // had to be renamed is stated rather than left to look like an ordinary build.
@@ -1221,6 +1276,7 @@ function usage() {
   atlas tokens [--out FILE]  token accounting from local session transcripts — opt-in, never published
   atlas sessions [--out F]   how sessions went — turns, interruptions, friction, rework
   atlas prompt [--out FILE]  a system prompt assembled from this repository's own rules and state
+  atlas handoff              the derived half of a handoff, as a prompt — writes nothing
   atlas note <kind> "<text>"  append one record to the journal — survives a killed session
   atlas state [--json]       what a resuming session reads first: where you are, what was recorded
   atlas contrib [--json]     who did what, from git history alone

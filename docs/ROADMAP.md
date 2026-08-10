@@ -1,6 +1,6 @@
 # Roadmap — project-atlas
 
-**Last updated:** 2026-08-10 · **Version:** 0.1.55 · **Status:** pre-release, dogfooding
+**Last updated:** 2026-08-10 · **Version:** 0.1.56 · **Status:** pre-release, dogfooding
 
 Open work, with an honest completion figure against each item. A figure marked `*` is estimated rather than
 measured against the code — the same distinction the tool preserves everywhere else, applied to itself.
@@ -23,10 +23,10 @@ measured against the code — the same distinction the tool preserves everywhere
 | D-7 | 100 | D-8 | 100 | D-9 | 100 |
 | D-10 | 100 | I-1 | 100 | | |
 | I-3 | 100 | D-11 | 100 | I-2 | 100 |
-| A-1 | 100 | A-2 | 0 | A-3 | 0 |
-| A-4 | 0 | A-5 | 0 | A-6 | 0 |
-| A-7 | 100 | A-8 | 100 | A-9 | 0 |
-| A-10 | 100 | A-11 | 0 | A-12 | 0 |
+| A-1 | 100 | A-2 | 100 | A-3 | 0 |
+| A-4 | 0 | A-5 | 100 | A-6 | 100 |
+| A-7 | 100 | A-8 | 100 | A-9 | 100 |
+| A-10 | 100 | A-11 | 100 | A-12 | 100 |
 | S-1 | 100 | S-2 | 100 | S-3 | 0 |
 | S-4 | 100 | S-5 | 100 | S-6 | 100 |
 | S-7 | 100 | M-1 | 0 | M-2 | 0 |
@@ -349,12 +349,21 @@ exists to detect. One resolver, `automationAllows(cfg, key)`, answers it for eve
 master switch some code respects and other code ignores is worse than none: it is believed.
 
 **A-2 · Derived output maintains itself** — **P1 · High**
+*Shipped in 0.1.56.*
 *Build, stats, worklog and analysis refresh when their inputs change, rather than when someone remembers.
 All of it is derived and safe to delete, which is exactly what makes it safe to automate.*
 
 **A-3 · Task list reconciliation** — **P2 · Medium**
 *The plan and the task list drift apart silently. Reconcile them and report the difference, without editing
 anyone's prose.*
+**Not built, deliberately: the mechanism already exists and is unconfigured.** H9 — cross-reference
+asymmetry — does exactly this: an identifier present in one of a paired set of documents and absent from
+the other. `atlas health` already reports *"No crossref pairs configured — H9 checked nothing"* on every
+run. Building a second reconciliation beside it would be two mechanisms for one question, which is the
+drift this tool exists to detect, committed by the tool.
+What is missing is a pair to point it at, and **this repository has none** — the roadmap is its only task
+list, so there is genuinely nothing to reconcile here. Closing this means configuring `crossref` in a
+repository that carries both documents, which is a per-repository act rather than a code change.
 
 **A-4 · SOP obligations** — **P1 · High**
 *An SOP is wrong rather than stale when it drifts, so it carries an owner, a review interval and a
@@ -362,10 +371,18 @@ last-verified date. Three signals — H10 past review (blocking), H11 no live ow
 citation (blocking).*
 
 **A-5 · Branching posture: follow, warn, unfollow** — **P2 · Medium**
+*Shipped in 0.1.56 — with `enforce` as the default, not the `warn` specified here.*
+*The guard already existed and already refused. Shipping `warn` as the default would have silently removed
+protection from every repository that upgrades, applied to people who never asked and would not be told —
+the exact class of change this project exists to catch. Two existing tests encoded the old contract and
+broke, which is how the deviation was noticed rather than absorbed. An off-convention branch *name* stays
+advisory at every posture: blocking work over a name would make `enforce` unusable and teach people to
+switch the whole posture off, taking the protected-branch guard with it.*
 *`enforce` | `warn` | `off`, defaulting to `warn`. Unfollowing the strategy is allowed; unfollowing it
 silently is not.*
 
 **A-6 · Artifact publishing** — **P3 · Low**
+*Shipped in 0.1.56.*
 *Generate the self-contained page automatically. Sharing it stays manual, because a shared artifact is
 outward-facing.*
 
@@ -387,6 +404,7 @@ reopens the `PostToolUse` decision this project made and reversed once; if a das
 made invisible, this stays with `atlas watch` and says so.*
 
 **A-9 · Memory and handoff** — **P1 · High**
+*Shipped in 0.1.56.*
 *A session ends and everything it learned that was not written down is gone; the next one rediscovers the
 same traps by hitting them. [`handoff/SHARED.md`](handoff/SHARED.md) holds what cannot be derived — decisions taken, traps
 paid for, work in flight — and the tool never generates it, because a machine can see that a commit happened
@@ -404,11 +422,13 @@ findings outlive the subagent. `atlas note` appends; `atlas state` reconstructs.
 nothing. Never carries prompt text and is never published — the same rule `atlas tokens` already holds to.*
 
 **A-11 · Handoff travels to the wiki, the journal never does** — **P2 · Medium**
+*Shipped in 0.1.56.*
 *`HANDOFF.md` is part of the corpus and publishes with it. The journal is excluded by construction, the way a
 token report is refused a path inside the output directory. The distinction is the point: curated prose is
 for readers, an operational record is not.*
 
 **A-12 · Contributor-scoped state** — **P1 · High**
+*Shipped in 0.1.56.*
 *One `HANDOFF.md` and one journal are contention points the moment two people work in parallel — same file,
 same conflict, and a merge between two people's half-finished thoughts. `docs/handoff/SHARED.md` holds what
 constrains everyone; `docs/handoff/<contributor>/` and `.atlas/journal/<contributor>.jsonl` hold what only

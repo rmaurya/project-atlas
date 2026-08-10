@@ -13,6 +13,31 @@ versions follow [Semantic Versioning](https://semver.org/).
 - `atlas plan` — propose the git route for the working tree and wait for approval, rather than only refusing a
   commit once it is attempted.
 
+## [0.1.56] — 2026-08-11
+
+### Added
+- **`atlas handoff`** (A-9) prints the derived half of a handoff — what moved, what is in flight, what the
+  journal recorded — as a prompt, and **writes nothing**. A machine can see that a commit happened; it
+  cannot see that a decision was argued and settled, and a generated handoff would be confident prose
+  nobody reviewed. New advisory signal **H13**: a handoff naming a commit far behind HEAD. A distance that
+  cannot be computed is reported as unknown, never as current.
+- **Branching posture** (A-5): `enforce` | `warn` | `off`. `off` stops objecting but never stops reporting
+  where you are — a posture that could hide the state would be a switch for making a repository lie about
+  itself. **The default is `enforce`, deviating from the plan's `warn`:** shipping `warn` would silently
+  weaken an existing guard for everyone who upgrades. An off-convention branch *name* stays advisory at
+  every posture.
+- **Derived output maintains itself** (A-2, A-6): the worklog and the standalone page regenerate on every
+  build instead of when someone remembers. Generating the artifact is not sharing it — the file is written
+  beside the site and goes nowhere, because outward-facing stays a thing a person asks for.
+- **Contributor-scoped state** (A-12): slug collisions are reported, never merged. Two people whose names
+  slugify alike would otherwise interleave into one journal and each read the other's records as their own.
+- The journal is proven excluded from publishing (A-11) rather than assumed to be.
+
+### Notes
+- **A-3 was not built, deliberately.** H9 already reconciles paired documents and reports that it has no
+  pairs configured. A second mechanism beside it would be two answers to one question — the drift this tool
+  exists to detect. What is missing is configuration, and this repository has no second task list to pair.
+
 ## [0.1.55] — 2026-08-11
 
 ### Added

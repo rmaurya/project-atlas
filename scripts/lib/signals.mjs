@@ -29,6 +29,9 @@ export const SIGNALS = {
    * three make it a finding, and the blocking/advisory split is the same judgement the rest of the catalogue
    * makes: enforce only what has no legitimate exception.
    */
+  H13: { id: 'H13', title: 'Handoff far behind HEAD',
+    why: 'A handoff names the commit it was written against, and the repository has moved a long way past it. Advisory: a stale handoff is a cost, not a hazard, and a blocking signal on a document this subjective would train people to suppress it.' },
+
   H14: { id: 'H14', title: 'Design document cites code that moved',
     why: 'A design document is a claim about how the code works. When the code it cites has moved, the claim is wrong rather than merely old — which is why this is stricter than H6.' },
   H15: { id: 'H15', title: 'Expected design artifact absent',

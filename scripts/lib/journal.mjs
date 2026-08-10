@@ -71,6 +71,26 @@ export const KINDS = {
  */
 export const MAX_TEXT = 500;
 
+/**
+ * Contributors whose display names slugify to the same directory.
+ *
+ * Two people called "Alex Turner" and "Alex-Turner" both become `alex-turner`, and the failure is silent in
+ * the worst possible way: their journals interleave into one file and each reads the other's records as
+ * their own. Reported rather than resolved — picking a winner would be this tool deciding which of two
+ * people keeps their name, and appending a disambiguator would quietly rename someone who never asked.
+ */
+export function slugCollisions(identities = []) {
+  const by = new Map();
+  for (const id of identities) {
+    const slug = contributorSlug(id);
+    if (!by.has(slug)) by.set(slug, new Set());
+    by.get(slug).add(id);
+  }
+  return [...by.entries()]
+    .filter(([, people]) => people.size > 1)
+    .map(([slug, people]) => ({ slug, identities: [...people].sort() }));
+}
+
 /** The journal file for one contributor. */
 export function journalPath(root, identity) {
   return path.join(root, JOURNAL_DIR, `${contributorSlug(identity)}.jsonl`);

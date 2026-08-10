@@ -16,6 +16,7 @@ import { execFileSync } from 'node:child_process';
 import { matchesAny, suppressionFor, compileRule } from './config.mjs';
 import { SIGNALS } from './signals.mjs';
 import { designRecord, undesigned, isDesignDoc } from './design.mjs';
+import { handoffAge, handoffsIn, DEFAULT_STALE_AFTER } from './handoff.mjs';
 
 export { SIGNALS };
 
@@ -200,6 +201,26 @@ export function runHealth(index, cfg, root) {
     // page, so a label put there produced links to pages/-no-hld--82adea20.html and friends — dead links the
     // site verifier caught. The subject stays readable; the renderer is told not to treat it as a path.
     if (!kind.present) add('H15', `(no ${kind.id})`, `no ${kind.label.toLowerCase()} in the corpus`, { kind: kind.id, label: kind.label, corpus: true });
+  }
+
+  // H13 — a handoff that names a commit far behind HEAD. Advisory by design: a stale handoff is a cost, not
+  // a hazard, and a blocking signal on a document this subjective would train people to suppress it.
+  //
+  // Reported per contributor, because the handoffs are per contributor: a shared count would say "one
+  // handoff is stale" about a team of six and name nobody. When git cannot resolve the named commit the
+  // distance is unknown, and an unknown distance is never reported as current — the same rule the Not
+  // checked section exists for.
+  if (root) {
+    for (const h of handoffsIn(root, cfg)) {
+      const age = handoffAge(root, h.file);
+      if (!age.exists) continue;
+      const limit = cfg.handoff?.staleAfter ?? DEFAULT_STALE_AFTER;
+      if (age.distance !== null && age.distance > limit) {
+        add('H13', h.rel, `written ${age.distance} commits ago (${age.commit}); the limit is ${limit}`, { corpus: true });
+      } else if (age.distance === null) {
+        add('H13', h.rel, `${age.reason}, so how far behind it is cannot be measured`, { corpus: true });
+      }
+    }
   }
 
   // H16 — `undesigned` already computed this for the architecture page and nothing acted on it. Advisory,
