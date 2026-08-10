@@ -16,7 +16,7 @@ measured against the code — the same distinction the tool preserves everywhere
 | C-1 | 100 | C-2 | 100 | C-3 | 100 |
 | C-4 | 100 | C-5 | 100 | C-6 | 100 |
 | P-1 | 100 | P-2 | 90 | P-3 | 100 |
-| P-4 | 0 | | | | |
+| P-4 | 0 | P-5 | 0 | | |
 | Q-1 | 100 | Q-2 | 100 | Q-3 | 100 |
 | D-1 | 100 | D-2 | 100 | D-3 | 100 |
 | D-4 | 100 | D-5 | 100 | D-6 | 100 |
@@ -125,6 +125,35 @@ them: `.brand` in the topbar is a text span, and every generated page is wordmar
   while the repository is public.*
 
 *Also a favicon, as a `data:` URI, for the exported page and the artifact.*
+
+**P-5 · The dashboard updates in place, and stops polling where it cannot** — **P2 · Medium**
+*Today the page fetches `build-stamp.txt` every three seconds and, when it moves, calls `location.reload()` —
+a full reload that discards scroll position, sort order, every column filter and the theme transition. Patch
+the numbers instead: emit the dashboard's data as JSON beside the page, fetch it on change, and update only
+the nodes whose values differ.*
+
+***First, a defect that ships today.** `writeBuildStamp` runs only when a caller asks for live reload, so a
+plain `atlas build` emits no stamp — but the poll is unconditional in the markup. Verified against the
+published site: `build-stamp.txt` returns **404**, and every open tab requests it every three seconds
+forever, roughly 1,200 requests an hour each, on a page that can never update. The poll must be emitted only
+where something can answer it.*
+
+***Where this works, and where it cannot — the answer to "is this achievable on a public URL":***
+
+| Surface | Live patching | Why |
+|---|---|---|
+| `atlas watch`, local | **yes** | the stamp moves on every rebuild; this is the case worth optimising |
+| A static host (Pages, S3, Netlify) | **yes, bounded** | JSON can be fetched and patched, but it only changes when the site is redeployed — freshness equals deploy cadence, so poll in minutes, not seconds, and use a conditional request rather than a timer |
+| GitHub Wiki | **no** | markdown only; scripts are stripped |
+| Single-file export | **no** | there is no second file to fetch — that is the point of it |
+| Published artifact | **no** | the CSP blocks every external request by design |
+
+*So the page must stay fully correct as static HTML and **upgrade** to patching only where a data endpoint is
+reachable — the same shape as the existing export, which strips the poll rather than shipping a broken one.*
+
+***Real-time is a different product.*** *Push (SSE or WebSocket) needs a server running somewhere, which
+contradicts the zero-dependency, no-service promise this tool makes on its first page. "Live" here means
+updating without a full reload when new data is published — not a socket.*
 
 ## Track 3 — Quality
 
