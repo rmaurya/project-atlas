@@ -7,13 +7,17 @@ disable-model-invocation: true
 
 # Changed documents
 
-!`atlas changes --no-color || echo "(atlas is not on PATH — the plugin is not installed where this is running)"`
+!`atlas changes --no-color`
+
+> **If the block above is empty**, `atlas` is not on `PATH` — the plugin is not installed where this is
+> running. Say so; do not read an empty section as "nothing to report".
+
 # Health now
 
-!`atlas health --no-color || echo "(atlas is not on PATH — the plugin is not installed where this is running)"`
+!`atlas health --no-color`
 # Branch
 
-!`atlas branch || echo "(atlas is not on PATH — the plugin is not installed where this is running)"`
+!`atlas branch`
 ---
 
 Review the documentation changes in this working tree.

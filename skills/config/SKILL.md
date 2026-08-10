@@ -5,13 +5,17 @@ disable-model-invocation: true
 
 # Current configuration
 
-!`atlas config || echo "(atlas is not on PATH — the plugin is not installed where this is running)"`
+!`atlas config`
+
+> **If the block above is empty**, `atlas` is not on `PATH` — the plugin is not installed where this is
+> running. Say so; do not read an empty section as "nothing to report".
+
 # What it produces
 
-!`atlas scan || echo "(atlas is not on PATH — the plugin is not installed where this is running)"`
+!`atlas scan`
 # What is unchecked
 
-!`atlas health --no-color || echo "(atlas is not on PATH — the plugin is not installed where this is running)"`
+!`atlas health --no-color`
 ---
 
 Help the user tune the configuration. **Explain why a default exists before changing it** — most of them

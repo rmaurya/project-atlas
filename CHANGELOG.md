@@ -13,6 +13,20 @@ versions follow [Semantic Versioning](https://semver.org/).
 - `atlas plan` — propose the git route for the working tree and wait for approval, rather than only refusing a
   commit once it is attempted.
 
+## [0.1.28] — 2026-08-10
+
+### Fixed
+- **Every skill still prompted, and the `|| echo` fallback was the reason.** 0.1.13 removed command
+  substitution and control flow from the blocks and kept a trailing fallback, on the grounds that a block
+  rendering blank when `atlas` is missing reads as "nothing to report". Claude Code refuses to auto-approve
+  **any** compound command — *"contains multiple operations"* — whatever the allowlist says. So the fallback
+  did not make the block resilient; it made every skill unrunnable without a prompt.
+
+  The blocks are now a single invocation with no operators at all. **The guarantee moved into the prose**,
+  where it always belonged: each skill states that an empty block means `atlas` is not on `PATH`, and that
+  an empty section must not be read as nothing to report. The model reads that; the shell no longer has to
+  carry it.
+
 ## [0.1.27] — 2026-08-10
 
 ### Fixed

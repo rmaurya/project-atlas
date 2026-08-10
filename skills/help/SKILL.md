@@ -5,10 +5,14 @@ disable-model-invocation: true
 
 # Commands
 
-!`atlas help || echo "(atlas is not on PATH — the plugin is not installed where this is running)"`
+!`atlas help`
+
+> **If the block above is empty**, `atlas` is not on `PATH` — the plugin is not installed where this is
+> running. Say so; do not read an empty section as "nothing to report".
+
 ## This repository right now
 
-!`atlas caps --offline || echo "(atlas is not on PATH — the plugin is not installed where this is running)"`
+!`atlas caps --offline`
 ---
 
 Present the command list above with **one line each**, written from what each skill's `description` frontmatter

@@ -5,7 +5,11 @@ disable-model-invocation: true
 
 # Report
 
-!`atlas health --no-color $ARGUMENTS || echo "(atlas is not on PATH — the plugin is not installed where this is running)"`
+!`atlas health --no-color $ARGUMENTS`
+
+> **If the block above is empty**, `atlas` is not on `PATH` — the plugin is not installed where this is
+> running. Say so; do not read an empty section as "nothing to report".
+
 ---
 
 Interpret the report above. **Do not paste it back**; the user can already see it.

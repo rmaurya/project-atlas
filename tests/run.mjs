@@ -1606,9 +1606,14 @@ test('skills · every embedded shell block produces output, so a missing atlas n
   for (const name of fs.readdirSync(skillsDir)) {
     if (!fs.existsSync(path.join(skillsDir, name, 'SKILL.md'))) continue;
     for (const cmd of blocks(name)) {
-      const r = spawnSync('sh', ['-c', cmd], { cwd: dir, encoding: 'utf8', env });
-      ok((r.stdout || '').trim().length > 0,
-        `skills/${name}: a block rendered empty instead of saying why:\n    ${cmd}`);
+      // The guarantee moved out of the shell. Claude Code refuses to auto-approve ANY compound command —
+      // "contains multiple operations" — so a `|| echo` fallback did not make the block resilient, it made
+      // the skill unrunnable without a prompt every time. The block is one command now, and the promise that
+      // an empty section is never read as "nothing to report" lives in the prose the model reads.
+      spawnSync('sh', ['-c', cmd], { cwd: dir, encoding: 'utf8', env });
+      const body = fs.readFileSync(path.join(skillsDir, name, 'SKILL.md'), 'utf8');
+      ok(/If the block above is empty/.test(body),
+        `skills/${name}: no command, no fallback, and no note telling the reader an empty block means atlas is missing`);
       checked++;
     }
   }
@@ -1634,14 +1639,14 @@ test('skills · /atlas:diff is one command, because the permission checker split
     for (const m of fs.readFileSync(f, 'utf8').matchAll(/^!`([\s\S]*?)`\s*$/gm)) {
       const cmd = m[1];
       checked++;
-      // A trailing `|| echo` is required — a block that renders blank when atlas is missing reads as
-      // "nothing to report". Everything else that a checker splits or refuses to parse is not.
+      // No operators at all. "Contains multiple operations" is refused outright, whatever the allowlist
+      // says, so a single invocation is the only shape that runs unprompted.
       ok(!/\$\(/.test(cmd), `skills/${name}: command substitution cannot be statically analysed: ${cmd}`);
       ok(!/\bif\s|\bthen\b|\bfi\b|\btest\s+-[nz]\b|;/.test(cmd), `skills/${name}: shell control flow: ${cmd}`);
-      ok(!/&&/.test(cmd), `skills/${name}: a guard that builds a second invocation: ${cmd}`);
+      ok(!/&&|\|\|/.test(cmd),
+         `skills/${name}: Claude Code refuses to auto-approve a compound command outright — one operator and the skill prompts every run: ${cmd}`);
       ok(!/\|\s*(head|tail|sed|grep)\b/.test(cmd), `skills/${name}: a pipe swallows the exit status: ${cmd}`);
-      // Only the command, not the fallback message — which mentions atlas by name, and should.
-      const invocation = cmd.split('||')[0].trim();
+      const invocation = cmd.trim();
       ok(invocation.startsWith('atlas '), `skills/${name}: must begin with the invocation: ${cmd}`);
       eq((invocation.match(/\batlas\s/g) || []).length, 1, `skills/${name}: exactly one invocation: ${cmd}`);
     }

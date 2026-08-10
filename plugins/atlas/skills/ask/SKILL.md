@@ -11,10 +11,14 @@ $ARGUMENTS
 
 # Candidate documents
 
-!`atlas ask $ARGUMENTS || echo "(atlas is not on PATH — the plugin is not installed where this is running)"`
+!`atlas ask $ARGUMENTS`
+
+> **If the block above is empty**, `atlas` is not on `PATH` — the plugin is not installed where this is
+> running. Say so; do not read an empty section as "nothing to report".
+
 # Corpus
 
-!`atlas scan || echo "(atlas is not on PATH — the plugin is not installed where this is running)"`
+!`atlas scan`
 ---
 
 Answer the question **from the documents**, not from memory of them.

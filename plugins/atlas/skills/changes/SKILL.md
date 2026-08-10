@@ -7,7 +7,11 @@ disable-model-invocation: true
 
 # Changes
 
-!`atlas changes --no-color || echo "(atlas is not on PATH — the plugin is not installed where this is running)"`
+!`atlas changes --no-color`
+
+> **If the block above is empty**, `atlas` is not on `PATH` — the plugin is not installed where this is
+> running. Say so; do not read an empty section as "nothing to report".
+
 ---
 
 Tell the user what changed, in this order:
