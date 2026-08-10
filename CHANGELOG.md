@@ -13,7 +13,26 @@ versions follow [Semantic Versioning](https://semver.org/).
 - `atlas plan` — propose the git route for the working tree and wait for approval, rather than only refusing a
   commit once it is attempted.
 
-## [0.1.44] — 2026-08-10
+## [0.1.45] — 2026-08-10
+
+### Added
+- **PRD and manual of style join the design record** (`S-1`). Neither was recognised at all — a PRD is what
+  the product is supposed to do, and a manual of style is the document that makes every other document
+  consistent, which is the one most likely to exist as prose nobody indexed.
+
+### Fixed
+- **The specification pattern found `payments-srs.md` and missed `SRS.md`.** It required a dash or underscore
+  immediately before the word and `.md` immediately after, so a repository could carry a specification this
+  tool reported as absent — and `H15` would then report an absence that was not true. Matched on a separator
+  now, covering `SRS.md`, `SRS_v2.md` and `PROJECT_SRS_v1.md`. `\b` is not the fix: it does not break on an
+  underscore, so `\bSRS\b` never matches inside `PROJECT_SRS_v1`.
+- Widening a pattern is where false positives arrive, so the test asserts the ordinary corpus — README,
+  CHANGELOG, ROADMAP, the reference guides, the handoff — matches **no** design kind.
+- A test asserting `record.length === 6` now counts against `EXPECTED.length`. The claim is "every kind
+  appears"; a literal turns adding a kind into a failure that says nothing about whether the behaviour is
+  right.
+
+
 
 ### Fixed
 - **The backlog filters took 357px of a 320px-wide screen before the first task.** Six selects stacked one

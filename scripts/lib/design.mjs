@@ -29,7 +29,16 @@ export const EXPECTED = [
   { id: 'architecture', label: 'Architecture overview', re: /(^|\/)ARCHITECTURE[^/]*\.md$/i },
   { id: 'dataflow', label: 'Data flow', re: /(^|\/)(DATA[-_ ]?FLOW|dataflow)[^/]*\.md$/i },
   { id: 'decisions', label: 'Decision records', re: /(^|\/)(adr|decisions?)\/|(^|\/)ADR[-_ ]?\d+/i },
-  { id: 'specs', label: 'Specifications', re: /(^|\/)(specs?|rfc)\/|[-_](spec|srs)\.md$/i },
+  // Matched on a separator rather than on \b, because \b does not break on an underscore: `\bSRS\b` never
+  // matches inside PROJECT_SRS_v1.md. The old pattern required a dash or underscore immediately before the
+  // word and `.md` immediately after, so it found payments-srs.md and missed SRS.md, SRS_v2.md and
+  // PROJECT_SRS_v1.md — a repository could carry a specification this tool reported as absent.
+  { id: 'specs', label: 'Specifications', re: /(^|\/)(specs?|rfc)\/|(^|\/|[-_ ])(srs|spec)s?([-_ .]|\.md$)/i },
+  // Neither of these was recognised at all. A PRD is what the product is supposed to do; a manual of style is
+  // the document that makes every other document consistent, which is the one most likely to exist as prose
+  // nobody indexed.
+  { id: 'prd', label: 'Product requirements', re: /(^|\/|[-_ ])(prd)([-_ .]|\.md$)|(^|\/)product[-_ ]?requirements?[^/]*\.md$/i },
+  { id: 'style', label: 'Manual of style', re: /(^|\/|[-_ ])(mos)([-_ .]|\.md$)|(^|\/)(manual[-_ ]of[-_ ]style|style[-_ ]?guide|styleguide|STYLE)[^/]*\.md$/i },
 ];
 
 /** True when a document is any kind of design artifact — the predicate the health signals filter by. */

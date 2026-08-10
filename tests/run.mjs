@@ -42,7 +42,7 @@ import { dayKey, commitsOn, renderDay } from '../scripts/lib/worklog.mjs';
 import { ownership, areaOf, summariseOwnership } from '../scripts/lib/ownership.mjs';
 import { survivingLines } from '../scripts/lib/surviving.mjs';
 import { testInventory, casesInFile } from '../scripts/lib/testcases.mjs';
-import { designRecord, undesigned, citationHealth } from '../scripts/lib/design.mjs';
+import { designRecord, undesigned, citationHealth, EXPECTED } from '../scripts/lib/design.mjs';
 import { manifestUrl, checkForUpdate, fetchLatest, readCache, writeCache, isFresh } from '../scripts/lib/update.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -2690,7 +2690,9 @@ test('design · an absent artifact is the finding, so absence is a row', () => {
   const record = designRecord([{ path: 'docs/architecture/HLD.md' }]);
   eq(record.find((r) => r.id === 'hld').present, true);
   eq(record.find((r) => r.id === 'lld').present, false);
-  eq(record.length, 6, 'every expected artifact appears, present or not');
+  // Counted against EXPECTED rather than a literal: the assertion is "every kind appears", and a hardcoded
+  // number turns adding a kind into a test failure that says nothing about whether the behaviour is right.
+  eq(record.length, EXPECTED.length, 'every expected artifact appears, present or not');
 });
 
 test('design · undesigned areas are the inverse, and small areas are excluded', () => {
@@ -2702,6 +2704,30 @@ test('design · undesigned areas are the inverse, and small areas are excluded',
   eq(gaps.find((g) => g.area === 'src').citations, 1);
   eq(gaps.find((g) => g.area === 'lib').citations, 0);
   ok(!gaps.some((g) => g.area === 'tiny'), 'one file is not an area');
+});
+
+test('design · the record recognises a PRD and a manual of style, and finds an SRS however it is named', () => {
+  // The SRS pattern required a dash or underscore immediately before the word and `.md` immediately after,
+  // so it matched payments-srs.md and missed SRS.md, SRS_v2.md and PROJECT_SRS_v1.md — a repository could
+  // carry a specification the tool reported as absent. `\\b` is not the fix: it does not break on an
+  // underscore, so `\\bSRS\\b` never matches inside PROJECT_SRS_v1. PRD and manual of style were not
+  // recognised at all.
+  const kindsFor = (p) => EXPECTED.filter((e) => e.re.test(p)).map((e) => e.id);
+
+  for (const p of ['SRS.md', 'SRS_v2.md', 'PROJECT_SRS_v1.md', 'payments-srs.md', 'docs/specs/api.md', 'docs/foo-spec.md']) {
+    ok(kindsFor(p).includes('specs'), `${p} should be a specification`);
+  }
+  for (const p of ['PRD.md', 'docs/PRD_v3.md', 'product-requirements.md']) {
+    ok(kindsFor(p).includes('prd'), `${p} should be a product requirements document`);
+  }
+  for (const p of ['MOS.md', 'STYLE.md', 'docs/style-guide.md', 'manual_of_style.md']) {
+    ok(kindsFor(p).includes('style'), `${p} should be a manual of style`);
+  }
+  // Widening a pattern is where false positives arrive, so the ordinary corpus is asserted to match nothing.
+  for (const p of ['README.md', 'CHANGELOG.md', 'docs/ROADMAP.md', 'docs/references/health-signals.md',
+                   'docs/handoff/SHARED.md', 'docs/references/autonomy.md']) {
+    eq(kindsFor(p), [], `${p} is not a design artifact`);
+  }
 });
 
 test('design · "not checked" is kept apart from "does not resolve", against real scanner output', () => {
