@@ -13,6 +13,21 @@ versions follow [Semantic Versioning](https://semver.org/).
 - `atlas plan` — propose the git route for the working tree and wait for approval, rather than only refusing a
   commit once it is attempted.
 
+## [0.1.32] — 2026-08-10
+
+### Fixed
+- **A wiki that is not there is classified the same way whatever wording git chose.** For a target that does
+  not exist, POSIX git says "does not exist" while Windows git reports it through the remote-helper path as
+  "does not appear to be a git repository" — so the same first publish was a normal first publish on Linux
+  and a refused-as-unreachable failure on Windows. The phrasing is now matched too. It stays distinct from
+  the failures that branch exists to catch: missing credentials, a proxy or a refused connection say
+  "Permission denied", "Authentication failed" or "could not read Username", and none of them claim anything
+  about whether a repository is there.
+- **The token-store tests computed the slug instead of calling the function that computes it.** Three copies
+  of `path.resolve(dir).split(path.sep).join('-')` lived in the suite, so when the product's version was
+  corrected in 0.1.31 the tests kept asserting against the old, broken derivation and stayed red on Windows
+  for the original reason. They now call `transcriptDir`, which is the thing under test.
+
 ## [0.1.31] — 2026-08-10
 
 ### Fixed

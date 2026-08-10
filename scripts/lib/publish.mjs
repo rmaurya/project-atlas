@@ -241,7 +241,15 @@ export function stageWiki(root, cfg, built, { push = false, force = false, impor
       .filter(Boolean).join('\n').trim() || String(err);
     // GitHub answers a wiki that was never created with "remote: Repository not found." and a matching fatal.
     // GitLab answers with "not found". Anything else is a failure to *reach* the wiki, not evidence about it.
-    if (!/repository not found|not found|does not exist/i.test(msg)) {
+    //
+    // "does not appear to be a git repository" is the same finding in git's other voice, and which voice you
+    // get depends on the platform: for a target that is not there, POSIX git says "does not exist" while
+    // Windows git reports it through the remote-helper path instead. The classification must not depend on
+    // which wording the platform chose — it says the target is not a repository, which is the first-publish
+    // case. It stays distinct from the failures this branch exists to catch: no credentials, a proxy, or a
+    // refused connection say "Permission denied", "Authentication failed" or "could not read Username", and
+    // none of them claim anything about whether a repository is there.
+    if (!/repository not found|not found|does not exist|does not appear to be a git repository/i.test(msg)) {
       throw new Error(
         `Could not reach the wiki at ${url}: ${msg.split('\n').filter(Boolean).slice(-1)[0] || msg}\n` +
         `  This is not the same as "the wiki does not exist yet". Publishing would skip the drift check that ` +

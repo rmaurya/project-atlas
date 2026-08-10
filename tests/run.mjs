@@ -861,7 +861,10 @@ test('tokens · splits the four token kinds rather than reporting one total', as
   // input, so a single "tokens used" figure makes a cheap session look expensive.
   const store = path.join(tmpRoot, 'tokens-store');
   const dir = fixture('tokens-read', { 'docs/A.md': '# A\n' });
-  const slug = path.resolve(dir).split(path.sep).join('-');
+  // The slug comes from the function under test, never a copy of it. A duplicate here computed the same
+  // wrong thing the product did, so both agreed on Windows and both were wrong: the drive colon survived
+  // into a directory name Windows cannot create.
+  const slug = path.basename(transcriptDir(dir, { tokens: { transcriptRoot: store } }));
   fs.mkdirSync(path.join(store, slug), { recursive: true });
   const lines = [
     { timestamp: '2026-01-01T10:00:00Z', message: { model: 'test-model', usage: { input_tokens: 10, output_tokens: 100, cache_creation_input_tokens: 1000, cache_read_input_tokens: 10000 } } },
@@ -902,7 +905,10 @@ test('tokens · no cost without configured rates, and unpriced models are named'
 test('tokens · aggregates only — no prompt text reaches the report', async () => {
   const store = path.join(tmpRoot, 'tokens-secret');
   const dir = fixture('tokens-privacy', { 'docs/A.md': '# A\n' });
-  const slug = path.resolve(dir).split(path.sep).join('-');
+  // The slug comes from the function under test, never a copy of it. A duplicate here computed the same
+  // wrong thing the product did, so both agreed on Windows and both were wrong: the drive colon survived
+  // into a directory name Windows cannot create.
+  const slug = path.basename(transcriptDir(dir, { tokens: { transcriptRoot: store } }));
   fs.mkdirSync(path.join(store, slug), { recursive: true });
   fs.writeFileSync(path.join(store, slug, 's.jsonl'), JSON.stringify({
     timestamp: '2026-01-01T10:00:00Z',
@@ -919,7 +925,10 @@ test('tokens · aggregates only — no prompt text reaches the report', async ()
 test('sessions · counts what happened, and refuses to call any of it prompt quality', async () => {
   const store = path.join(tmpRoot, 'sessions-store');
   const dir = fixture('sessions', { 'docs/A.md': '# A\n' });
-  const slug = path.resolve(dir).split(path.sep).join('-');
+  // The slug comes from the function under test, never a copy of it. A duplicate here computed the same
+  // wrong thing the product did, so both agreed on Windows and both were wrong: the drive colon survived
+  // into a directory name Windows cannot create.
+  const slug = path.basename(transcriptDir(dir, { tokens: { transcriptRoot: store } }));
   fs.mkdirSync(path.join(store, slug), { recursive: true });
   const rows = [
     { type: 'user', promptSource: 'typed', timestamp: '2026-01-01T10:00:00Z' },
