@@ -13,7 +13,24 @@ versions follow [Semantic Versioning](https://semver.org/).
 - `atlas plan` — propose the git route for the working tree and wait for approval, rather than only refusing a
   commit once it is attempted.
 
-## [0.1.45] — 2026-08-10
+## [0.1.46] — 2026-08-10
+
+### Changed
+- **The work log is one file per contributor per day** (`S-5`). It was `worklog/YYYY-MM-DD/log.md` — a single
+  file the whole repository shared, so two people working the same day overwrote each other and collided on
+  every line in git. The date stays the directory, because *"what happened on Tuesday"* is the question a
+  work log is read to answer; the contributor becomes the filename, so nobody contends.
+
+### Added
+- **A `worklog` panel on the Delivery view.** `atlas worklog` has written these since 0.1.19 and no page has
+  ever shown one, so the record existed and was read by nobody. Read back off disk rather than recomputed:
+  the log records the day it was written on, and regenerating it now would quietly answer a different
+  question — what the repository looks like today.
+- A pre-0.1.46 `log.md` is listed only where no per-contributor file has superseded it. Both were shown at
+  first, which listed one author twice with two different commit counts and read as a bug rather than as
+  history. A legacy log that is the only entry for its day is a real record and stays.
+
+
 
 ### Added
 - **PRD and manual of style join the design record** (`S-1`). Neither was recognised at all — a PRD is what

@@ -16,7 +16,9 @@
  *    that flattens that distinction is lying quietly.
  */
 
-import { designRecord, undesigned, citationHealth } from './design.mjs';
+import fs from 'node:fs';
+import path from 'node:path';
+import { designRecord, undesigned, citationHealth, isDesignDoc } from './design.mjs';
 import { escapeHtml, escapeAttr, renderMarkdown } from './markdown.mjs';
 import { SIGNALS } from './health.mjs';
 import { taskCoverage } from './contrib.mjs';
@@ -138,6 +140,7 @@ function panel(id, { index, health, plan, cfg, contrib, view, nameFor, repo }) {
     case 'status': return hasPlan ? statusChart(plan) : null;
     case 'items': return hasPlan ? itemTable(plan) : null;
     case 'backlog': return hasPlan ? backlogPanel(plan, contrib, index, pageOf) : null;
+    case 'worklog': return worklogPanel(cfg, repo);
     case 'health': return healthChart(health, cfg);
     case 'clusters': return clusterChart(index);
     case 'deliveryTiles': return hasContrib ? deliveryTiles(contrib) : null;
@@ -434,6 +437,73 @@ ${byTrack.map((t) => `
   <h2 class="bl-track-h">${escapeHtml(t.name)} <span class="count">${t.items.length}</span></h2>
   ${t.items.map(card).join('\n')}
 </section>`).join('\n')}`;
+}
+
+/**
+ * The daily work log, per contributor, read back off disk.
+ *
+ * `atlas worklog` has written these since 0.1.19 and no page has ever shown one, so the record existed and
+ * was read by nobody. Read rather than recomputed: the log is a committed artefact of the day it describes,
+ * and regenerating it here would quietly answer a different question — what the repository looks like now,
+ * rather than what that day was.
+ *
+ * The heading line of each file carries the day and the author, which is all a summary needs; the body is
+ * left in the file. A panel that reprinted every entry would be the log, not an index of it.
+ */
+function worklogPanel(cfg, repo) {
+  const root = cfg.__root;
+  if (!root) return null;
+  const dir = path.join(root, cfg.worklog?.dir || 'worklog');
+  let days = [];
+  try {
+    days = fs.readdirSync(dir).filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d)).sort().reverse();
+  } catch { return null; }                       // no log yet — the panel is omitted, never faked
+  if (!days.length) return null;
+
+  const rows = [];
+  for (const day of days.slice(0, 14)) {
+    let files = [];
+    try { files = fs.readdirSync(path.join(dir, day)).filter((f) => f.endsWith('.md')).sort(); } catch { continue; }
+    // `log.md` is the pre-0.1.46 layout: one file for the whole repository. Where a per-contributor file
+    // exists for the same day it has been superseded, and showing both listed one author twice with two
+    // different commit counts — which reads as a bug rather than as history. Where it is the only file, it
+    // is a real record of a day that was written that way, and it stays.
+    if (files.length > 1) files = files.filter((f) => f !== 'log.md');
+    for (const f of files) {
+      let head = '';
+      try { head = fs.readFileSync(path.join(dir, day, f), 'utf8').split('\n').slice(0, 40).join('\n'); } catch { continue; }
+      const who = (/^#\s+\S+\s+—\s+(.+)$/m.exec(head) || [, null])[1];
+      const commits = (/\|\s*Commits\s*\|\s*(\d+)/.exec(head) || [, null])[1];
+      const lines = (/\|\s*Lines\s*\|\s*([^|]+)\|/.exec(head) || [, null])[1];
+      const rework = (/\|\s*Rework rate\s*\|\s*([^|]+)\|/.exec(head) || [, null])[1];
+      rows.push({ day, file: `${day}/${f}`,
+        who: who || f.replace(/\.md$/, ''),
+        commits, lines: lines && lines.trim(), rework: rework && rework.trim().split('—')[0].trim() });
+    }
+  }
+  if (!rows.length) return null;
+
+  return `
+<section class="card">
+  <h2>Daily work log <span class="count">${rows.length}</span></h2>
+  <p class="cap">Written by <code>atlas worklog</code>, one file per contributor per day, and read back here
+  rather than recomputed — the log records the day it was written on, and regenerating it now would answer a
+  different question. Showing the last ${Math.min(days.length, 14)} day(s).
+  <strong>No prompt text and no prompt-quality score</strong>: a transcript records what happened after a
+  prompt, not whether the prompt was well judged.</p>
+  <div class="table-wrap">
+    <table class="mini-table">
+      <thead><tr><th>Day</th><th>Who</th><th class="num">Commits</th><th class="num">Lines</th><th class="num">Rework</th></tr></thead>
+      <tbody>${rows.map((r) => `<tr>
+        <td class="mono">${escapeHtml(r.day)}</td>
+        <td>${escapeHtml(r.who)}</td>
+        <td class="num">${r.commits ? escapeHtml(r.commits) : '—'}</td>
+        <td class="num mono">${r.lines ? escapeHtml(r.lines) : '—'}</td>
+        <td class="num">${r.rework ? escapeHtml(r.rework) : '—'}</td>
+      </tr>`).join('')}</tbody>
+    </table>
+  </div>
+</section>`;
 }
 
 function itemTable(plan) {

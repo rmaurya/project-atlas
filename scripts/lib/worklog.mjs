@@ -106,12 +106,34 @@ export function renderDay({ day, identity, contrib, health, plan, commits }) {
   return L.join('\n');
 }
 
-/** Write the day's entry. Returns the path written, or `null` when the log is switched off. */
-export function writeDay(root, cfg, entry, day) {
+/**
+ * A filename-safe slug for a contributor, from the same identity the rest of the analysis groups by.
+ *
+ * The display name, not the email: `worklog/2026-08-10/hi-at-example-com.md` helps nobody. Collisions are
+ * possible and are the caller's problem to notice — `atlas contrib` groups by email and would show two
+ * people, which is where a collision is visible and meaningful.
+ */
+export function contributorSlug(identity) {
+  const name = String(identity || '').split('<')[0].trim() || 'unknown';
+  return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'unknown';
+}
+
+/**
+ * Write the day's entry. Returns the path written, or `null` when the log is switched off.
+ *
+ * One file per contributor per day, not one file per day. `worklog/YYYY-MM-DD/log.md` was a single file the
+ * whole repository shared: two people working the same day overwrote each other, and in git they collided on
+ * every line. The date stays the directory because "what happened on Tuesday" is the question a work log is
+ * read to answer; the contributor is the filename, so nobody contends.
+ *
+ * A log written before this change stays where it is. Migrating it would rewrite history that was true when
+ * it was written, and the old file is a legitimate record of a day when one person worked.
+ */
+export function writeDay(root, cfg, entry, day, identity) {
   if (cfg.worklog?.enabled === false) return null;
   const dir = path.join(root, cfg.worklog?.dir || 'worklog', day);
   fs.mkdirSync(dir, { recursive: true });
-  const file = path.join(dir, 'log.md');
+  const file = path.join(dir, `${contributorSlug(identity)}.md`);
   fs.writeFileSync(file, entry, 'utf8');
   return file;
 }

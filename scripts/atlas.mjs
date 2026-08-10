@@ -530,7 +530,7 @@ async function main() {
       commits: commitsOn(contrib, day),
     });
     if (flag('stdout')) { console.log(entry); return; }
-    const file = writeDay(root, cfg, entry, day);
+    const file = writeDay(root, cfg, entry, day, identity);
     if (!file) { say('worklog.enabled is false — nothing was written.'); return; }
     say(`Wrote ${path.relative(root, file)}`);
     return;

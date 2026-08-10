@@ -36,6 +36,7 @@ export const PANELS = {
   undesigned: 'Code areas no design document cites',
   citations: 'Per design document: how many code citations, and how many still resolve',
   backlog: 'Every task in full: description, the documents that specify it, and who worked on it',
+  worklog: 'The daily work log, one entry per contributor per day',
   caveats: 'What this page does not show, and why',
 };
 
@@ -73,7 +74,7 @@ export const DEFAULT_VIEWS = [
     id: 'delivery', title: 'Delivery', nav: true,
     blurb: 'Throughput and where it is concentrated. Rhythm, not value — a commit count measures neither difficulty nor worth.',
     clusters: ['planning', 'operations'],
-    panels: ['deliveryTiles', 'velocity', 'recent', 'people', 'desks', 'status', 'documents', 'caveats'],
+    panels: ['deliveryTiles', 'velocity', 'worklog', 'recent', 'people', 'desks', 'status', 'documents', 'caveats'],
   },
   {
     id: 'architecture', title: 'Architecture', nav: true,

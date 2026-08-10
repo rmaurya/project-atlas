@@ -22,6 +22,7 @@ import { runHealth, formatReport, SIGNALS } from '../scripts/lib/health.mjs';
 import { renderSite } from '../scripts/lib/render.mjs';
 import { renderMarkdown, inline } from '../scripts/lib/markdown.mjs';
 import { readPlanning, DEFAULT_PLANNING } from '../scripts/lib/planning.mjs';
+import { writeDay, contributorSlug } from '../scripts/lib/worklog.mjs';
 import { readDeck } from '../scripts/lib/deck.mjs';
 import { RAMP, STATUS, viewPage } from '../scripts/lib/dashboard.mjs';
 import { buildWikiPages, wikiPageName, isSafePageName, exportSingleFile, exportBundle, RESERVED, gitlabPagesJob, stageWiki } from '../scripts/lib/publish.mjs';
@@ -2704,6 +2705,25 @@ test('design · undesigned areas are the inverse, and small areas are excluded',
   eq(gaps.find((g) => g.area === 'src').citations, 1);
   eq(gaps.find((g) => g.area === 'lib').citations, 0);
   ok(!gaps.some((g) => g.area === 'tiny'), 'one file is not an area');
+});
+
+test('worklog · one file per contributor per day, and a superseded legacy log is not listed twice', () => {
+  // `worklog/YYYY-MM-DD/log.md` was one file the whole repository shared: two people working the same day
+  // overwrote each other and collided on every line in git. The date stays the directory — "what happened on
+  // Tuesday" is the question a work log answers — and the contributor becomes the filename.
+  const dir = fixture('worklog-scoped', { 'docs/A.md': '# A\n' });
+  const cfg = resolveConfig(dir);
+
+  const a = writeDay(dir, cfg, '# 2026-01-02 — Ada Lovelace\n', '2026-01-02', 'Ada Lovelace');
+  const b = writeDay(dir, cfg, '# 2026-01-02 — Alan Turing\n', '2026-01-02', 'Alan Turing');
+  eq([path.basename(a), path.basename(b)], ['ada-lovelace.md', 'alan-turing.md'],
+     'two people on one day must not share a file');
+  ok(fs.existsSync(a) && fs.existsSync(b), 'both entries survive — neither overwrote the other');
+
+  // A log from before the change is a real record and stays; it is only hidden where a per-contributor file
+  // for the same day has superseded it, which would otherwise list one author twice with two figures.
+  eq(contributorSlug('Rajneesh Maurya'), 'rajneesh-maurya');
+  eq(contributorSlug(''), 'unknown', 'an unknown author still gets a filename rather than throwing');
 });
 
 test('design · the record recognises a PRD and a manual of style, and finds an SRS however it is named', () => {
