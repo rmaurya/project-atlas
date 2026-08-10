@@ -282,6 +282,24 @@ const toneFor = (p) => (p === null ? 'unknown' : p === 0 ? 'none' : p >= 100 ? '
  * **An absence is stated, never left blank.** "No document links to this item from the plan" is a finding;
  * an empty space where sources would go reads as "not applicable", which is a different claim.
  */
+/**
+ * A whole item body wrapped in a single pair of asterisks is a plan-writing habit, not emphasis this can
+ * render: inline emphasis does not span paragraphs, so the markers survive into the page as literal
+ * asterisks at the start and end of the text. Unwrapped rather than italicised across blocks — the intent
+ * was "this is the item's own voice", and a page-length run of italics reads worse than plain prose.
+ *
+ * Only when the pair wraps the *entire* body and is not a bold marker, so an item that merely opens with an
+ * italic sentence is left exactly as written.
+ */
+function unwrapEmphasis(body) {
+  const t = String(body).trim();
+  if (!t.startsWith('*') || !t.endsWith('*')) return body;
+  if (t.startsWith('**') || t.endsWith('**')) return body;
+  const inner = t.slice(1, -1);
+  // A lone asterisk anywhere inside means the outer pair is not a wrapper — leave it to the renderer.
+  return inner.includes('*') ? body : inner;
+}
+
 function backlogPanel(plan, contrib, index, pageOf) {
   const cov = contrib?.available ? taskCoverage(contrib, plan) : null;
   const covById = new Map((cov?.rows || []).map((r) => [r.id, r]));
@@ -331,35 +349,42 @@ function backlogPanel(plan, contrib, index, pageOf) {
       `<li><code class="mono">${escapeHtml(r.hash)}</code> ${escapeHtml(r.subject)}
          <span class="det">${escapeHtml(r.date)}</span></li>`).join('');
 
+    // A row is a <details>, closed. Forty-seven fully expanded tasks is a page nobody scrolls to the end of,
+    // and the summary line carries what you scan by — id, title, status, figure — so nothing needed to find a
+    // task is hidden behind the toggle. The detail is one click, and the browser gives keyboard and find-in-
+    // page behaviour for free, which a div-and-script accordion would have to reimplement and usually breaks.
     return `
-    <article class="card bl-item" id="item-${escapeAttr(it.id)}">
-      <header class="bl-head">
+    <details class="card bl-item" id="item-${escapeAttr(it.id)}">
+      <summary class="bl-head">
+        <span class="bl-chev" aria-hidden="true"></span>
         <code class="mono bl-id">${escapeHtml(it.id)}</code>
         <h3>${escapeHtml(it.title)}</h3>
         <span class="pill t-${toneClass(it.status?.tone)}">${escapeHtml(it.status?.label || 'Unknown')}</span>
         <span class="bl-pct">${pct === null ? '—' : pct + '%'}</span>
-      </header>
-      <p class="det bl-meta">${escapeHtml(it.track)} · ${escapeHtml(it.priority)} · ${escapeHtml(it.criticality)}${
-        it.estimated ? ' · <span class="bl-est">figure estimated in the source</span>' : ''}</p>
-      ${it.description
-        ? `<div class="prose bl-desc">${renderMarkdown(it.description, { resolveLink })}</div>`
-        : '<p class="empty">The plan says nothing beyond this item\'s title.</p>'}
-      <div class="bl-cols">
-        <div>
-          <p class="bl-sub">Specified by</p>
-          ${sources ? `<ul class="linklist">${sources}</ul>`
-                    : '<p class="empty">No document is linked from this item in the plan.</p>'}
+      </summary>
+      <div class="bl-body">
+        <p class="det bl-meta">${escapeHtml(it.track)} · ${escapeHtml(it.priority)} · ${escapeHtml(it.criticality)}${
+          it.estimated ? ' · <span class="bl-est">figure estimated in the source</span>' : ''}</p>
+        ${it.description
+          ? `<div class="prose bl-desc">${renderMarkdown(unwrapEmphasis(it.description), { resolveLink })}</div>`
+          : '<p class="empty">The plan says nothing beyond this item\'s title.</p>'}
+        <div class="bl-cols">
+          <div>
+            <p class="bl-sub">Specified by</p>
+            ${sources ? `<ul class="linklist">${sources}</ul>`
+                      : '<p class="empty">No document is linked from this item in the plan.</p>'}
+          </div>
+          <div>
+            <p class="bl-sub">Worked on by</p>
+            ${people ? `<ul class="linklist">${people}</ul>`
+                     : `<p class="empty">${cov ? 'No commit names this item.' : 'Git metadata is off, so contributors are unknown.'}</p>`}
+          </div>
         </div>
-        <div>
-          <p class="bl-sub">Worked on by</p>
-          ${people ? `<ul class="linklist">${people}</ul>`
-                   : `<p class="empty">${cov ? 'No commit names this item.' : 'Git metadata is off, so contributors are unknown.'}</p>`}
-        </div>
+        ${commits ? `<details class="bl-commits"><summary>${c.commits} commit${c.commits === 1 ? '' : 's'}${
+          c.commits > (c.recent || []).length ? ` · showing the ${c.recent.length} most recent` : ''}</summary>
+          <ul class="linklist">${commits}</ul></details>` : ''}
       </div>
-      ${commits ? `<details class="bl-commits"><summary>${c.commits} commit${c.commits === 1 ? '' : 's'}${
-        c.commits > (c.recent || []).length ? ` · showing the ${c.recent.length} most recent` : ''}</summary>
-        <ul class="linklist">${commits}</ul></details>` : ''}
-    </article>`;
+    </details>`;
   };
 
   const withSources = plan.items.filter((i) => (i.sources || []).length).length;
@@ -825,14 +850,27 @@ abbr { text-decoration:none; cursor:help; color:var(--muted); }
  * the two metadata columns sit beside each other only when there is room for both. */
 .dash-read { display:block; max-width:100%; }
 .bl-track-h { margin:34px 0 12px; font-size:15px; text-transform:uppercase; letter-spacing:.07em; color:var(--muted); }
-.bl-item { margin:0 0 14px; }
-.bl-head { display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; }
+.bl-item { margin:0 0 10px; padding:0; }
+/* The whole summary row is the control, so the click target is the row rather than a chevron the size of a
+ * full stop. The native marker is replaced, not hidden: a disclosure with no affordance is a div. */
+.bl-head { display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; cursor:pointer;
+  list-style:none; padding:14px 20px; border-radius:12px; }
+.bl-head::-webkit-details-marker { display:none; }
+.bl-head:hover { background:var(--code-bg); }
+.bl-head:focus-visible { outline:2px solid var(--link); outline-offset:-2px; }
+.bl-chev { flex:0 0 auto; width:9px; height:9px; border-right:2px solid var(--muted); border-bottom:2px solid var(--muted);
+  transform:rotate(-45deg); transition:transform .12s ease; align-self:center; }
+.bl-item[open] > .bl-head .bl-chev { transform:rotate(45deg); }
+@media (prefers-reduced-motion: reduce) { .bl-chev { transition:none; } }
 .bl-head h3 { margin:0; font-size:17px; flex:1 1 auto; }
 .bl-id { font-size:12.5px; color:var(--muted); }
 .bl-pct { font-variant-numeric:tabular-nums; font-weight:640; }
-.bl-meta { margin:4px 0 10px; font-size:12.5px; }
+.bl-body { padding:0 20px 16px; }
+.bl-meta { margin:0 0 10px; font-size:12.5px; }
 .bl-est { color:var(--warn); }
-.bl-desc { max-width:68ch; font-size:14px; }
+/* Full width, as asked. The measure guidance is a default, not a law — and here the description is technical
+ * prose read against the metadata beside it rather than an essay read end to end. */
+.bl-desc { max-width:none; font-size:14px; }
 .bl-desc p:first-child { margin-top:0; }
 .bl-cols { display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:14px; margin-top:12px; }
 .bl-sub { margin:0 0 6px; font-size:12px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); }
@@ -882,6 +920,17 @@ const TABLE_JS = `
     };
     bq.addEventListener('input', bfilter);
     bfilter();
+
+    // A link to #item-A-9 lands on a closed row, which looks like the anchor is broken. Open it and put it
+    // in view. Also on hashchange, because navigating between anchors on the same page fires no load.
+    var openHash = function () {
+      var id = (location.hash || '').replace('#', '');
+      if (!id) return;
+      var el = document.getElementById(id);
+      if (el && el.tagName === 'DETAILS') { el.open = true; el.scrollIntoView({ block: 'start' }); }
+    };
+    openHash();
+    window.addEventListener('hashchange', openHash);
   }
   // The item table is optional: the backlog page has none, and the wiring above must still run for it.
   var tbl = document.getElementById('itbl'); if (!tbl) return;

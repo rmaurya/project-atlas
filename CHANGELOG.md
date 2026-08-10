@@ -13,7 +13,27 @@ versions follow [Semantic Versioning](https://semver.org/).
 - `atlas plan` — propose the git route for the working tree and wait for approval, rather than only refusing a
   commit once it is attempted.
 
-## [0.1.40] — 2026-08-10
+## [0.1.41] — 2026-08-10
+
+### Changed
+- **Backlog rows are accordions, closed by default.** Forty-seven fully expanded tasks made a page nobody
+  scrolls to the end of. The summary row keeps what you scan by — id, title, status, figure — so nothing
+  needed to *find* a task is behind the toggle, and the whole row is the click target rather than a chevron
+  the size of a full stop. Built on `<details>`, so keyboard operation and find-in-page come from the browser
+  instead of being reimplemented and half-broken.
+- **Descriptions use the full card width.** They were capped at 68ch, which left half the card empty beside
+  technical prose that is read against the metadata rather than end to end.
+- A link to `#item-X` now opens that item and scrolls to it, on load and on `hashchange`. An anchor landing
+  on a closed row looks like a broken anchor.
+
+### Fixed
+- **A whole item body wrapped in a single pair of asterisks rendered its markers as literal text.** Inline
+  emphasis does not span paragraphs, so `*…*` around a multi-paragraph item survived into the page. The pair
+  is now unwrapped when it wraps the entire body — not italicised across blocks, because the intent was "the
+  item's own voice" and a page-length run of italics reads worse than plain prose. An item that merely opens
+  with an italic sentence is untouched.
+
+
 
 ### Fixed
 - **The backlog page emitted a dead link and failed `build --verify`.** An item's description is the plan's
