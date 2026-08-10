@@ -904,9 +904,13 @@ abbr { text-decoration:none; cursor:help; color:var(--muted); }
 .bl-commits summary { cursor:pointer; color:var(--muted); }
 .bl-commits summary:hover { color:var(--link); }
 .bl-filters { align-items:end; gap:10px 12px; }
-.bl-f { display:flex; flex-direction:column; gap:3px; }
+/* Two-up on a phone, not one-up. Measured at 320px: six selects stacked one per row put 357px of controls
+ * above the first task, so the page opened on nothing but filters. A flex-basis small enough for two to
+ * share a row halves that, and the selects still grow to fill whatever width is going. */
+.bl-f { display:flex; flex-direction:column; gap:3px; flex:1 1 132px; min-width:0; }
 .bl-f-label { font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); }
-.bl-filters .fsel { min-width:120px; padding:7px 9px; font-size:13px; }
+.bl-filters .fsel { width:100%; min-width:0; padding:7px 9px; font-size:13px; }
+@media (min-width:900px) { .bl-f { flex:0 1 auto; } .bl-filters .fsel { min-width:120px; } }
 .bl-clear { font:inherit; font-size:13px; color:var(--muted); background:var(--bg); cursor:pointer;
   border:1px solid var(--line); border-radius:8px; padding:7px 12px; }
 .bl-clear:hover { color:var(--link); border-color:var(--link); }

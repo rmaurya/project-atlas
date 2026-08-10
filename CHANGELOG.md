@@ -13,6 +13,14 @@ versions follow [Semantic Versioning](https://semver.org/).
 - `atlas plan` — propose the git route for the working tree and wait for approval, rather than only refusing a
   commit once it is attempted.
 
+## [0.1.44] — 2026-08-10
+
+### Fixed
+- **The backlog filters took 357px of a 320px-wide screen before the first task.** Six selects stacked one
+  per row, so the page opened on nothing but controls. They now pack two-up below 900px and keep their
+  natural width above it. Measured rather than assumed — the previous release shipped this row without a
+  phone-width check and said so.
+
 ## [0.1.43] — 2026-08-10
 
 ### Added
