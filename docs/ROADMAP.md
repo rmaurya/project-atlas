@@ -16,6 +16,7 @@ measured against the code — the same distinction the tool preserves everywhere
 | C-1 | 100 | C-2 | 100 | C-3 | 100 |
 | C-4 | 100 | C-5 | 100 | C-6 | 100 |
 | P-1 | 100 | P-2 | 90 | P-3 | 100 |
+| P-4 | 0 | | | | |
 | Q-1 | 100 | Q-2 | 100 | Q-3 | 100 |
 | D-1 | 100 | D-2 | 100 | D-3 | 100 |
 | D-4 | 100 | D-5 | 100 | D-6 | 100 |
@@ -102,6 +103,28 @@ assert: the publish refuses, `--import` rescues the human text with a `MAPPING.j
 **One thing remains and it is not code.** GitHub Pages has never served this site: the workflow builds and
 uploads on every push, and the repository's Pages source is not set to *GitHub Actions*. That is a setting in
 this repository, the same class as branch protection, and no amount of tool work reaches it.
+
+**P-4 · The brand appears in what the tool generates** — **P2 · Medium**
+*`assets/atlas-logo.svg`, `atlas-logo-dark.svg` and `atlas-mark.svg` exist and the palette they use is
+already in the stylesheet as `--atlas-contour`, `--atlas-summit` and `--atlas-benchmark`. Nothing renders
+them: `.brand` in the topbar is a text span, and every generated page is wordmark-free.*
+
+*Four constraints decide the implementation, and three of them rule out the obvious approach:*
+
+- ***Inline the SVG, never link it.*** *The single-file export, the published artifact and the wiki all
+  forbid an external request — the artifact CSP blocks it outright. A `<img src>` would work locally and
+  break in exactly the places the output is meant to travel to.*
+- ***One themed mark, not two files.*** *Pages have three theme states, and the un-stamped one is the most
+  common. A light/dark pair chosen at build time picks the wrong one for half of all viewers; an inline SVG
+  drawn with the existing tokens follows the viewer's theme for free. The two exported variants stay as
+  source-of-truth artwork rather than as what ships.*
+- ***`#7FB3A8` has no token.*** *It appears in the artwork and in no palette. Either it earns a name or the
+  artwork loses it — an unnamed colour in a themed system is the thing that later renders wrong in one mode.*
+- ***The wiki cannot take inline SVG.*** *GitHub strips it from rendered markdown, so a wiki wordmark needs a
+  committed image referenced by URL — a different mechanism from every other surface, and one that only works
+  while the repository is public.*
+
+*Also a favicon, as a `data:` URI, for the exported page and the artifact.*
 
 ## Track 3 — Quality
 
