@@ -6,9 +6,9 @@ _Written by `atlas worklog`. Measured from git and the corpus; no prompt text, a
 
 | | |
 |---|---|
-| Commits | 3 |
-| Lines | +1,419 / −43 |
-| Rework rate | 81.2% — a file re-touched within 3 days |
+| Commits | 4 |
+| Lines | +1,475 / −54 |
+| Rework rate | 81.4% — a file re-touched within 3 days |
 | Reverts | 0 |
 | Documentation | 0 blocking finding(s) at end of day |
 
@@ -29,6 +29,7 @@ _Written by `atlas worklog`. Measured from git and the corpus; no prompt text, a
 - `a9fb2da` feat(serve): a dashboard you have to remember to start is a dashboard that is usually not running (A-8)
 - `a7f777f` feat(plan): the tool marks work in progress, because the agent does not (A-13, A-7)
 - `ed29638` feat(autonomy): handoff, branching posture, and the derived half that maintains itself (A-9, A-5, A-2, A-6, A-11, A-12)
+- `20b0391` fix(journal): the tool's own records went to unknown.jsonl, defeating per-contributor scope (A-12)
 
 ---
 
