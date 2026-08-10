@@ -8,7 +8,8 @@
     "**/_wiki/**",
     "LICENSE",
     "plugins/**",
-    "worklog/**"
+    "worklog/**",
+    "docs/handoff/*/**"
   ],
   "clusters": [
     {
