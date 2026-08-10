@@ -156,6 +156,7 @@ function panel(id, { index, health, plan, cfg, contrib, view, nameFor, repo }) {
     case 'items': return hasPlan ? itemTable(plan) : null;
     case 'backlog': return hasPlan ? backlogPanel(plan, contrib, index, pageOf) : null;
     case 'worklog': return worklogPanel(cfg, repo);
+    case 'signals': return signalCataloguePanel(health, cfg);
     case 'health': return healthChart(health, cfg);
     case 'clusters': return clusterChart(index);
     case 'deliveryTiles': return hasContrib ? deliveryTiles(contrib) : null;
@@ -393,6 +394,65 @@ function countBy(items, of) {
  * way this tool reports every other kind — and the fix stays a person's to make, because a machine can see
  * that a choice happened but not what was argued.
  */
+/**
+ * Every rot signal, whether or not it fired.
+ *
+ * The health page already lists these, and that is one navigation away from the page people actually keep
+ * open — so "what can go wrong in this repository" was information you had to go and ask for. It is more
+ * useful as an always-visible inventory: a reader who has never seen this tool learns what it checks, and a
+ * reader who has learns it at a glance.
+ *
+ * **Signals that fired zero times are listed too, and that is the point.** A catalogue showing only what is
+ * currently wrong cannot distinguish "this check passed" from "this check does not exist here" — which is
+ * the same confusion the Status filter had when `In progress` vanished, and the same one the Not-checked
+ * section of the health report exists to prevent. `ok` is a result. Absence is not.
+ *
+ * A signal that could not run is neither: it says so, because a check reported as clean when it never
+ * executed is the one lie this whole project is built to refuse.
+ */
+function signalCataloguePanel(health, cfg) {
+  const blocking = new Set(cfg.blocking || []);
+  const counts = new Map();
+  const suppressed = new Map();
+  for (const f of health.findings || []) {
+    if (f.suppressed) suppressed.set(f.id, (suppressed.get(f.id) || 0) + 1);
+    else counts.set(f.id, (counts.get(f.id) || 0) + 1);
+  }
+  const unevaluated = new Set(health.unevaluated || []);
+
+  const rows = Object.values(SIGNALS).map((sig) => {
+    const n = counts.get(sig.id) || 0;
+    const sup = suppressed.get(sig.id) || 0;
+    const isBlocking = blocking.has(sig.id);
+
+    let state, tone;
+    if (unevaluated.has(sig.id)) { state = 'not checked'; tone = 'warn'; }
+    else if (!n) { state = 'ok'; tone = 'ok'; }
+    else if (isBlocking) { state = `${n} · blocking`; tone = 'bad'; }
+    else { state = String(n); tone = 'warn'; }
+
+    return `<tr>
+      <td><code>${escapeHtml(sig.id)}</code></td>
+      <td>${escapeHtml(sig.title)}${isBlocking ? ' <span class="sig-b">blocks</span>' : ''}</td>
+      <td class="${tone}">${escapeHtml(state)}${sup ? ` <span class="det">+${sup} suppressed</span>` : ''}</td>
+    </tr>`;
+  }).join('');
+
+  const fired = [...counts.values()].reduce((a, b) => a + b, 0);
+  return `<section class="card" id="signals">
+  <h2>Rot signals <span class="count">${Object.keys(SIGNALS).length}</span></h2>
+  <p class="cap">Everything this tool checks for, including the checks that found nothing —
+    <strong>ok is a result, absence is not</strong>. A signal marked <em>blocks</em> has no legitimate cause,
+    so a commit that introduces one is refused. <em>not checked</em> means the check could not run, and is
+    never reported as clean.</p>
+  <div class="table-wrap"><table class="mini-table sig-table">
+    <thead><tr><th>Id</th><th>Signal</th><th>Now</th></tr></thead>
+    <tbody>${rows}</tbody>
+  </table></div>
+  <p class="det">${fired} finding(s) across ${counts.size} signal(s); ${Object.keys(SIGNALS).length - counts.size} found nothing.</p>
+</section>`;
+}
+
 function decisionsPanel(index, cfg, root, pageOf) {
   const docs = index.documents.filter((d) => /(^|\/)(adr|decisions?)\//i.test(d.path) || /(^|\/)ADR[-_ ]?\d+/i.test(d.path));
 
@@ -1118,6 +1178,9 @@ abbr { text-decoration:none; cursor:help; color:var(--muted); }
  * above the first task, so the page opened on nothing but filters. A flex-basis small enough for two to
  * share a row halves that, and the selects still grow to fill whatever width is going. */
 .bl-f { display:flex; flex-direction:column; gap:3px; flex:1 1 132px; min-width:0; }
+.sig-table code { font-size:12px; }
+.sig-b { font-size:10px; text-transform:uppercase; letter-spacing:.05em; padding:1px 5px; border-radius:4px;
+  background:var(--bad); color:#fff; vertical-align:middle; }
 .dec-list { margin:0; padding-left:18px; }
 .dec-list li { margin:3px 0; }
 .bl-f-toggle { flex-direction:row; align-items:center; gap:6px; }

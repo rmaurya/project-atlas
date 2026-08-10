@@ -52,6 +52,7 @@ import { note as journalNote, read as journalRead, MAX_TEXT, slugCollisions } fr
 import { testInventory, casesInFile } from '../scripts/lib/testcases.mjs';
 import { designRecord, undesigned, citationHealth, EXPECTED } from '../scripts/lib/design.mjs';
 import { scaffold as scaffoldDesign, TEMPLATES } from '../scripts/lib/scaffold.mjs';
+import { renderLauncher, launcherProjects } from '../scripts/lib/launcher.mjs';
 import { manifestUrl, checkForUpdate, fetchLatest, readCache, writeCache, isFresh } from '../scripts/lib/update.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -4185,6 +4186,52 @@ test('config · a config written for a newer atlas degrades instead of refusing 
   let threw = null;
   try { resolveConfig(bad); } catch (e) { threw = e; }
   ok(threw && /is not a signal/.test(threw.message), 'a misspelled id is still refused');
+});
+
+test('signals · the catalogue lists checks that found nothing, and never calls an unrun check clean', () => {
+  // A catalogue showing only what is currently wrong cannot distinguish "this passed" from "this does not
+  // exist here" — the same confusion as a Status filter whose `In progress` option vanishes when nothing is
+  // in progress. `ok` is a result; absence is not.
+  const dir = fixture('signal-catalogue', {
+    'project-atlas.config.json': JSON.stringify({ blocking: ['H1'] }),
+    'docs/A.md': '# A\n\n[gone](nope.md)\n',
+  });
+  const cfg = resolveConfig(dir);
+  const index = buildIndex(dir, cfg);
+  const health = runHealth(index, cfg, dir);
+  const html = viewPage({ id: 'qc', title: 'QC', panels: ['signals'] },
+    { index, health, plan: null, cfg: { ...cfg, __root: dir }, contrib: null, nav: [] }, (o) => o.body);
+
+  // Every signal in the catalogue appears, fired or not.
+  for (const id of Object.keys(SIGNALS)) includes(html, `<code>${id}</code>`);
+  includes(html, 'blocks', 'a blocking signal is marked as one');
+  includes(html, 'ok', 'signals that found nothing are shown as ok rather than omitted');
+  // H9 has no pairs configured in this fixture, so it could not run — and must not read as clean.
+  includes(html, 'not checked');
+});
+
+test('launcher · lists every project, and states that it cannot check them', () => {
+  // A hand-written link to one project is wrong the moment you switch, and silently wrong: it opens a real
+  // dashboard belonging to something else.
+  const projects = launcherProjects(
+    [{ root: '/tmp/one', name: 'one', port: 4201, url: 'http://127.0.0.1:4201/' },
+     { root: '/tmp/two', name: 'two', port: 4202, url: 'http://127.0.0.1:4202/' }],
+    { root: '/tmp/two', port: 4202 });
+  eq(projects.length, 2);
+  eq(projects[0].current, true, 'the current repository sorts first');
+  eq(projects[0].name, 'two');
+
+  const html = renderLauncher(projects, { generatedAt: '2026-08-11 00:00 UTC' });
+  includes(html, 'http://127.0.0.1:4201/');
+  includes(html, 'http://127.0.0.1:4202/');
+  includes(html, 'this repository');
+  // An artifact cannot reach the machine to ask whether a server is up, so it must not imply that it did.
+  includes(html, 'recorded, not checked');
+
+  // A repository with no server yet still appears, because its port is knowable from its path alone.
+  const solo = launcherProjects([], { root: '/tmp/three', port: 4203 });
+  eq(solo.length, 1);
+  eq(solo[0].url, 'http://127.0.0.1:4203/');
 });
 
 console.log(`\n${pass} passed, ${fail} failed${skipped ? `, ${skipped} skipped on ${process.platform}` : ''}\n`);

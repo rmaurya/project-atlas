@@ -1,6 +1,6 @@
 # Roadmap — project-atlas
 
-**Last updated:** 2026-08-10 · **Version:** 0.1.60 · **Status:** pre-release, dogfooding
+**Last updated:** 2026-08-10 · **Version:** 0.1.61 · **Status:** pre-release, dogfooding
 
 Open work, with an honest completion figure against each item. A figure marked `*` is estimated rather than
 measured against the code — the same distinction the tool preserves everywhere else, applied to itself.
@@ -23,7 +23,7 @@ measured against the code — the same distinction the tool preserves everywhere
 | D-7 | 100 | D-8 | 100 | D-9 | 100 |
 | D-10 | 100 | I-1 | 100 | | |
 | I-3 | 100 | D-11 | 100 | I-2 | 100 |
-| A-1 | 100 | A-2 | 100 | A-3 | 0 |
+| A-1 | 100 | A-2 | 100 | A-3 | 100 |
 | A-4 | 10 | A-5 | 100 | A-6 | 100 |
 | A-7 | 100 | A-8 | 100 | A-9 | 100 |
 | A-10 | 100 | A-11 | 100 | A-12 | 100 |
@@ -31,7 +31,8 @@ measured against the code — the same distinction the tool preserves everywhere
 | S-4 | 100 | S-5 | 100 | S-6 | 100 |
 | S-7 | 100 | M-1 | 0 | M-2 | 0 |
 | A-13 | 100 | A-14 | 100 | A-15 | 100 |
-| A-16 | 100 | A-17 | 100 | A-18 | 100 | | | | |
+| A-16 | 100 | A-17 | 100 | A-18 | 100 |
+| A-19 | 100 | P-7 | 100 | | | | | | |
 
 ---
 
@@ -382,14 +383,19 @@ All of it is derived and safe to delete, which is exactly what makes it safe to 
 **A-3 · Task list reconciliation** — **P2 · Medium**
 *The plan and the task list drift apart silently. Reconcile them and report the difference, without editing
 anyone's prose.*
-**Not built, deliberately: the mechanism already exists and is unconfigured.** H9 — cross-reference
+*Closed in 0.1.61 — by configuring the mechanism that already existed, which was the finding.*
+**No second mechanism was built.** H9 — cross-reference
 asymmetry — does exactly this: an identifier present in one of a paired set of documents and absent from
 the other. `atlas health` already reports *"No crossref pairs configured — H9 checked nothing"* on every
 run. Building a second reconciliation beside it would be two mechanisms for one question, which is the
 drift this tool exists to detect, committed by the tool.
-What is missing is a pair to point it at, and **this repository has none** — the roadmap is its only task
-list, so there is genuinely nothing to reconcile here. Closing this means configuring `crossref` in a
-repository that carries both documents, which is a per-repository act rather than a code change.
+The earlier reading — that this repository had no second list to pair — was wrong, and wrong in an
+instructive way: it looked for a *task list* and missed the pair sitting in plain sight. **Every item
+that ships should be named in the changelog**, so `docs/ROADMAP.md` and `CHANGELOG.md` are the pair.
+Configured, H9 immediately reported **27 shipped items the changelog never named** — real drift, found
+by a check that had been printing *"no crossref pairs configured"* on every run for its entire life.
+The lesson is worth more than the fix: a check nobody configured is indistinguishable from a check that
+passes, which is the same confusion `In progress (0)` and the Not-checked section both exist to prevent.
 
 **A-4 · SOP obligations** — **P1 · High**
 *Shipped in 0.1.60.*
@@ -501,6 +507,25 @@ its own health report.*
 scaffold never counts as a design record, because converting an honest absence into a false presence is
 worse than the gap — an absence is visible, a false presence is trusted. Nothing removes the stub marker
 automatically; a tool that cleared it would be asserting the document had been written.*
+
+**A-19 · One doorway to every dashboard** — **P2 · Medium**
+*Shipped in 0.1.61.* *A hand-written link to one project's dashboard is wrong the moment you switch
+projects — and silently wrong, because it opens a real dashboard belonging to something else, which is the
+exact failure this project spent a session chasing. `atlas serve --launcher` generates a page listing every
+project atlas knows about, each with the port derived from its own path. Published as an artifact it becomes
+a permanent entry in the editor's footer.*
+***It states that it cannot check.*** *An artifact runs under a policy that blocks outbound requests, so the
+page cannot know whether a server is up and does not imply it — a status dot it could not have earned would
+be the same lie as a build stamp nobody checked. What it can rely on is that a port is a pure function of a
+repository path, so a recorded link stays correct for that checkout whether or not the server is running.*
+
+**P-7 · Every signal, including the ones that found nothing** — **P2 · Medium**
+*Shipped in 0.1.61.* *The signal catalogue lived only on the Health page, one navigation away from the page
+people keep open, so "what can go wrong in this repository" was something you had to go and ask for. It is
+now a panel on the dashboard and the QC view.*
+*Signals that fired zero times are listed too, and that is the point: a catalogue showing only what is
+currently wrong cannot distinguish "this check passed" from "this check does not exist here". `ok` is a
+result; absence is not. A signal that could not run says so, and is never reported as clean.*
 
 **A-16 · The reasoning behind a decision outlives the session that made it** — **P1 · High**
 *Shipped in 0.1.59, with one part deliberately not built the way it was specified.*

@@ -13,6 +13,25 @@ versions follow [Semantic Versioning](https://semver.org/).
 - `atlas plan` — propose the git route for the working tree and wait for approval, rather than only refusing a
   commit once it is attempted.
 
+## [0.1.61] — 2026-08-11
+
+### Added
+- **Every rot signal on the dashboard** (P-7), not only on the Health page — including the ones that found
+  nothing. A catalogue showing only what is currently wrong cannot distinguish "this check passed" from
+  "this check does not exist here". `ok` is a result; absence is not. A signal that could not run says so.
+- **`atlas serve --launcher`** (A-19) generates one page listing every project's dashboard, each on the
+  port derived from its own path. A hand-written link to one project is wrong the moment you switch — and
+  silently wrong, since it opens a real dashboard belonging to something else. The page states that it
+  cannot check whether a server is up, because an artifact cannot reach your machine to ask.
+
+### Fixed
+- **A-3 closed by configuring the mechanism that already existed.** The earlier reading — that this
+  repository had no second list to reconcile — was wrong, and instructively so: it looked for a *task list*
+  and missed the pair in plain sight. Every item that ships should be named in the changelog, so
+  `docs/ROADMAP.md` and `CHANGELOG.md` are now a crossref pair. H9 immediately reported **27 shipped items
+  the changelog never named** — real drift, from a check that had printed *"no crossref pairs configured"*
+  on every run for its entire life. A check nobody configured is indistinguishable from a check that passes.
+
 ## [0.1.60] — 2026-08-11
 
 ### Added

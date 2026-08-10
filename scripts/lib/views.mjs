@@ -33,6 +33,7 @@ export const PANELS = {
   changes: 'What changed, and which documents cite the files you touched',
   testcases: 'The test inventory — cases by area, and how many exist because something broke',
   decisions: 'Decision records, and how many decisions have not reached them',
+  signals: 'Every rot signal this tool checks for, including the ones that found nothing',
   designRecord: 'Which design artifacts exist: HLD, LLD, data flow, decision records, specifications',
   undesigned: 'Code areas no design document cites',
   citations: 'Per design document: how many code citations, and how many still resolve',
@@ -49,7 +50,7 @@ export const DEFAULT_VIEWS = [
   {
     id: 'dashboard', title: 'Overview', nav: true,
     blurb: 'Everything, in the order a maintainer reads it.',
-    panels: ['tiles', 'progress', 'status', 'health', 'clusters', 'deliveryTiles', 'velocity', 'models', 'people', 'desks', 'coverage', 'items', 'caveats'],
+    panels: ['tiles', 'progress', 'status', 'health', 'signals', 'clusters', 'deliveryTiles', 'velocity', 'models', 'people', 'desks', 'coverage', 'items', 'caveats'],
   },
   {
     // Its own page, not a panel on someone else's. The item table elsewhere is a scanning tool — an id, a
@@ -63,7 +64,7 @@ export const DEFAULT_VIEWS = [
     id: 'qc', title: 'Quality', nav: true,
     blurb: 'Where the corpus is wrong, how often work has to be redone, and what has just landed.',
     clusters: ['procedures', 'planning', 'manuals'],
-    panels: ['health', 'testcases', 'deliveryTiles', 'recent', 'documents', 'coverage', 'caveats'],
+    panels: ['health', 'signals', 'testcases', 'deliveryTiles', 'recent', 'documents', 'coverage', 'caveats'],
   },
   {
     id: 'product', title: 'Product', nav: true,

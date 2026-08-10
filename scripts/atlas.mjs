@@ -57,6 +57,7 @@ import { handoffPath, handoffAge, formatHandoffPrompt, DEFAULT_STALE_AFTER } fro
 import { designRecord } from './lib/design.mjs';
 import { scaffold as scaffoldDesign } from './lib/scaffold.mjs';
 import { acquire as acquireBuildLock } from './lib/lock.mjs';
+import { renderLauncher, launcherProjects } from './lib/launcher.mjs';
 import { startServer, spawnDetached, serverStatus, stopServer, writePid, clearPid, openInBrowser, portInUse, unmanagedServer,
          portForRoot, readRegistry, registerServer, deregisterServer, DEFAULT_PORT, DEFAULT_IDLE_MS } from './lib/serve.mjs';
 
@@ -983,6 +984,21 @@ async function main() {
 
     // With several projects open the question stops being "is it running" and becomes "which one am I
     // looking at". This answers that across every repository on the machine, not just this one.
+    // A generated launcher, because a hand-written link to one project is wrong the moment you switch —
+    // and silently wrong, since it opens a real dashboard belonging to something else.
+    if (flag('launcher')) {
+      const projects = launcherProjects(readRegistry(), { root, port: portForRoot(root) });
+      const html = renderLauncher(projects, {
+        generatedAt: new Date().toISOString().slice(0, 16).replace('T', ' ') + ' UTC',
+        pages: cfg.publish?.pages?.url || null,
+      });
+      const out = typeof flag('out') === 'string' ? path.resolve(flag('out')) : path.join(root, '.atlas', 'dashboards.html');
+      fs.mkdirSync(path.dirname(out), { recursive: true });
+      fs.writeFileSync(out, html, 'utf8');
+      say(`Wrote ${path.relative(root, out)} — ${projects.length} project(s).`);
+      return;
+    }
+
     if (flag('list')) {
       const all = readRegistry();
       if (!all.length) { say('No atlas dashboards are running on this machine.'); return; }
