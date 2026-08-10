@@ -3628,6 +3628,39 @@ test('spec gate · names the actual reason the message was unreadable, not alway
   for (const v of [stdin, unresolved, absent]) eq(v.ok, false);
 });
 
+test('export · a snapshot says it is one, and cannot pretend to be live', () => {
+  // The bundle carries each page's own script, and one of those polls build-stamp.txt and patches the page
+  // in place. Detached from the build directory that fetch can never succeed — so the export shipped a live
+  // mechanism guaranteed to fail, with no build time anywhere on the page to reveal how old it was. Someone
+  // read a stale export on a local server for a whole session and reported the dashboard as never updating.
+  // They were right: it never could. The generated site was correct throughout, which is what made it take
+  // three rounds to find.
+  const dir = fixture('export-snapshot', { 'docs/A.md': '# A\n' });
+  const cfg = resolveConfig(dir);
+  const index = buildIndex(dir, cfg);
+  const health = runHealth(index, cfg, dir);
+  renderSite(index, health, cfg, dir);
+  const html = exportBundle(dir, cfg, null, { generatedAt: '2026-08-10 18:30 UTC' });
+
+  includes(html, 'Snapshot of 2026-08-10 18:30 UTC');
+  includes(html, 'cannot update itself');
+
+  // The flag must be set before any page script reads it. Ordering is the whole mechanism: a flag defined
+  // after the poller starts is a flag that does nothing.
+  const flagAt = html.indexOf('__ATLAS_SNAPSHOT__ = true');
+  const guardAt = html.indexOf('if (!window.__ATLAS_SNAPSHOT__)');
+  ok(flagAt !== -1, 'the bundle must declare itself a snapshot');
+  ok(guardAt !== -1, 'the poller must be guarded — an unguarded one polls a stamp that cannot exist');
+  ok(flagAt < guardAt, 'the flag must be set before the poller reads it');
+
+  // The first attempt at this cut the poller out with a regex that encoded the punctuation of a function it
+  // did not own. It matched nothing, reported success, and shipped the dead poller anyway. Asserting the
+  // guard exists rather than that the text is absent is what makes that failure impossible to repeat
+  // silently: a flag either is read or the assertion above fails.
+  ok(html.includes('build-stamp.txt'),
+    'the poller is switched off by a flag, not deleted — if it vanished, this test asserts the wrong mechanism');
+});
+
 console.log(`\n${pass} passed, ${fail} failed${skipped ? `, ${skipped} skipped on ${process.platform}` : ''}\n`);
 if (fail) {
   console.log('Failures:');

@@ -13,6 +13,35 @@ versions follow [Semantic Versioning](https://semver.org/).
 - `atlas plan` — propose the git route for the working tree and wait for approval, rather than only refusing a
   commit once it is attempted.
 
+## [0.1.54] — 2026-08-11
+
+### Added
+- **The dashboard is simply running** (A-8). `atlas serve` starts a live server detached, builds first so
+  its first paint is current, opens the page, and prints the URL. `--stop`, `--status`, `--list`. A
+  `SessionStart` hook starts it in any repository that has adopted the tool, so there is nothing to
+  remember; `ATLAS_SERVE=0` opts a terminal out.
+- **The port is derived from the repository path**, so several projects are live at once without anyone
+  assigning ports. A fixed port is wrong the moment someone has two projects open: the first server wins
+  and the second either fails or — far worse — its owner opens the one port they know and reads another
+  project's dashboard believing it is theirs. Collisions probe upward and the port actually taken is
+  recorded, so nothing has to guess it afterwards.
+- `atlas serve --list` names every dashboard running on the machine beside its project, because with
+  several open the question stops being "is it running" and becomes "which one am I looking at".
+- **It exits after 30 idle minutes.** That is what makes auto-start safe rather than litter: a server
+  nobody started is otherwise a server nobody knows how to stop, holding a port and serving yesterday.
+- `atlas watch --serve` for the foreground case. Loopback only, static files from the output directory
+  only, `no-store` so the build stamp — the liveness signal — is never cached.
+
+### Fixed
+- **A single-file export shipped a live-update mechanism that could never work, and said nothing about it.**
+  Detached from the directory it was built in, its poll for the build stamp can never succeed — so the
+  export looked like the dashboard, behaved like a dead one, and carried no build time to reveal its age.
+  An export served from a local server was read as the dashboard for an entire session while three
+  releases behind. Exports now print `Snapshot of <time> — this file is frozen and cannot update itself`
+  and switch the poller off rather than letting it fail quietly.
+- `atlas watch` writes a build stamp on its first build, not only on rebuilds, so the page it serves can
+  tell whether it is current from the moment it loads.
+
 ## [0.1.53] — 2026-08-10
 
 ### Fixed

@@ -27,4 +27,22 @@ S="${CLAUDE_PLUGIN_ROOT:-.}/bin/atlas"
 # on the one session a day that actually performs a fetch — every other session reads the cache and returns
 # immediately. Any failure inside prints nothing and exits 0.
 "$S" version --notice 2>/dev/null || true
+
+# ---------------------------------------------------------------- live dashboard
+#
+# The dashboard is only useful if it is up, and a server someone has to remember to start is a server that
+# is usually not running. Worse, its absence is silent: the page keeps polling a stamp it can no longer
+# reach, gives up after three misses, and goes on looking exactly like a live dashboard. A frozen page was
+# read as the dashboard for an entire session before anyone noticed.
+#
+# So it starts here. Three things keep that from becoming litter: the port is derived from the repository
+# (so several projects run at once without contending), the server exits after 30 idle minutes, and it is
+# inert unless this repository has adopted the tool. It is backgrounded because a session must never wait
+# on a dashboard.
+#
+# Off with ATLAS_SERVE=0 in the environment.
+[ "${ATLAS_SERVE:-1}" = "0" ] && exit 0
+root=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
+[ -f "$root/project-atlas.config.json" ] || exit 0
+"$S" serve --quiet --no-open >/dev/null 2>&1 &
 exit 0

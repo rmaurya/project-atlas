@@ -7,3 +7,7 @@ docs/_wiki/
 # the point. Only the stop marker is ignored — it is overwritten on every turn that moves HEAD, so tracking
 # it would put a one-line diff in front of every commit and teach people to ignore the diff.
 .atlas/last-stop
+
+# The server's claim on a port, rewritten on every start — churn, not record.
+.atlas/serve.pid
+.atlas/artifact-page.html

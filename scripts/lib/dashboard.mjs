@@ -1348,7 +1348,10 @@ const TABLE_JS = `
       // against a single-threaded dev server) disabled live updates for the rest of the session, silently.
       .catch(function () {});
   }
-  poll(); timer = setInterval(poll, STEPS[0]);
+  // A bundled snapshot sets this before any page script runs. Polling there fetches a stamp that cannot
+  // exist — the file is detached from the directory it was built in — so the mechanism was guaranteed to
+  // fail and, having failed quietly three times, left a frozen page looking exactly like a live one.
+  if (!window.__ATLAS_SNAPSHOT__) { poll(); timer = setInterval(poll, STEPS[0]); }
 })();
 `;
 

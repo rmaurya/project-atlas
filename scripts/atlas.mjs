@@ -17,7 +17,7 @@
  *   atlas contrib  who did what, from git: people, agents, desks, hours, outcomes
  *   atlas health   report rot signals         (--verbose | --verbose=all)  exit 1 on blocking
  *   atlas build    generate the static site (index, dashboard, deck, health)
- *   atlas watch    build, then rebuild on change; the open page reloads itself
+ *   atlas watch [--serve]      rebuild on change; --serve hosts it live at http://127.0.0.1:4173
  *   atlas all      scan + health + build
  *
  * Zero dependencies. Node >= 18. No network. Reads the repository; writes only the output directory
@@ -52,6 +52,8 @@ import { dayKey, commitsOn, renderDay, writeDay } from './lib/worklog.mjs';
 import { ownership, summariseOwnership } from './lib/ownership.mjs';
 import { survivingLines, formatSurviving } from './lib/surviving.mjs';
 import { note, read as readJournal, formatState, KINDS } from './lib/journal.mjs';
+import { startServer, spawnDetached, serverStatus, stopServer, writePid, clearPid, openInBrowser, portInUse,
+         portForRoot, readRegistry, registerServer, deregisterServer, DEFAULT_PORT, DEFAULT_IDLE_MS } from './lib/serve.mjs';
 
 const argv = process.argv.slice(2);
 
@@ -60,7 +62,7 @@ const argv = process.argv.slice(2);
  * boolean, so a positional after a boolean flag stays positional — `atlas tasks --json safety` keeps `safety`
  * as the filter rather than swallowing it as `--json`'s value.
  */
-const VALUE_FLAGS = new Set(['target', 'page', 'out', 'root', 'config', 'interval', 'refs', 'agent', 'since', 'day', 'why']);
+const VALUE_FLAGS = new Set(['target', 'page', 'out', 'root', 'config', 'interval', 'refs', 'agent', 'since', 'day', 'why', 'port', 'idle-ms']);
 
 const { cmd, positionals, flags } = parseArgs(argv);
 
@@ -845,9 +847,140 @@ async function main() {
     return;
   }
 
+  /*
+   * `atlas serve` — the live dashboard as a thing that is simply running, rather than a command someone has
+   * to remember in a terminal they have to keep.
+   *
+   * Start, stop, status. Starting is idempotent: a second `atlas serve` when one is already up opens the
+   * page rather than fighting for the port, because "make the dashboard appear" is what the person meant
+   * both times.
+   */
+  if (cmd === 'serve') {
+    const st = serverStatus(root);
+
+    if (flag('stop')) {
+      const r = stopServer(root);
+      deregisterServer(root);
+      say(r.stopped ? `Stopped the server on port ${r.port} (pid ${r.pid}).` : `Nothing to stop — ${r.reason}.`);
+      return;
+    }
+
+    // With several projects open the question stops being "is it running" and becomes "which one am I
+    // looking at". This answers that across every repository on the machine, not just this one.
+    if (flag('list')) {
+      const all = readRegistry();
+      if (!all.length) { say('No atlas dashboards are running on this machine.'); return; }
+      say('');
+      for (const e of all) {
+        const here = path.resolve(e.root) === path.resolve(root) ? '  <- this repository' : '';
+        say(`  ${String(e.port).padEnd(6)} ${(e.name || path.basename(e.root)).padEnd(24)} ${e.url}${here}`);
+      }
+      say('');
+      say('  Each project gets its own port, derived from its path — they do not contend.');
+      return;
+    }
+
+    if (flag('status')) {
+      if (!st.running) { say(`Not running.${st.stale ? ` Cleared a stale pidfile for pid ${st.stale}.` : ''}`); return; }
+      const stamp = (() => {
+        try { return fs.readFileSync(path.join(confine(root, cfg.output, 'output', cfg.__configPath), 'build-stamp.txt'), 'utf8').trim(); }
+        catch { return 'no build stamp — the page it serves cannot tell whether it is current'; }
+      })();
+      say(`Running on ${st.url} (pid ${st.pid}, since ${st.startedAt}).`);
+      say(`Serving a build stamped ${stamp}.`);
+      return;
+    }
+
+    if (st.running) {
+      say(`Already running on ${st.url} (pid ${st.pid}).`);
+      if (!flag('no-open')) openInBrowser(st.url);
+      return;
+    }
+
+    // Build before serving. Starting a server over a stale or absent output directory is how a live
+    // dashboard shows yesterday's numbers on its first paint and looks broken from the first second.
+    // Derived from the repository path, so several projects can be live at once without anyone assigning
+    // ports. An explicit --port still wins; a collision probes upward rather than failing, because two
+    // checkouts hashing together is a coincidence, not a decision anyone should have to resolve by hand.
+    let port = typeof flag('port') === 'string' ? Number(flag('port')) : portForRoot(root);
+    if (typeof flag('port') !== 'string') {
+      let probes = 0;
+      while (await portInUse(port) && probes < 12) { port++; probes++; }
+    }
+    if (await portInUse(port)) {
+      say(`Port ${port} is already in use, and it is not a server this repository started.`);
+      say(`  Something else holds it — \`lsof -nP -iTCP:${port} -sTCP:LISTEN\` names it.`);
+      say(`  Use \`atlas serve --port <other>\` to run beside it.`);
+      process.exitCode = 1;
+      return;
+    }
+
+    doBuild(root, cfg, withGit, false, { stamp: true });
+    const pid = spawnDetached(root, {
+      atlasBin: path.join(runningBuild().pluginRoot, 'scripts', 'atlas.mjs'),
+      port,
+      idleMs: Number(flag('idle-ms', DEFAULT_IDLE_MS)) || DEFAULT_IDLE_MS,
+    });
+
+    // The child writes the pidfile once it is actually listening; wait for that rather than announce a URL
+    // that may not answer. A port that is taken makes the child exit, and this reports that instead of
+    // printing a link to nothing.
+    const url = `http://127.0.0.1:${port}/`;
+    let up = false;
+    for (let i = 0; i < 40 && !up; i++) {
+      await new Promise((r) => setTimeout(r, 50));
+      up = serverStatus(root).running;
+    }
+    if (!up) {
+      say(`Started pid ${pid}, but it is not listening on ${port}. Something else may hold that port —`);
+      say(`try \`atlas serve --port <other>\`, or \`atlas watch --serve\` to see the error.`);
+      return;
+    }
+    registerServer({ root: path.resolve(root), name: path.basename(path.resolve(root)), port, url, pid });
+    say(`\n  Live dashboard: ${url}`);
+    say(`  Rebuilds on every markdown change and patches the open page in place. No reload.`);
+    say(`  Exits after ${Math.round((Number(flag('idle-ms', DEFAULT_IDLE_MS)) || DEFAULT_IDLE_MS) / 60000)} minutes with nobody watching. \`atlas serve --stop\` ends it now.`);
+    if (!flag('no-open')) openInBrowser(url);
+    return;
+  }
+
   if (cmd === 'watch') {
-    doBuild(root, cfg, withGit, false);
+    doBuild(root, cfg, withGit, false, { stamp: true });
     const interval = Number(flag('interval', 1500)) || 1500;
+
+    /*
+     * `--serve` exists because "the open page reloads itself" was only true if someone else served the
+     * files. Watch rebuilt into a directory and stopped there, so a live local dashboard meant standing up
+     * a server by hand — and a hand-rolled server dies quietly, leaving a page that looks live, polls a
+     * stamp it can no longer reach, and gives up after three misses without saying so. That is exactly how
+     * a stale snapshot got mistaken for the dashboard for an entire session.
+     *
+     * Static files only, from the output directory only, bound to loopback. It is a preview server for
+     * files this tool just generated, not a web server, and confining it is what keeps it honest about that.
+     */
+    if (flag('serve')) {
+      const outDir = confine(root, cfg.output, 'output', cfg.__configPath);
+      const port = typeof flag('port') === 'string' ? Number(flag('port')) : portForRoot(root);
+      // A detached server has no terminal to be watched from, so it exits when nothing has asked it for
+      // anything — that idle timer is what makes auto-start safe rather than a source of orphans holding
+      // ports. A foreground `watch --serve` gets no timer: someone sitting at the terminal is evidence.
+      const idleMs = flag('detached') ? (Number(flag('idle-ms', DEFAULT_IDLE_MS)) || DEFAULT_IDLE_MS) : 0;
+
+      startServer({
+        outDir, port, idleMs,
+        onIdle: () => { clearPid(root); process.exit(0); },
+        onListen: (p) => {
+          if (flag('detached')) writePid(root, { pid: process.pid, port: p });
+          say(`\n  Serving ${path.relative(root, outDir)} at http://127.0.0.1:${p}/  (loopback only)`);
+          say('  This page IS live: it polls the build stamp and patches itself when a rebuild lands.');
+          if (!flag('no-open') && !flag('detached')) openInBrowser(`http://127.0.0.1:${p}/`);
+        },
+      });
+      // A detached server that is killed must not leave its claim behind: a stale pidfile stops the next
+      // start, which is a worse failure than no server at all.
+      for (const sig of ['SIGTERM', 'SIGINT']) process.on(sig, () => { clearPid(root); process.exit(0); });
+    }
+
     say(`\nWatching for changes (poll every ${interval}ms). The open page reloads itself. Ctrl-C to stop.`);
     let last = fingerprint(root, cfg);
     setInterval(() => {
@@ -1055,7 +1188,7 @@ function usage() {
   atlas contrib [--json]     who did what, from git history alone
   atlas health [--verbose]   report rot signals; exit 1 if any blocking signal fires
   atlas build                generate the static site (index, dashboard, deck, health)
-  atlas watch                build, then rebuild on change; the open page reloads itself
+  atlas watch [--serve]      rebuild on change; --serve hosts it live at http://127.0.0.1:4173
   atlas all                  scan + health + build
   atlas publish              stage a target; NOTHING is pushed without --push
     --target wiki            GitHub Wiki — flattened markdown, links rewritten, drift-guarded

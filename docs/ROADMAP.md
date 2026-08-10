@@ -1,6 +1,6 @@
 # Roadmap — project-atlas
 
-**Last updated:** 2026-08-10 · **Version:** 0.1.53 · **Status:** pre-release, dogfooding
+**Last updated:** 2026-08-10 · **Version:** 0.1.54 · **Status:** pre-release, dogfooding
 
 Open work, with an honest completion figure against each item. A figure marked `*` is estimated rather than
 measured against the code — the same distinction the tool preserves everywhere else, applied to itself.
@@ -25,7 +25,7 @@ measured against the code — the same distinction the tool preserves everywhere
 | I-3 | 100 | D-11 | 100 | I-2 | 100 |
 | A-1 | 100 | A-2 | 0 | A-3 | 0 |
 | A-4 | 0 | A-5 | 0 | A-6 | 0 |
-| A-7 | 0 | A-8 | 0 | A-9 | 0 |
+| A-7 | 0 | A-8 | 100 | A-9 | 0 |
 | A-10 | 100 | A-11 | 0 | A-12 | 0 |
 | S-1 | 100 | S-2 | 100 | S-3 | 0 |
 | S-4 | 100 | S-5 | 100 | S-6 | 100 |
@@ -369,6 +369,16 @@ silently is not.*
 outward-facing.*
 
 **A-8 · The dashboard tracks work as it happens** — **P1 · High**
+*Shipped in 0.1.54 — by the escape hatch this item named, not by the mechanism it proposed.*
+The specified answer was a `PostToolUse` hook rebuilding the dashboard alone. This took the alternative the
+item itself allowed: **make a watcher always be running**, so the "no watcher" case the trigger existed for
+stops occurring. `atlas serve` starts one per repository at session start, detached, on a port derived from
+the repository path, exiting after 30 idle minutes. That reopens no `PostToolUse` decision and adds nothing
+to the edit path — the rebuild happens in a process the edit never waits on.
+*What made it urgent was not the plan.* A frozen single-file export, served from a local port, was read as
+the live dashboard for an entire session — and the tool said nothing, because a detached snapshot polls a
+build stamp it can never reach and gives up silently. Both halves are fixed: exports now declare themselves
+snapshots, and a live dashboard is something that is simply running rather than something to remember.
 *Completing or adding a task updates the dashboard immediately. Half of this already works — every page polls
 a build stamp and `atlas watch` moves it — so what is missing is the trigger when no watcher is running: a
 hook on the planning source alone, rebuilding the dashboard alone, detached so the edit never waits. That

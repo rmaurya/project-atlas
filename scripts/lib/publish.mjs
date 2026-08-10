@@ -491,6 +491,26 @@ export function exportBundle(root, cfg, pages = null, about = {}) {
     const scripts = [...html.matchAll(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/g)].map((m) => m[1]);
     let inner = body ? body[1] : '';
     let js = scripts.join('\n');
+
+    // **A snapshot must not carry the code that makes a page live.**
+    //
+    // The export bundles each page's own script, and one of those scripts polls `build-stamp.txt` and
+    // patches the page in place. In a single file served from anywhere but the build directory that fetch
+    // can never succeed — so the export shipped a live-update mechanism that was guaranteed dead, and said
+    // nothing about it. Someone reading `all.standalone.html` on a local server had a frozen copy of the
+    // corpus, a "live" mechanism that had silently given up after three failed polls, and no build time
+    // anywhere on the page to reveal how old it was. They reported the dashboard as never updating, and
+    // they were right: it never could. The generated site was fine the whole time, which is what made it
+    // take three rounds to find.
+    //
+    // So the poller is switched off and the banner below states what the file is. A snapshot is a legitimate
+    // thing to want — it travels, it needs no server, it is what an artifact is for. What is not legitimate
+    // is a snapshot that looks like a live page.
+    //
+    // Switched off by a flag the poller checks, not by cutting the code out with a regex. A first attempt
+    // did the latter and silently matched nothing, because it encoded the exact punctuation of a function
+    // it does not own — the bundle reported success and shipped the dead poller anyway. A flag cannot
+    // half-work: either the poller reads it or the test that asserts it fails.
     // **A page's own <style> is not optional decoration.** `atlas.css` is the base; the dashboard and every
     // role view add ~130 lines on top of it — the cards, the tiles, the bar charts. Collecting only <main>
     // and <script> shipped the markup and the behaviour with none of the presentation, and the result read as
@@ -546,6 +566,13 @@ ${[...new Set(sections.map((s) => (s.pageCss || '').trim()).filter(Boolean))].jo
 [data-page] { display:none; }
 [data-page].on { display:block; }
 .topbar nav a.on { color:var(--ink); font-weight:620; }
+/* Stated at the top of the page rather than in a footer nobody scrolls to. It is the one fact a reader of
+   a detached file cannot recover any other way, and not knowing it cost three rounds of "it is there" /
+   "I cannot see it". Muted, not alarming: a snapshot is a legitimate thing to be. */
+.snapshot-bar { margin:0; padding:8px 20px; font-size:13px; line-height:1.5;
+  background:var(--surface-2, #f2efe9); color:var(--ink-soft, #57534e);
+  border-bottom:1px solid var(--rule, #e0dcd3); }
+.snapshot-bar code { font-size:12px; }
 .built-by { font-size:12.5px; color:var(--mut); white-space:nowrap; }
 .built-by .sep { opacity:.5; }
 .updbar {
@@ -560,6 +587,8 @@ ${[...new Set(sections.map((s) => (s.pageCss || '').trim()).filter(Boolean))].jo
 </head>
 <body>
 ${updateBar(about)}
+<script>window.__ATLAS_SNAPSHOT__ = true;</script>
+<p class="snapshot-bar">Snapshot${about.generatedAt ? ` of ${escapeHtml(about.generatedAt)}` : ''} — this file is frozen and cannot update itself. For the current state, open the generated site or run <code>atlas watch --serve</code>.</p>
 <header class="topbar">
   <span class="brand">${title}</span>
   <span class="built-by">${escapeHtml(about.tool || 'project-atlas')} ${escapeHtml(about.version || '')}${
