@@ -22,6 +22,25 @@
  * area without one may be three files that need no design at all. Both are stated on the page.
  */
 
+/**
+ * The marker a scaffolded document carries until somebody writes it.
+ *
+ * A scaffold is genuinely useful — it names the questions an artifact has to answer, which is most of the
+ * difficulty — but the moment an empty file exists, a record that only knows *present* and *absent* starts
+ * reporting a design record this repository does not have. That is worse than the gap it closed: an absence
+ * is honest, and a false presence is measured against by every other check.
+ *
+ * So a scaffold declares itself, and the record carries a third state. The marker is removed by the person
+ * who writes the substance, and nothing removes it automatically — a tool that cleared it on their behalf
+ * would be asserting that the document had been written.
+ */
+export const STUB_MARKER = '<!-- atlas:stub — scaffolded, not yet written. Delete this line when the substance is here. -->';
+
+/** Has this document been written, or only scaffolded? */
+export function isStub(body) {
+  return String(body || '').includes('atlas:stub');
+}
+
 /** The artifacts a design record is normally expected to carry, and how to recognise each. */
 export const EXPECTED = [
   { id: 'hld', label: 'High-level design', re: /(^|\/)(HLD|high[-_ ]?level[-_ ]?design)[^/]*\.md$/i },
@@ -50,7 +69,17 @@ export function isDesignDoc(pathname) {
 export function designRecord(documents) {
   return EXPECTED.map((e) => {
     const found = documents.filter((d) => e.re.test(d.path));
-    return { id: e.id, label: e.label, present: found.length > 0, documents: found.map((d) => d.path) };
+    // Three states, not two. `present` stays a boolean for every existing caller, and `state` carries the
+    // distinction that matters: a scaffold is not a design record, and must never be counted as one.
+    const written = found.filter((d) => !isStub(d.body));
+    const state = !found.length ? 'absent' : (written.length ? 'written' : 'stub');
+    return {
+      id: e.id, label: e.label,
+      present: written.length > 0,
+      state,
+      documents: found.map((d) => d.path),
+      stubs: found.filter((d) => isStub(d.body)).map((d) => d.path),
+    };
   });
 }
 
@@ -125,12 +154,15 @@ export function undesigned(codeFiles, designDocs, { depth = 2, minFiles = 2 } = 
 
 /** One line over the set, stating the limit of the claim. */
 export function summariseDesign(record, gaps) {
-  const missing = record.filter((r) => !r.present);
+  const missing = record.filter((r) => r.state === 'absent');
+  const stubbed = record.filter((r) => r.state === 'stub');
   const bare = gaps.filter((g) => g.citations === 0);
   const parts = [];
   parts.push(missing.length
     ? `${missing.length} expected design artifact(s) absent: ${missing.map((m) => m.label).join(', ')}.`
-    : 'Every expected design artifact is present.');
+    : stubbed.length
+      ? `Every expected artifact exists, but ${stubbed.length} ${stubbed.length === 1 ? 'is' : 'are'} still a scaffold with no substance in it.`
+      : 'Every expected design artifact is present.');
   if (bare.length) {
     parts.push(`${bare.length} of ${gaps.length} code area(s) are cited by no design document.`);
   }

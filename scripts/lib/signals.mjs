@@ -32,6 +32,18 @@ export const SIGNALS = {
   H13: { id: 'H13', title: 'Handoff far behind HEAD',
     why: 'A handoff names the commit it was written against, and the repository has moved a long way past it. Advisory: a stale handoff is a cost, not a hazard, and a blocking signal on a document this subjective would train people to suppress it.' },
 
+  /*
+   * SOP obligations. Most documentation degrades gently; an SOP degrades into incorrect instructions that
+   * somebody follows, so it carries obligations no other document does — an owner, a review interval, a
+   * last-verified date — and two of the three checks block.
+   */
+  H10: { id: 'H10', title: 'SOP past its review date',
+    why: 'The document declares its own review interval and has exceeded it. There is no innocent reading: the check the document said was required did not happen.' },
+  H11: { id: 'H11', title: 'SOP has no live owner',
+    why: 'It names no owner, or names one with no commits here. Advisory: people leave and names are spelled inconsistently, and refusing a commit over a spelling would teach people to suppress it.' },
+  H12: { id: 'H12', title: 'Dead citation in an SOP',
+    why: 'A citation that cannot be resolved is untidy in a design document and broken in a procedure: the step referring to it cannot be followed.' },
+
   H14: { id: 'H14', title: 'Design document cites code that moved',
     why: 'A design document is a claim about how the code works. When the code it cites has moved, the claim is wrong rather than merely old — which is why this is stricter than H6.' },
   H15: { id: 'H15', title: 'Expected design artifact absent',

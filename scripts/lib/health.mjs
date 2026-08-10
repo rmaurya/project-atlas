@@ -17,6 +17,23 @@ import { matchesAny, suppressionFor, compileRule } from './config.mjs';
 import { SIGNALS } from './signals.mjs';
 import { designRecord, undesigned, isDesignDoc } from './design.mjs';
 import { handoffAge, handoffsIn, DEFAULT_STALE_AFTER } from './handoff.mjs';
+import { evaluate as evaluateSop, DEFAULT_SOP_MATCH, DEFAULT_REVIEW_DAYS } from './sop.mjs';
+
+/**
+ * Everyone who has ever committed here, for H11.
+ *
+ * Read directly rather than through `readContrib`, which builds a full analysis this needs one field of.
+ * Failure returns an empty list, and an empty list means H11 checks only that an owner is *named* — never
+ * that a named owner is wrong, because "git could not answer" and "this person does not exist" are
+ * different facts and only one of them is worth reporting.
+ */
+function gitAuthors(root) {
+  if (!root) return [];
+  try {
+    return [...new Set(execFileSync('git', ['-C', root, 'log', '--format=%an'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })
+      .split('\n').map((s) => s.trim()).filter(Boolean))];
+  } catch { return []; }
+}
 
 export { SIGNALS };
 
@@ -200,7 +217,39 @@ export function runHealth(index, cfg, root) {
     // `corpus: true` marks a finding whose subject is not a document. The report links `doc` to a generated
     // page, so a label put there produced links to pages/-no-hld--82adea20.html and friends — dead links the
     // site verifier caught. The subject stays readable; the renderer is told not to treat it as a path.
-    if (!kind.present) add('H15', `(no ${kind.id})`, `no ${kind.label.toLowerCase()} in the corpus`, { kind: kind.id, label: kind.label, corpus: true });
+    // A stub is not an absence. The file exists and names the questions it owes an answer to, which is a
+    // different state from nothing at all — and reporting it as absent would make the scaffold pointless
+    // while also making the count wrong in both directions.
+    if (kind.state === 'absent') {
+      add('H15', `(no ${kind.id})`, `no ${kind.label.toLowerCase()} in the corpus`, { kind: kind.id, label: kind.label, corpus: true });
+    } else if (kind.state === 'stub') {
+      add('H15', kind.stubs[0] || `(${kind.id})`, `${kind.label.toLowerCase()} is a scaffold with no substance in it yet`, { kind: kind.id, label: kind.label, corpus: true });
+    }
+  }
+
+  // H10/H11/H12 — SOP obligations. An SOP that has drifted is not out of date, it is incorrect instructions
+  // being followed, and the cost lands on whoever trusted it — the person least able to notice.
+  //
+  // `today` is taken once and passed down rather than read per document, so every finding in one run is
+  // measured against the same day. Two documents judged against different clocks in the same report is the
+  // kind of quiet inconsistency that makes a report untrustworthy for reasons nobody can find.
+  {
+    const sopRules = cfg.sop?.match || DEFAULT_SOP_MATCH;
+    const sops = index.documents.filter((d) => matchesAny(d.path, sopRules));
+    if (sops.length) {
+      const today = new Date().toISOString().slice(0, 10);
+      const owners = (cfg.sop?.owners || []).length ? cfg.sop.owners : gitAuthors(root);
+      for (const d of sops) {
+        const v = evaluateSop(d, { today, owners, reviewDaysDefault: cfg.sop?.reviewDays ?? DEFAULT_REVIEW_DAYS });
+        for (const f of v.findings) add(f.id, d.path, f.detail);
+        // H12 — the same citations H2 already resolved, judged by a stricter rule because this is a
+        // procedure. Reusing H2's work rather than re-resolving keeps one answer to "does this path exist".
+        for (const c of d.citations || []) {
+          if (typeof c.resolved === 'string') continue;
+          add('H12', d.path, `step cites ${c.raw || c.path}, which cannot be resolved`);
+        }
+      }
+    }
   }
 
   // H13 — a handoff that names a commit far behind HEAD. Advisory by design: a stale handoff is a cost, not

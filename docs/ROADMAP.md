@@ -1,6 +1,6 @@
 # Roadmap — project-atlas
 
-**Last updated:** 2026-08-10 · **Version:** 0.1.59 · **Status:** pre-release, dogfooding
+**Last updated:** 2026-08-10 · **Version:** 0.1.60 · **Status:** pre-release, dogfooding
 
 Open work, with an honest completion figure against each item. A figure marked `*` is estimated rather than
 measured against the code — the same distinction the tool preserves everywhere else, applied to itself.
@@ -24,14 +24,14 @@ measured against the code — the same distinction the tool preserves everywhere
 | D-10 | 100 | I-1 | 100 | | |
 | I-3 | 100 | D-11 | 100 | I-2 | 100 |
 | A-1 | 100 | A-2 | 100 | A-3 | 0 |
-| A-4 | 0 | A-5 | 100 | A-6 | 100 |
+| A-4 | 10 | A-5 | 100 | A-6 | 100 |
 | A-7 | 100 | A-8 | 100 | A-9 | 100 |
 | A-10 | 100 | A-11 | 100 | A-12 | 100 |
 | S-1 | 100 | S-2 | 100 | S-3 | 0 |
 | S-4 | 100 | S-5 | 100 | S-6 | 100 |
 | S-7 | 100 | M-1 | 0 | M-2 | 0 |
 | A-13 | 100 | A-14 | 100 | A-15 | 100 |
-| A-16 | 100 | A-17 | 100 | | | | |
+| A-16 | 100 | A-17 | 100 | A-18 | 100 | | | | |
 
 ---
 
@@ -392,6 +392,7 @@ list, so there is genuinely nothing to reconcile here. Closing this means config
 repository that carries both documents, which is a per-repository act rather than a code change.
 
 **A-4 · SOP obligations** — **P1 · High**
+*Shipped in 0.1.60.*
 *An SOP is wrong rather than stale when it drifts, so it carries an owner, a review interval and a
 last-verified date. Three signals — H10 past review (blocking), H11 no live owner (advisory), H12 dead
 citation (blocking).*
@@ -488,6 +489,18 @@ front of someone keeps looking like a dashboard while serving nothing, which is 
 project already spent a session chasing. Every markdown write now also ensures it is up (idempotent, cheap
 when it already is, backgrounded so no edit waits), and the session hook prints the URL so the link is
 surfaced without anyone asking for it.*
+
+**A-18 · The design record can be started, never written** — **P1 · High**
+*Shipped in 0.1.60.* *The Architecture page reported eight artifacts absent and offered no way to close the
+gap — accurate and useless in equal measure. Generating the documents was rejected: a design document is a
+set of claims about what the code is **for** and what was **rejected**, and generated claims nobody reviewed
+would land in the corpus every other check measures drift against, so the repository would begin lying to
+its own health report.*
+*What is actually hard is knowing which questions each document owes an answer to, and that is a template.
+`atlas design --scaffold` writes them. The safety is a **third state**: `absent` / `stub` / `written`. A
+scaffold never counts as a design record, because converting an honest absence into a false presence is
+worse than the gap — an absence is visible, a false presence is trusted. Nothing removes the stub marker
+automatically; a tool that cleared it would be asserting the document had been written.*
 
 **A-16 · The reasoning behind a decision outlives the session that made it** — **P1 · High**
 *Shipped in 0.1.59, with one part deliberately not built the way it was specified.*

@@ -78,11 +78,6 @@
     }
   ],
   "fallbackCluster": "uncategorised",
-  "blocking": [
-    "H1",
-    "H3",
-    "H8"
-  ],
   "staleDays": 30,
   "planning": {
     "source": "docs/ROADMAP.md"

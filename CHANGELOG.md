@@ -13,6 +13,26 @@ versions follow [Semantic Versioning](https://semver.org/).
 - `atlas plan` — propose the git route for the working tree and wait for approval, rather than only refusing a
   commit once it is attempted.
 
+## [0.1.60] — 2026-08-11
+
+### Added
+- **SOP obligations** (A-4). An SOP that has drifted is not out of date — it is incorrect instructions
+  somebody is following, and the cost lands on whoever trusted it. Documents matching an SOP pattern now
+  declare an owner, a review interval and a last-verified date, checked by three signals: **H10** past its
+  own declared review interval (**blocking**), **H12** a step citing something unresolvable (**blocking**),
+  **H11** no live owner (advisory — people leave and names are spelled inconsistently). The tool never
+  edits the obligations: bumping a last-verified date because a build ran would assert that a human
+  verified something.
+- **`atlas design --scaffold`** (A-18) writes the questions each design artifact owes an answer to, and
+  never the answers. The design record gains a **third state** — `absent` / `stub` / `written`. A scaffold
+  never counts as written, because converting an honest absence into a false presence is worse than the
+  gap: an absence is visible, a false presence is trusted by every other check. `atlas design` alone
+  reports the state.
+
+### Fixed
+- The Decisions panel linked to document pages without the `pages/` prefix, producing a dead link the site
+  verifier caught — which is exactly what that verifier is for.
+
 ## [0.1.59] — 2026-08-11
 
 ### Added

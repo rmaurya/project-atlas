@@ -409,9 +409,12 @@ function decisionsPanel(index, cfg, root, pageOf) {
   if (!docs.length && !journalled) return null;
 
   const rows = docs.map((d) => {
+    // `pages/` prefix: views are written at the root of the output directory and document pages live one
+    // level down. Linking to the bare page name produced a dead link the site verifier caught — which is
+    // the whole reason that verifier exists.
     const page = pageOf ? pageOf(d.path) : null;
     const title = escapeHtml(d.title || d.path);
-    return `<li>${page ? `<a href="${escapeAttr(page)}">${title}</a>` : title}
+    return `<li>${page ? `<a href="pages/${escapeAttr(page)}">${title}</a>` : title}
       <span class="det">${escapeHtml(d.path)}</span></li>`;
   }).join('');
 
@@ -1617,13 +1620,21 @@ function designRecordPanel(index) {
   return `<section class="card">
   <h2>Design record</h2>
   <p class="cap">What a design record is normally expected to carry. <strong>A missing row is the finding</strong> —
-  a list of the documents that exist cannot show you the one that does not.</p>
+  a list of the documents that exist cannot show you the one that does not.
+  <strong>stub</strong> means the file was scaffolded and the substance is still owed; it is not counted as
+  written, because a record that called a scaffold a design record would be measured against by every other
+  check on this page.</p>
   <div class="table-wrap"><table class="mini-table">
-    <thead><tr><th>Artifact</th><th>Present</th><th>Document(s)</th></tr></thead>
-    <tbody>${record.map((r) => `
+    <thead><tr><th>Artifact</th><th>State</th><th>Document(s)</th></tr></thead>
+    <tbody>${record.map((r) => {
+      // Three states, because two would let a scaffold read as a design record. `stub` is deliberately its
+      // own colour rather than a shade of "yes": the file exists, and the substance is still owed.
+      const tone = r.state === 'written' ? 'ok' : r.state === 'stub' ? 'warn' : 'bad';
+      return `
       <tr><td>${escapeHtml(r.label)}</td>
-        <td class="${r.present ? 'ok' : 'bad'}">${r.present ? 'yes' : 'absent'}</td>
-        <td class="cap">${r.documents.length ? escapeHtml(r.documents.slice(0, 3).join(', ')) : '—'}</td></tr>`).join('')}
+        <td class="${tone}">${escapeHtml(r.state)}</td>
+        <td class="cap">${r.documents.length ? escapeHtml(r.documents.slice(0, 3).join(', ')) : '—'}</td></tr>`;
+    }).join('')}
     </tbody>
   </table></div>
 </section>`;

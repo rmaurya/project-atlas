@@ -237,7 +237,12 @@ export const DEFAULT_CONFIG = {
   trackedOnly: true,            // discover via `git ls-files`; untracked scratch never enters the wiki
   clusters: DEFAULT_CLUSTERS,
   fallbackCluster: 'uncategorised',   // set to null to make H5 a hard failure
-  blocking: ['H1', 'H3', 'H8'],
+  // H10 and H12 join the blocking set because an SOP that has drifted is not out of date — it is incorrect
+  // instructions somebody is following, and the cost lands on whoever trusted it. H10 fires only when a
+  // document has exceeded an interval *it declared for itself*, and H12 only when a step cites something
+  // that cannot be resolved: neither has an innocent reading. H11 stays advisory — people leave and names
+  // are spelled inconsistently, and refusing a commit over a spelling teaches people to suppress it.
+  blocking: ['H1', 'H3', 'H8', 'H10', 'H12'],
   staleDays: 90,               // H6 only fires past this age, so a doc edited last week is never "stale"
   citationExtensions: ['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.py', '.go', '.rs', '.java', '.rb',
                        '.swift', '.kt', '.c', '.h', '.cpp', '.cs', '.php', '.sh', '.sql', '.json', '.yml',
@@ -429,9 +434,19 @@ function validate(cfg, configPath = null) {
   if (T.stringArray(cfg.blocking)) {
     const known = Object.keys(SIGNALS);
     for (const id of cfg.blocking) {
-      if (!known.includes(id)) {
-        problems.push(`blocking names ${JSON.stringify(id)}, which is not a signal${at} — known signals: ${known.join(', ')}`);
+      if (known.includes(id)) continue;
+      // **A config written for a newer atlas must degrade, not refuse.** An id shaped like a signal that
+      // this build has never heard of is almost always exactly that: the repository upgraded its config and
+      // an older installed copy is still running somewhere — a hook, a colleague's machine, CI. Hard-failing
+      // there takes every other check down with it, which is a far worse outcome than one gate not firing.
+      // It is still said out loud, because a blocking signal that silently does not fire is not a gate.
+      if (/^H\d+$/.test(id)) {
+        problems.push({ level: 'warn',
+          text: `blocking names ${JSON.stringify(id)}, which this build does not know${at}. The config was ` +
+                `probably written for a newer project-atlas; that gate will not fire here. Known: ${known.join(', ')}` });
+        continue;
       }
+      problems.push(`blocking names ${JSON.stringify(id)}, which is not a signal${at} — known signals: ${known.join(', ')}`);
     }
   }
 
@@ -466,7 +481,12 @@ function validate(cfg, configPath = null) {
     }
   }
 
-  if (problems.length) throw new Error('Invalid configuration:\n  - ' + problems.join('\n  - '));
+  // Warnings are said and survived; errors are fatal. The split exists so that a config written for a newer
+  // build degrades to "that gate will not fire here" rather than taking every other check down with it.
+  const warnings = problems.filter((p) => p && typeof p === 'object' && p.level === 'warn');
+  const errors = problems.filter((p) => !(p && typeof p === 'object' && p.level === 'warn'));
+  for (const w of warnings) console.error(`project-atlas: ${w.text}`);
+  if (errors.length) throw new Error('Invalid configuration:\n  - ' + errors.join('\n  - '));
 }
 
 /** Classify a repo-relative posix path into a cluster id. */

@@ -9,3 +9,4 @@
 {"at": "2026-08-10T19:25:46.663Z", "agent": "main", "kind": "progress", "text": "started A-5 on feat/a-5-branching-posture", "refs": ["feat/a-5-branching-posture"]}
 {"at":"2026-08-10T20:05:53.721Z","agent":"main","kind":"progress","text":"started A-16 on feat/a-16-decision-reasoning","refs":["feat/a-16-decision-reasoning"]}
 {"at":"2026-08-10T20:06:34.182Z","agent":"main","kind":"decision","text":"the Architecture view surfaces decision DOCUMENTS, never journal content","refs":["scripts/lib/dashboard.mjs"],"why":"the architecture page publishes and A-11 says the journal never does; embedding journal records there would publish it through the back door. So the page shows the corpus decision record plus a drift COUNT from the journal — a statistic, not content."}
+{"at":"2026-08-10T20:11:51.746Z","agent":"main","kind":"progress","text":"started A-4 on feat/a-4-sop-obligations","refs":["feat/a-4-sop-obligations"]}

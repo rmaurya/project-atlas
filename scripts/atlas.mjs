@@ -54,6 +54,8 @@ import { survivingLines, formatSurviving } from './lib/surviving.mjs';
 import { note, read as readJournal, formatState, KINDS } from './lib/journal.mjs';
 import { setItemPercent, itemFromBranch, contradictsPlan, STARTED_PERCENT } from './lib/progress.mjs';
 import { handoffPath, handoffAge, formatHandoffPrompt, DEFAULT_STALE_AFTER } from './lib/handoff.mjs';
+import { designRecord } from './lib/design.mjs';
+import { scaffold as scaffoldDesign } from './lib/scaffold.mjs';
 import { acquire as acquireBuildLock } from './lib/lock.mjs';
 import { startServer, spawnDetached, serverStatus, stopServer, writePid, clearPid, openInBrowser, portInUse, unmanagedServer,
          portForRoot, readRegistry, registerServer, deregisterServer, DEFAULT_PORT, DEFAULT_IDLE_MS } from './lib/serve.mjs';
@@ -65,7 +67,7 @@ const argv = process.argv.slice(2);
  * boolean, so a positional after a boolean flag stays positional — `atlas tasks --json safety` keeps `safety`
  * as the filter rather than swallowing it as `--json`'s value.
  */
-const VALUE_FLAGS = new Set(['target', 'page', 'out', 'root', 'config', 'interval', 'refs', 'agent', 'since', 'day', 'why', 'port', 'idle-ms', 'item']);
+const VALUE_FLAGS = new Set(['target', 'page', 'out', 'root', 'config', 'interval', 'refs', 'agent', 'since', 'day', 'why', 'port', 'idle-ms', 'item', 'only']);
 
 const { cmd, positionals, flags } = parseArgs(argv);
 
@@ -499,6 +501,50 @@ async function main() {
    * argued and settled. A generated handoff would be confident prose nobody reviewed, going stale from the
    * moment it was written — which is the thing this tool exists to detect.
    */
+  /*
+   * `atlas design --scaffold` — write the questions, never the answers.
+   *
+   * The Architecture page reported eight artifacts absent and offered no way to close the gap. Generating
+   * the documents is the one thing this tool must not do: a design document is a set of claims about what
+   * the code is *for* and what was rejected, and generated claims nobody reviewed would land in the very
+   * corpus every other check measures drift against.
+   *
+   * What is actually hard is knowing which questions each document owes an answer to. That is a template.
+   */
+  if (cmd === 'design') {
+    const index = buildIndex(root, cfg, { withGit });
+    const record = designRecord(index.documents);
+
+    if (!flag('scaffold')) {
+      say('');
+      for (const r of record) {
+        const mark = r.state === 'written' ? '✓' : r.state === 'stub' ? '~' : '·';
+        say(`  ${mark} ${r.label.padEnd(24)} ${r.state.padEnd(8)} ${r.documents.slice(0, 2).join(', ')}`);
+      }
+      say('');
+      say('  ✓ written   ~ scaffolded, substance still owed   · absent');
+      say('  `atlas design --scaffold` writes the questions for whatever is absent. It never writes answers.');
+      say('');
+      return;
+    }
+
+    const kinds = typeof flag('only') === 'string' ? flag('only').split(',').map((k) => k.trim()) : null;
+    const r = scaffoldDesign(root, record, { kinds });
+    if (!r.written.length) {
+      say('Nothing scaffolded — every expected artifact already exists in some form.');
+      for (const s of r.skipped) say(`  ${s.id}: ${s.why}`);
+      return;
+    }
+    say('');
+    for (const w of r.written) say(`  wrote ${w.file}`);
+    say('');
+    say('  Each is a **stub**: the questions are written down, the answers are not, and the design record');
+    say('  reports them as stubs rather than as documents. Delete the marker line when the substance is');
+    say('  there — nothing removes it for you, because nothing else can know that it is.');
+    say('');
+    return;
+  }
+
   if (cmd === 'handoff') {
     const identity = gitLines(root, ['config', 'user.name'])[0] || null;
     const file = handoffPath(root, cfg, identity);
@@ -1310,6 +1356,7 @@ function usage() {
   atlas tokens [--out FILE]  token accounting from local session transcripts — opt-in, never published
   atlas sessions [--out F]   how sessions went — turns, interruptions, friction, rework
   atlas prompt [--out FILE]  a system prompt assembled from this repository's own rules and state
+  atlas design [--scaffold]  the design record's state; --scaffold writes questions, never answers
   atlas handoff              the derived half of a handoff, as a prompt — writes nothing
   atlas note <kind> "<text>"  append one record to the journal — survives a killed session
   atlas state [--json]       what a resuming session reads first: where you are, what was recorded

@@ -47,9 +47,11 @@ import { survivingLines } from '../scripts/lib/surviving.mjs';
 import { setItemPercent, itemFromBranch, contradictsPlan, STARTED_PERCENT } from '../scripts/lib/progress.mjs';
 import { handoffAge, handoffsIn, formatHandoffPrompt } from '../scripts/lib/handoff.mjs';
 import { acquire as acquireLock, STALE_AFTER_MS } from '../scripts/lib/lock.mjs';
+import { readObligations, evaluate as evaluateSop, parseInterval, DEFAULT_SOP_MATCH } from '../scripts/lib/sop.mjs';
 import { note as journalNote, read as journalRead, MAX_TEXT, slugCollisions } from '../scripts/lib/journal.mjs';
 import { testInventory, casesInFile } from '../scripts/lib/testcases.mjs';
 import { designRecord, undesigned, citationHealth, EXPECTED } from '../scripts/lib/design.mjs';
+import { scaffold as scaffoldDesign, TEMPLATES } from '../scripts/lib/scaffold.mjs';
 import { manifestUrl, checkForUpdate, fetchLatest, readCache, writeCache, isFresh } from '../scripts/lib/update.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -1958,12 +1960,18 @@ test('config · a blocking value that is not an array is refused, never split in
 });
 
 test('config · a blocking id that names no signal is refused, and the offending value is named', () => {
+  // **This contract changed deliberately in 0.1.60, and the reason is worth keeping.** It used to refuse
+  // any id the build did not know, including `H99`. That is right for a typo and wrong for the case that
+  // actually occurs: a repository adds a new signal to its config while an older copy of atlas is still
+  // running somewhere — a hook, CI, a colleague's machine — and the strict rule took *every* check down
+  // there rather than the one gate that could not fire. So an id shaped like a signal now warns and
+  // survives; anything not shaped like one is still a typo, and still fatal.
   const dir = fixture('cfg-blocking-unknown', { 'docs/A.md': '# A\n' });
-  fs.writeFileSync(path.join(dir, 'project-atlas.config.json'), JSON.stringify({ blocking: ['H1', 'H99'] }), 'utf8');
+  fs.writeFileSync(path.join(dir, 'project-atlas.config.json'), JSON.stringify({ blocking: ['H1', 'nope'] }), 'utf8');
   let threw = null;
   try { resolveConfig(dir); } catch (e) { threw = e; }
-  ok(threw, 'an unknown signal id must be refused');
-  includes(threw.message, '"H99"');
+  ok(threw, 'an id that is not shaped like a signal must be refused');
+  includes(threw.message, '"nope"');
   includes(threw.message, 'not a signal');
 });
 
@@ -4044,6 +4052,139 @@ test('architecture · the decisions panel publishes the written record and never
   ok(!html.includes('SECRET-JOURNAL-DECISION'), 'journal text must never reach a published page');
   ok(!html.includes('SECRET-JOURNAL-REASONING'), 'journal reasoning must never reach a published page');
   includes(html, '1</strong> decision(s)', 'the count is derived and safe to publish');
+});
+
+console.log('\nSOP obligations');
+
+test('sop · reads obligations in either spelling, and an absent field stays absent', () => {
+  // Both front-matter and bolded key-value lines are in the wild; refusing one would make adoption a
+  // rewrite. "No owner" and "owner unknown" are different statements, so a missing field is never defaulted
+  // into looking present.
+  const a = readObligations('**Owner:** Ann Example\n**Review every:** 90 days\n**Last verified:** 2026-01-01\n');
+  eq(a.owner, 'Ann Example'); eq(a.reviewDays, 90); eq(a.lastVerified, '2026-01-01');
+
+  const b = readObligations('---\nowner: Bo Zhang\nreviewed every: quarterly\nlast-reviewed: 2025-12-31\n---\n');
+  eq(b.owner, 'Bo Zhang'); eq(b.reviewDays, 91); eq(b.lastVerified, '2025-12-31');
+
+  const none = readObligations('# Just a document\n\nNo obligations here.\n');
+  eq(none.owner, null); eq(none.lastVerified, null); eq(none.reviewDays, null);
+});
+
+test('sop · an unreadable date is reported, never treated as today', () => {
+  // Defaulting an unparseable date to now would silently mark every unreviewed SOP as freshly verified —
+  // a lie in the one document class where being wrong gets acted on.
+  const ob = readObligations('**Last verified:** whenever we get to it\n');
+  eq(ob.lastVerified, null);
+  eq(ob.lastVerifiedRaw, 'whenever we get to it');
+
+  const v = evaluateSop({ path: 'docs/sop/x.md', body: '**Owner:** Ann Example\n**Last verified:** whenever\n' },
+    { today: '2026-08-11', owners: ['Ann Example'] });
+  ok(v.findings.some((f) => f.id === 'H10' && /not a date/.test(f.detail)));
+});
+
+test('sop · H10 fires past the interval the document set for itself, and not before', () => {
+  const body = (d) => `**Owner:** Ann Example\n**Review every:** 90 days\n**Last verified:** ${d}\n`;
+  const at = (d) => evaluateSop({ path: 'docs/sop/x.md', body: body(d) },
+    { today: '2026-08-11', owners: ['Ann Example'] }).findings.map((f) => f.id);
+
+  ok(!at('2026-07-01').includes('H10'), 'inside its own interval is not a finding');
+  ok(at('2026-01-01').includes('H10'), 'past its own interval is');
+  // The interval is the document's, not the tool's: a document declaring a year is judged against a year.
+  const yearly = evaluateSop({ path: 'docs/sop/x.md', body: '**Owner:** Ann Example\n**Review every:** 1 year\n**Last verified:** 2026-01-01\n' },
+    { today: '2026-08-11', owners: ['Ann Example'] });
+  ok(!yearly.findings.some((f) => f.id === 'H10'), 'a longer interval the document declared is honoured');
+});
+
+test('sop · H11 is advisory about people, and says nothing when git cannot answer', () => {
+  // "git could not answer" and "this person does not exist" are different facts, and only one is worth
+  // reporting. An empty owner list must never turn every SOP into a finding.
+  const body = '**Owner:** Ann Example\n**Review every:** 90 days\n**Last verified:** 2026-08-01\n';
+  const known = evaluateSop({ path: 'docs/sop/x.md', body }, { today: '2026-08-11', owners: ['Ann Example'] });
+  ok(!known.findings.some((f) => f.id === 'H11'));
+
+  const gone = evaluateSop({ path: 'docs/sop/x.md', body }, { today: '2026-08-11', owners: ['Someone Else'] });
+  ok(gone.findings.some((f) => f.id === 'H11'), 'an owner with no commits is reported');
+
+  const unknown = evaluateSop({ path: 'docs/sop/x.md', body }, { today: '2026-08-11', owners: [] });
+  ok(!unknown.findings.some((f) => f.id === 'H11'), 'no author list means no claim about the owner');
+
+  const nobody = evaluateSop({ path: 'docs/sop/x.md', body: '**Review every:** 90 days\n**Last verified:** 2026-08-01\n' },
+    { today: '2026-08-11', owners: [] });
+  ok(nobody.findings.some((f) => f.id === 'H11'), 'naming no owner at all is always a finding');
+});
+
+test('sop · H10 and H12 block, H11 does not', () => {
+  // The catalogue's rule: a signal blocks only when it has no legitimate cause. Exceeding an interval the
+  // document declared, and citing a step that cannot be resolved, have none. A misspelled owner does.
+  eq(DEFAULT_CONFIG.blocking.includes('H10'), true);
+  eq(DEFAULT_CONFIG.blocking.includes('H12'), true);
+  eq(DEFAULT_CONFIG.blocking.includes('H11'), false);
+});
+
+test('design · a scaffold is a third state and never counts as a design record', () => {
+  // The moment an empty file exists, a record that knows only present/absent starts reporting a design
+  // record the repository does not have. That is worse than the gap it closed: an absence is honest and
+  // visible; a false presence is trusted, and every other check on the page measures against it.
+  const dir = fixture('design-stub', {
+    'docs/design/HLD.md': '# High-level design\n\n<!-- atlas:stub — scaffolded, not yet written. -->\n\n## What problem?\n\n_Unanswered._\n',
+    'docs/design/ARCHITECTURE.md': '# Architecture overview\n\nThis system is a CLI over a markdown corpus, and here is how it hangs together.\n',
+    'docs/A.md': '# A\n',
+  });
+  const cfg = resolveConfig(dir);
+  const index = buildIndex(dir, cfg);
+  const record = designRecord(index.documents);
+  const by = (id) => record.find((r) => r.id === id);
+
+  eq(by('hld').state, 'stub', 'a scaffolded file is a stub');
+  eq(by('hld').present, false, 'and present stays false, so every existing caller keeps the strict meaning');
+  eq(by('architecture').state, 'written');
+  eq(by('architecture').present, true);
+  eq(by('lld').state, 'absent');
+});
+
+test('design · scaffolding writes questions, never answers, and never overwrites', () => {
+  // A design document is a set of claims about what the code is FOR and what was rejected. Generated claims
+  // nobody reviewed would land in the corpus every other check measures drift against.
+  const dir = fixture('design-scaffold', { 'docs/A.md': '# A\n' });
+  const cfg = resolveConfig(dir);
+  const before = designRecord(buildIndex(dir, cfg).documents);
+  const r = scaffoldDesign(dir, before, { kinds: ['hld'] });
+  eq(r.written.length, 1);
+  eq(r.written[0].file, 'docs/design/HLD.md');
+
+  const body = fs.readFileSync(path.join(dir, 'docs', 'design', 'HLD.md'), 'utf8');
+  includes(body, 'atlas:stub');
+  includes(body, 'What was considered and rejected');
+  includes(body, '_Unanswered._');
+
+  // Losing a paragraph of real design thinking to a template is the worst possible trade, so an existing
+  // file is never touched — finished or half-written, it is left exactly as it is.
+  fs.writeFileSync(path.join(dir, 'docs', 'design', 'HLD.md'), '# Mine\n\nReal content I wrote.\n');
+  const again = scaffoldDesign(dir, designRecord(buildIndex(dir, cfg).documents), { kinds: ['hld'] });
+  eq(again.written.length, 0, 'an existing file is never overwritten');
+  includes(fs.readFileSync(path.join(dir, 'docs', 'design', 'HLD.md'), 'utf8'), 'Real content I wrote.');
+});
+
+test('config · a config written for a newer atlas degrades instead of refusing to run', () => {
+  // An older installed copy is always running somewhere — a hook, a colleague's machine, CI. When the
+  // repository's config names a signal that build has never heard of, hard-failing takes every other check
+  // down with it, which is far worse than one gate not firing. It is still said out loud, because a
+  // blocking signal that silently does not fire is not a gate.
+  const dir = fixture('config-newer', {
+    'project-atlas.config.json': JSON.stringify({ blocking: ['H1', 'H99'] }),
+    'docs/A.md': '# A\n',
+  });
+  const cfg = resolveConfig(dir);
+  eq(cfg.blocking.join(','), 'H1,H99', 'the unknown id survives rather than being silently dropped');
+
+  // A value that is not shaped like a signal at all is still a typo, and still fatal.
+  const bad = fixture('config-typo', {
+    'project-atlas.config.json': JSON.stringify({ blocking: ['nonsense'] }),
+    'docs/A.md': '# A\n',
+  });
+  let threw = null;
+  try { resolveConfig(bad); } catch (e) { threw = e; }
+  ok(threw && /is not a signal/.test(threw.message), 'a misspelled id is still refused');
 });
 
 console.log(`\n${pass} passed, ${fail} failed${skipped ? `, ${skipped} skipped on ${process.platform}` : ''}\n`);
