@@ -22,6 +22,9 @@ measured against the code — the same distinction the tool preserves everywhere
 | D-7 | 100 | D-8 | 100 | D-9 | 100 |
 | D-10 | 100 | I-1 | 100 | | |
 | I-3 | 100 | D-11 | 100 | I-2 | 100 |
+| A-1 | 0 | A-2 | 0 | A-3 | 0 |
+| A-4 | 0 | A-5 | 0 | A-6 | 0 |
+| A-7 | 0 | A-8 | 0 | | |
 
 ---
 
@@ -114,13 +117,21 @@ so they could shadow what already worked.
 so a Windows-only failure cannot hide whether Linux passed.
 
 macOS earns its place separately from Linux: it is case-insensitive by default, which is precisely the
-property `isAtOrInside` exists to defend against and the only runner where that guard is exercised. Windows
-gets `core.autocrlf false`, or every hash and diff differs by platform for reasons that have nothing to do
-with the code.
+property `isAtOrInside` exists to defend against and the only runner where that guard is exercised.
+
+**The matrix was red on Windows from the day it was added until 0.1.32, and never once for the reason it was
+added.** `core.autocrlf false` was set *after* `actions/checkout`, which cannot undo a conversion already
+applied — so the tree arrived as CRLF, `sync-runtimes --check` called every skill stale, and the job died at
+its second step. A `.gitattributes` of `* text=auto eol=lf` fixes it at checkout, and the workflow now
+asserts the tree is LF rather than claiming it. With the tree readable the matrix immediately earned itself:
+`atlas tokens` reported nothing on Windows (a drive colon in the store slug), a first wiki publish was
+refused as unreachable (an empty `stderr` Buffer is truthy), and every in-document link in a single-file
+export was dead (`path.join` made `pages\A.html`, so a `startsWith('pages/')` test went false).
 
 The four hook tests execute POSIX shell blocks and cannot run on Windows. They are **skipped by name and
 counted in the summary** rather than dropped — a suite that quietly runs 202 of 206 on one platform reports a
 green tick for coverage it did not have.
+
 
 ## Track 4 — Delivery
 
@@ -245,3 +256,47 @@ corrections by hand — measure whether the collaboration worked, which is the q
 All 20 items are listed and the Status column filters to `Done`, so the data is there; what is missing is a
 deliberate control and a count, so "show me what landed" is one click rather than a filter someone has to
 discover.
+
+## Track 6 — Autonomy
+
+*Added 2026-08-10. Everything the tool can already do, it does when asked. Each of those asks is a step
+someone has to remember, and a step people forget is a surface that goes stale — which is the failure this
+project exists to detect, reproduced in its own operation. Designed in
+[`docs/references/autonomy.md`](references/autonomy.md); the boundary is that autonomy covers derived state
+and stops at anything outward-facing.*
+
+**A-1 · The autonomy switch** — **P1 · High**
+*One `autonomy` config block, default on, with a single `enabled: false` that turns off every automatic
+action. A feature that can only be disabled key by key is a feature nobody disables.*
+
+**A-2 · Derived output maintains itself** — **P1 · High**
+*Build, stats, worklog and analysis refresh when their inputs change, rather than when someone remembers.
+All of it is derived and safe to delete, which is exactly what makes it safe to automate.*
+
+**A-3 · Task list reconciliation** — **P2 · Medium**
+*The plan and the task list drift apart silently. Reconcile them and report the difference, without editing
+anyone's prose.*
+
+**A-4 · SOP obligations** — **P1 · High**
+*An SOP is wrong rather than stale when it drifts, so it carries an owner, a review interval and a
+last-verified date. Three signals — H10 past review (blocking), H11 no live owner (advisory), H12 dead
+citation (blocking).*
+
+**A-5 · Branching posture: follow, warn, unfollow** — **P2 · Medium**
+*`enforce` | `warn` | `off`, defaulting to `warn`. Unfollowing the strategy is allowed; unfollowing it
+silently is not.*
+
+**A-6 · Artifact publishing** — **P3 · Low**
+*Generate the self-contained page automatically. Sharing it stays manual, because a shared artifact is
+outward-facing.*
+
+**A-8 · The dashboard tracks work as it happens** — **P1 · High**
+*Completing or adding a task updates the dashboard immediately. Half of this already works — every page polls
+a build stamp and `atlas watch` moves it — so what is missing is the trigger when no watcher is running: a
+hook on the planning source alone, rebuilding the dashboard alone, detached so the edit never waits. That
+reopens the `PostToolUse` decision this project made and reversed once; if a dashboard-only rebuild cannot be
+made invisible, this stays with `atlas watch` and says so.*
+
+**A-7 · The boundary holds** — **P0 · Critical**
+*Tests that assert autonomy never pushes, never publishes, never rewrites prose and never acts on an
+unadopted repository. The feature's whole risk is in its defaults, so the defaults are what gets tested.*
