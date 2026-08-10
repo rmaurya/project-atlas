@@ -16,7 +16,7 @@ import path from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
-import { globToRegExp, resolveConfig, DEFAULT_CLUSTERS, DEFAULT_CONFIG, clusterFor, unsafeRegexReason } from '../scripts/lib/config.mjs';
+import { globToRegExp, resolveConfig, DEFAULT_CLUSTERS, DEFAULT_CONFIG, clusterFor, unsafeRegexReason, AUTOMATION_KEYS } from '../scripts/lib/config.mjs';
 import { buildIndex } from '../scripts/lib/scan.mjs';
 import { runHealth, formatReport, SIGNALS } from '../scripts/lib/health.mjs';
 import { renderSite } from '../scripts/lib/render.mjs';
@@ -44,6 +44,7 @@ import { route, inferType } from '../scripts/lib/plan.mjs';
 import { dayKey, commitsOn, renderDay } from '../scripts/lib/worklog.mjs';
 import { ownership, areaOf, summariseOwnership } from '../scripts/lib/ownership.mjs';
 import { survivingLines } from '../scripts/lib/surviving.mjs';
+import { setItemPercent, itemFromBranch, contradictsPlan, STARTED_PERCENT } from '../scripts/lib/progress.mjs';
 import { note as journalNote, read as journalRead, MAX_TEXT } from '../scripts/lib/journal.mjs';
 import { testInventory, casesInFile } from '../scripts/lib/testcases.mjs';
 import { designRecord, undesigned, citationHealth, EXPECTED } from '../scripts/lib/design.mjs';
@@ -106,6 +107,9 @@ function includes(hay, needle, msg = '') {
 }
 
 /* ------------------------------------------------------------------ fixtures */
+
+/** The repository under test — these boundary tests read the real hooks and sources, not fixtures. */
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'project-atlas-test-'));
 const made = [];
@@ -3659,6 +3663,172 @@ test('export · a snapshot says it is one, and cannot pretend to be live', () =>
   // silently: a flag either is read or the assertion above fails.
   ok(html.includes('build-stamp.txt'),
     'the poller is switched off by a flag, not deleted — if it vanished, this test asserts the wrong mechanism');
+});
+
+console.log('\nthe autonomy boundary');
+
+/*
+ * A-7. Autonomy's whole risk is in its defaults, so the defaults are what gets tested.
+ *
+ * These are not tests of features. They are tests of the four things automation must never do, written so
+ * that adding a fifth automatic action without re-reading them is hard: every hook is enumerated from disk
+ * rather than listed here, so a new one joins the assertions the moment it exists.
+ */
+
+const HOOK_DIR = path.join(REPO_ROOT, 'hooks');
+const HOOKS = fs.readdirSync(HOOK_DIR).filter((f) => f.endsWith('.sh'));
+
+test('boundary · every hook is discovered from disk, so a new one cannot skip these tests', () => {
+  ok(HOOKS.length >= 4, `expected the hook scripts to be found, got ${HOOKS.length}`);
+  for (const h of ['on-commit.sh', 'on-write.sh', 'on-session-start.sh', 'on-continuity.sh']) {
+    ok(HOOKS.includes(h), `${h} must be among the enumerated hooks`);
+  }
+});
+
+test('boundary · no automatic path pushes, publishes, or forces anything', () => {
+  // The one rule that cannot have an exception. Publishing is outward-facing and effectively irreversible,
+  // so it stays a thing a person asks for, every time. Checked against the hook scripts because they are
+  // what runs without anyone deciding to run it.
+  const forbidden = [
+    [/\bgit\s+push\b/, 'git push'],
+    [/\bpublish\b/, 'atlas publish'],
+    [/--push\b/, 'the --push flag'],
+    [/--force\b/, 'the --force flag'],
+  ];
+  for (const h of HOOKS) {
+    const src = fs.readFileSync(path.join(HOOK_DIR, h), 'utf8')
+      // Comments explain the boundary and must be allowed to name the thing they forbid.
+      .split('\n').filter((l) => !l.trim().startsWith('#')).join('\n');
+    for (const [re, what] of forbidden) {
+      ok(!re.test(src), `${h} must never invoke ${what} — automation stops at the repository edge`);
+    }
+  }
+});
+
+test('boundary · no hook writes to the corpus, only to derived output', () => {
+  // Automation may regenerate anything it can delete and rebuild. It may not touch prose: a machine can
+  // see that a commit happened, not that a sentence was meant.
+  for (const h of HOOKS) {
+    const src = fs.readFileSync(path.join(HOOK_DIR, h), 'utf8')
+      .split('\n').filter((l) => !l.trim().startsWith('#')).join('\n');
+    ok(!/>\s*[^\s|&;]*\.md\b/.test(src), `${h} must never redirect output into a markdown file`);
+    ok(!/\bsed\s+-i\b/.test(src), `${h} must never edit a file in place`);
+  }
+});
+
+test('boundary · every automatic action is refused in a repository that never adopted the tool', () => {
+  // Installing the plugin must not start writing into every repository a session happens to touch. The
+  // gate is the presence of a config file, and it is checked before anything else in each path.
+  const dir = fixture('boundary-unadopted', { 'docs/A.md': '# A\n' });
+  fs.rmSync(path.join(dir, 'project-atlas.config.json'), { force: true });
+  const cfg = resolveConfig(dir);
+  eq(cfg.__configPath, null, 'an unadopted repository resolves no config path');
+
+  // Each automatic entry point guards on __configPath. Asserted against the source because these are
+  // early returns inside a CLI dispatch that a unit test cannot reach directly.
+  const cli = fs.readFileSync(path.join(REPO_ROOT, 'scripts', 'atlas.mjs'), 'utf8');
+  for (const key of ['specOnCommit', 'healthOnCommit', 'buildOnWrite']) {
+    ok(new RegExp(`!cfg\\.__configPath \\|\\| !automationAllows\\(cfg, '${key}'\\)`).test(cli),
+      `the ${key} path must refuse both an unadopted repository and a disabled switch, in that order`);
+  }
+});
+
+test('boundary · the master switch turns off every automatic action, including ones added later', () => {
+  // AUTOMATION_KEYS is the list the config validates against, so every switch that exists is in it. Walking
+  // it — rather than naming three keys — is what makes a fourth switch inherit this guarantee.
+  const off = { automation: { enabled: false } };
+  for (const key of Object.keys(AUTOMATION_KEYS)) {
+    if (key === 'enabled') continue;
+    eq(automationAllows(off, key), false, `${key} must be off when the master switch is off`);
+  }
+});
+
+test('boundary · the journal is written outside anything that publishes', () => {
+  // An operational record in a wiki is an operational record in public. The check exists as a check rather
+  // than an assumption, because "outside" is a property of the current defaults, not of the design.
+  const dir = fixture('boundary-journal', { 'docs/A.md': '# A\n' });
+  const cfg = resolveConfig(dir);
+  journalNote(dir, cfg, { kind: 'decision', text: 'x', identity: 'Ann Example' });
+  const out = path.resolve(dir, cfg.output);
+  const journal = path.resolve(dir, '.atlas', 'journal', 'ann-example.jsonl');
+  ok(!journal.startsWith(out + path.sep), 'the journal must never live inside the published output');
+});
+
+test('boundary · the server binds loopback and refuses paths outside the output directory', () => {
+  // A documentation server on 0.0.0.0 puts a repository on the local network by default. Both properties
+  // are asserted against the source: binding and path confinement are decided in one place each, and a
+  // change to either is exactly the change that must not pass unnoticed.
+  const src = fs.readFileSync(path.join(REPO_ROOT, 'scripts', 'lib', 'serve.mjs'), 'utf8');
+  includes(src, "server.listen(port, '127.0.0.1'");
+  ok(!/listen\([^)]*'0\.0\.0\.0'/.test(src), 'the server must never bind every interface');
+  includes(src, "!file.startsWith(outDir + path.sep)");
+  includes(src, "'cache-control': 'no-store'");
+});
+
+console.log('\nthe plan marks itself');
+
+test('progress · a two-digit item id is not mistaken for its own percentage', () => {
+  // The obvious implementation replaces the first digits in the matched cell — which are the digits in the
+  // IDENTIFIER, not the figure. `| A-13 | 0 |` became `| A-10 | 0 |`: an item silently renamed to one that
+  // already existed, producing two rows with the same id and losing A-13 entirely. It survived a manual
+  // test because every id tried before it happened to be single-digit.
+  const dir = fixture('progress-id', {
+    'project-atlas.config.json': JSON.stringify({ planning: { source: 'docs/ROADMAP.md' } }),
+    'docs/ROADMAP.md': '# Plan\n\n| Item | % | Item | % |\n|---|---|---|---|\n| A-1 | 0 | A-13 | 0 |\n\n**A-1 · One** — **P1 · High**\n\n**A-13 · Thirteen** — **P0 · Critical**\n',
+  });
+  const cfg = resolveConfig(dir);
+  const r = setItemPercent(dir, cfg, 'A-13', 10);
+  eq(r.changed, true);
+  const src = fs.readFileSync(path.join(dir, 'docs', 'ROADMAP.md'), 'utf8');
+  includes(src, '| A-13 | 10 |');
+  includes(src, '| A-1 | 0 |', 'the neighbouring item must be untouched');
+  ok(!src.includes('A-10'), 'the id must never be rewritten into a different item');
+});
+
+test('progress · a figure only ever moves up on its own, and completion is never claimed', () => {
+  // Progress is a claim a person made; contradicting it is not a machine's job. Finishing cannot be
+  // observed the way starting can, so nothing here writes 100.
+  const dir = fixture('progress-monotonic', {
+    'project-atlas.config.json': JSON.stringify({ planning: { source: 'docs/ROADMAP.md' } }),
+    'docs/ROADMAP.md': '# Plan\n\n| Item | % |\n|---|---|\n| A-1 | 60 |\n\n**A-1 · One** — **P1 · High**\n',
+  });
+  const cfg = resolveConfig(dir);
+  const r = setItemPercent(dir, cfg, 'A-1', 10);
+  eq(r.changed, false, 'a figure already past the mark is left alone');
+  includes(fs.readFileSync(path.join(dir, 'docs', 'ROADMAP.md'), 'utf8'), '| A-1 | 60 |');
+});
+
+test('progress · the estimate marker and emphasis survive a rewrite', () => {
+  // A dropped `*` turns an estimate into a measurement. That is the exact distinction this project exists
+  // to preserve, so it must survive the one write the tool makes to the plan.
+  const dir = fixture('progress-markers', {
+    'project-atlas.config.json': JSON.stringify({ planning: { source: 'docs/ROADMAP.md' } }),
+    'docs/ROADMAP.md': '# Plan\n\n| Item | % |\n|---|---|\n| A-1 | 0* |\n| A-2 | **0** |\n\n**A-1 · One** — **P1 · High**\n\n**A-2 · Two** — **P1 · High**\n',
+  });
+  const cfg = resolveConfig(dir);
+  setItemPercent(dir, cfg, 'A-1', 10);
+  setItemPercent(dir, cfg, 'A-2', 10);
+  const src = fs.readFileSync(path.join(dir, 'docs', 'ROADMAP.md'), 'utf8');
+  includes(src, '| A-1 | 10* |', 'the estimate marker must survive');
+  includes(src, '| A-2 | **10** |', 'emphasis must survive');
+});
+
+test('progress · the item is read from the branch name, and never guessed', () => {
+  // Guessing which item someone meant is how the wrong row gets marked. A branch that names no known item
+  // returns nothing rather than the closest match.
+  const items = [{ id: 'A-13' }, { id: 'M-1' }];
+  eq(itemFromBranch('feat/a-13-plan-marks-itself', items), 'A-13');
+  eq(itemFromBranch('feat/M-1-mcp-server', items), 'M-1');
+  eq(itemFromBranch('feat/no-item-here', items), null);
+  eq(itemFromBranch('feat/a-99-not-in-the-plan', items), null, 'an id the plan does not carry is not a match');
+});
+
+test('progress · a commit naming an item the plan says never started is a contradiction', () => {
+  // The spec gate refuses a commit that names no item. This is the opposite arrangement it cannot see: work
+  // shipped for an item the dashboard has been reporting as not started the whole time.
+  const items = [{ id: 'A-1', percent: 0 }, { id: 'A-2', percent: 60 }, { id: 'A-3', percent: 100 }];
+  eq(contradictsPlan(['A-1'], items).join(','), 'A-1');
+  eq(contradictsPlan(['A-2', 'A-3'], items).length, 0, 'an item already in progress or done is no contradiction');
 });
 
 console.log(`\n${pass} passed, ${fail} failed${skipped ? `, ${skipped} skipped on ${process.platform}` : ''}\n`);

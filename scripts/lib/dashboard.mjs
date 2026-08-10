@@ -22,6 +22,7 @@ import { designRecord, undesigned, citationHealth, isDesignDoc } from './design.
 import { escapeHtml, escapeAttr, renderMarkdown } from './markdown.mjs';
 import { SIGNALS } from './health.mjs';
 import { taskCoverage } from './contrib.mjs';
+import { DEFAULT_PLANNING } from './planning.mjs';
 import { PANELS } from './views.mjs';
 import { readChanges } from './changes.mjs';
 import { flatName } from './render-shared.mjs';
@@ -325,17 +326,50 @@ function unwrapEmphasis(body) {
 }
 
 /**
- * A select whose options are read from the data. Offering a filter value that matches nothing is a control
- * that can only disappoint, and hardcoding the list means a new track or status band silently loses its
- * filter — the same class of "list someone has to remember" that let a nav link ship without its page.
+ * A select whose options are read from the data — for the sets that *are* data.
+ *
+ * Tracks and priorities are an open set: they exist because the plan named them, so offering a value that
+ * matches nothing would be a control that can only disappoint, and hardcoding them means a new track
+ * silently loses its filter.
+ *
+ * **Status is not that kind of set**, and treating it as one was a defect. The bands are a closed
+ * vocabulary this tool defines — Not started, In progress, Nearly done, Done — so an absent option does not
+ * say "no items are in that state", it says "this dashboard cannot filter by that", which is false. With
+ * every task at 0 or 100 the Status filter offered only *All / Done / Not started*, and "In progress" being
+ * missing was reported as the dashboard not tracking work in progress at all. Reasonable reading: a control
+ * that omits a value is claiming the value does not exist.
+ *
+ * So a closed vocabulary is always rendered in full, with counts, and a band with nothing in it says `(0)`
+ * — the same rule the status chart already follows by listing empty bands rather than dropping them.
  */
-function sel(id, label, values, labels = {}) {
-  const opts = values.filter(Boolean).map((v) =>
-    `<option value="${escapeAttr(v)}">${escapeHtml(labels[v] || v)}</option>`).join('');
+function sel(id, label, values, labels = {}, counts = null) {
+  const opts = values.filter(Boolean).map((v) => {
+    const n = counts ? ` (${counts.get(v) || 0})` : '';
+    return `<option value="${escapeAttr(v)}">${escapeHtml(labels[v] || v)}${n}</option>`;
+  }).join('');
   return `<label class="bl-f"><span class="bl-f-label">${escapeHtml(label)}</span>
     <select class="fsel" id="${escapeAttr(id)}" aria-label="Filter by ${escapeAttr(label)}">
       <option value="">All</option>${opts}
     </select></label>`;
+}
+
+/**
+ * Every status band the plan can produce, in order, whether or not anything is in it.
+ *
+ * Read from the plan's own band configuration rather than listed here, so a project that renames or adds a
+ * band gets its filter without anyone remembering to update this. `Unknown` is appended only when items
+ * actually carry it — that one *is* data, not vocabulary.
+ */
+function statusVocabulary(plan) {
+  const bands = (plan.statusBands || DEFAULT_PLANNING.statusBands || []).map((b) => b.label);
+  const seen = [...new Set(plan.items.map((i) => i.status?.label).filter(Boolean))];
+  return [...bands, ...seen.filter((l) => !bands.includes(l))];
+}
+
+function countBy(items, of) {
+  const m = new Map();
+  for (const i of items) { const k = of(i); if (k) m.set(k, (m.get(k) || 0) + 1); }
+  return m;
 }
 
 function backlogPanel(plan, contrib, index, pageOf) {
@@ -444,7 +478,7 @@ function backlogPanel(plan, contrib, index, pageOf) {
   <div class="tbar bl-filters">
     <input id="bq" type="search" placeholder="Filter by id, title, track or text…" autocomplete="off">
     ${sel('bf-track', 'Track', [...new Set(plan.items.map((i) => i.track))])}
-    ${sel('bf-status', 'Status', [...new Set(plan.items.map((i) => i.status?.label || 'Unknown'))])}
+    ${sel('bf-status', 'Status', statusVocabulary(plan), {}, countBy(plan.items, (i) => i.status?.label))}
     ${sel('bf-pri', 'Priority', [...new Set(plan.items.map((i) => i.priority))].sort())}
     ${sel('bf-crit', 'Criticality', [...new Set(plan.items.map((i) => i.criticality))])}
     ${sel('bf-sourced', 'Specified', ['yes', 'no'], { yes: 'has a source document', no: 'no source document' })}

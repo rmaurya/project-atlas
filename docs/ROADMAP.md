@@ -1,6 +1,6 @@
 # Roadmap — project-atlas
 
-**Last updated:** 2026-08-10 · **Version:** 0.1.54 · **Status:** pre-release, dogfooding
+**Last updated:** 2026-08-10 · **Version:** 0.1.55 · **Status:** pre-release, dogfooding
 
 Open work, with an honest completion figure against each item. A figure marked `*` is estimated rather than
 measured against the code — the same distinction the tool preserves everywhere else, applied to itself.
@@ -25,11 +25,12 @@ measured against the code — the same distinction the tool preserves everywhere
 | I-3 | 100 | D-11 | 100 | I-2 | 100 |
 | A-1 | 100 | A-2 | 0 | A-3 | 0 |
 | A-4 | 0 | A-5 | 0 | A-6 | 0 |
-| A-7 | 0 | A-8 | 100 | A-9 | 0 |
+| A-7 | 100 | A-8 | 100 | A-9 | 0 |
 | A-10 | 100 | A-11 | 0 | A-12 | 0 |
 | S-1 | 100 | S-2 | 100 | S-3 | 0 |
 | S-4 | 100 | S-5 | 100 | S-6 | 100 |
 | S-7 | 100 | M-1 | 0 | M-2 | 0 |
+| A-13 | 100 | | | | |
 
 ---
 
@@ -417,7 +418,25 @@ relying on discipline about who edits what. Identity reuses the key `atlas contr
 Personal handoffs default to unpublished; a half-formed note should not reach a public wiki because someone
 else ran a publish.*
 
+**A-13 · The plan marks itself in progress** — **P0 · Critical**
+*Shipped in 0.1.55.*
+*The one step in this project's SOP that depends on somebody remembering, and the evidence says nobody does:
+A-7 was worked on for an hour while the table read 0%, and A-1 and A-10 were marked by hand only because a
+complaint prompted it. An agent that forgets is not an unusual agent — it is the normal case, which is why
+"mark it in progress" belongs in the tool rather than in prose nobody re-reads.*
+
+*The enforcement point is where work demonstrably starts: `atlas branch`. Binding a branch to the item it
+advances lets the tool set that item in progress itself, and lets the commit gate catch the contradiction it
+cannot catch today — a commit shipping runtime code for an item still recorded as never started.*
+
+***This is allowed to write to the plan, and the distinction matters.*** *Autonomy never rewrites prose,
+because a machine cannot see that a sentence was meant. A percentage cell is not prose: it is a figure the
+tool already parses with `percentCellPattern`, in a table whose format it defines. Rewriting one cell
+deterministically is the same class of act as regenerating a dashboard — and the roadmap's own header says
+that maintaining these figures by hand does not work.*
+
 **A-7 · The boundary holds** — **P0 · Critical**
+*Shipped in 0.1.55.*
 *Tests that assert autonomy never pushes, never publishes, never rewrites prose and never acts on an
 unadopted repository. The feature's whole risk is in its defaults, so the defaults are what gets tested.*
 

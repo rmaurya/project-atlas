@@ -44,7 +44,7 @@ import { branchStatus, createBranch, formatBranch, TYPES } from './lib/branch.mj
 import { readTokens, formatTokens, formatSessions, transcriptDir, assertNotPublishable } from './lib/tokens.mjs';
 import { readChanges, formatChanges, fileDiff } from './lib/changes.mjs';
 import { formatVersion, updateNotice, isPluginCache } from './lib/version.mjs';
-import { specVerdict } from './lib/spec.mjs';
+import { specVerdict, idsIn } from './lib/spec.mjs';
 import { checkForUpdate, readCache } from './lib/update.mjs';
 import { verifySite, formatVerify } from './lib/verify.mjs';
 import { route, formatRoute } from './lib/plan.mjs';
@@ -52,6 +52,7 @@ import { dayKey, commitsOn, renderDay, writeDay } from './lib/worklog.mjs';
 import { ownership, summariseOwnership } from './lib/ownership.mjs';
 import { survivingLines, formatSurviving } from './lib/surviving.mjs';
 import { note, read as readJournal, formatState, KINDS } from './lib/journal.mjs';
+import { setItemPercent, itemFromBranch, contradictsPlan, STARTED_PERCENT } from './lib/progress.mjs';
 import { startServer, spawnDetached, serverStatus, stopServer, writePid, clearPid, openInBrowser, portInUse,
          portForRoot, readRegistry, registerServer, deregisterServer, DEFAULT_PORT, DEFAULT_IDLE_MS } from './lib/serve.mjs';
 
@@ -62,7 +63,7 @@ const argv = process.argv.slice(2);
  * boolean, so a positional after a boolean flag stays positional — `atlas tasks --json safety` keeps `safety`
  * as the filter rather than swallowing it as `--json`'s value.
  */
-const VALUE_FLAGS = new Set(['target', 'page', 'out', 'root', 'config', 'interval', 'refs', 'agent', 'since', 'day', 'why', 'port', 'idle-ms']);
+const VALUE_FLAGS = new Set(['target', 'page', 'out', 'root', 'config', 'interval', 'refs', 'agent', 'since', 'day', 'why', 'port', 'idle-ms', 'item']);
 
 const { cmd, positionals, flags } = parseArgs(argv);
 
@@ -371,6 +372,30 @@ async function main() {
     if (!r.ok) { console.error(r.reason); process.exitCode = 1; return; }
     say(`Switched to ${r.name}`);
     say(`  Uncommitted work came with you. One logical change per branch — if it needs an "and", split it.`);
+
+    // Creating a branch is the moment work demonstrably starts, and the only moment the tool can observe it
+    // without asking anyone to remember anything. So the plan is marked here rather than left to an
+    // instruction in a document — an agent that forgets is the normal case, not an unusual one.
+    if (automationAllows(cfg, 'planOnBranch')) {
+      const plan = readPlanning(root, cfg);
+      if (plan && !plan.missing) {
+        const id = typeof flag('item') === 'string' ? flag('item').toUpperCase() : itemFromBranch(r.name, plan.items);
+        if (id) {
+          const upd = setItemPercent(root, cfg, id, STARTED_PERCENT);
+          if (upd.changed) {
+            say(`  ${id} marked in progress (${upd.from}% → ${upd.to}%) in ${upd.source}.`);
+            try { note(root, cfg, { kind: 'progress', text: `started ${id} on ${r.name}`, refs: [r.name] }); } catch {}
+            // Rebuild so the dashboard shows it now. Detached from the caller's success: a branch that was
+            // created must not report failure because a rebuild did.
+            try { doBuild(root, cfg, withGit, false, { stamp: true }); } catch {}
+          } else if (upd.from !== undefined) {
+            say(`  ${id} is already at ${upd.from}% — left alone. A figure only ever moves up on its own.`);
+          }
+        } else {
+          say(`  No plan item named in the branch. \`--item <ID>\` records which one this advances.`);
+        }
+      }
+    }
     return;
   }
 
@@ -713,6 +738,19 @@ async function main() {
     // whether it was stdin, an unresolvable -F path, or no message flag at all, and the gate cannot.
     const v = specVerdict({ changed: staged, message, items: plan.items, roadmapPath: plan.source,
       whyUnreadable: typeof flag('why') === 'string' ? flag('why') : 'absent' });
+
+    // The opposite contradiction to the one the gate was built for. It refuses a commit that names no item;
+    // this catches a commit that names an item the plan still records as never started — which means the
+    // dashboard reported "nothing in progress" for the whole time the work was being done. Repaired rather
+    // than refused: the fact is not in dispute, and a refusal here would only ask a person to type what the
+    // tool already knows.
+    if (v.ok && message && automationAllows(cfg, 'planOnBranch')) {
+      const behind = contradictsPlan(idsIn(message).filter((id) => plan.items.some((i) => i.id === id)), plan.items);
+      for (const id of behind) {
+        const upd = setItemPercent(root, cfg, id, STARTED_PERCENT);
+        if (upd.changed) console.error(`project-atlas: ${id} was still recorded as not started; set to ${upd.to}% in ${upd.source}.`);
+      }
+    }
     if (v.ok) return;
     console.error(`project-atlas: ${v.message}\n`);
     process.exitCode = 1;

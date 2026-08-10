@@ -272,6 +272,7 @@ export const DEFAULT_CONFIG = {
     buildOnWrite: true,      // rebuild the site when a session writes markdown
     healthOnCommit: true,    // refuse a commit that introduces a blocking signal
     specOnCommit: true,      // refuse a shipped change that names no roadmap item
+    planOnBranch: true,      // mark an item in progress when a branch is created for it
   },
 };
 
@@ -388,6 +389,7 @@ export const AUTOMATION_KEYS = {
   buildOnWrite: 'rebuild the site when a session writes markdown',
   healthOnCommit: 'refuse a commit that introduces a blocking signal',
   specOnCommit: 'refuse a shipped change that names no roadmap item',
+  planOnBranch: 'mark a plan item in progress when a branch names it',
 };
 
 const KNOWN_TONES = new Set(['none', 'mid', 'high', 'done', 'unknown']);

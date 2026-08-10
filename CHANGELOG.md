@@ -13,6 +13,26 @@ versions follow [Semantic Versioning](https://semver.org/).
 - `atlas plan` — propose the git route for the working tree and wait for approval, rather than only refusing a
   commit once it is attempted.
 
+## [0.1.55] — 2026-08-11
+
+### Added
+- **The plan marks itself in progress** (A-13). `atlas branch` sets the item its branch names to 10% and
+  journals it; the spec gate repairs the opposite contradiction — a commit shipping runtime code for an
+  item still recorded as never started. This was the one step in the SOP that depended on somebody
+  remembering, and an item was worked on for an hour at 0% while the dashboard reported nothing in
+  progress. A figure only ever moves up, completion is never claimed, and only the one cell is touched.
+- **The autonomy boundary is tested** (A-7). Hooks are enumerated from disk rather than listed, so a new
+  one inherits the assertions: nothing automatic pushes, publishes, forces, redirects into markdown, or
+  edits in place; every gate refuses an unadopted repository; the master switch is walked from the
+  validated key list; the journal stays outside anything published; the server binds loopback and confines
+  its paths. Each assertion was verified by breaking the thing it guards.
+
+### Fixed
+- **The Status filter hid "In progress" whenever nothing was in progress**, which reads as the dashboard
+  not supporting it — and was reported that way. Tracks and priorities are an open set and rightly come
+  from the data; status is a closed vocabulary the tool itself defines, so it now always renders in full
+  with counts (`Nearly done (0)`), the same rule the status chart already followed.
+
 ## [0.1.54] — 2026-08-11
 
 ### Added

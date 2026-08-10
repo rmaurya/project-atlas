@@ -1,6 +1,6 @@
 {
   "name": "atlas",
-  "version": "0.1.54",
+  "version": "0.1.55",
   "description": "A derived, auditable knowledgebase over your repository's own documentation — index, dashboard, deck and rot detection, generated from the markdown you already have.",
   "skills": "./skills/",
   "license": "MIT",
