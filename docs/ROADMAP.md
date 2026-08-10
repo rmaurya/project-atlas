@@ -1,6 +1,6 @@
 # Roadmap — project-atlas
 
-**Last updated:** 2026-08-10 · **Version:** 0.1.29 · **Status:** pre-release, dogfooding
+**Last updated:** 2026-08-10 · **Version:** 0.1.30 · **Status:** pre-release, dogfooding
 
 Open work, with an honest completion figure against each item. A figure marked `*` is estimated rather than
 measured against the code — the same distinction the tool preserves everywhere else, applied to itself.

@@ -29,7 +29,7 @@ import { readContrib, estimateHours, taskCoverage } from '../scripts/lib/contrib
 import { readTokens, formatTokens, formatSessions, assertNotPublishable, transcriptDir } from '../scripts/lib/tokens.mjs';
 import { readChanges, fileDiff, formatChanges } from '../scripts/lib/changes.mjs';
 import { branchStatus, createBranch, TYPES } from '../scripts/lib/branch.mjs';
-import { detectHost, gateTarget } from '../scripts/lib/host.mjs';
+import { detectHost, gateTarget, formatCapabilities } from '../scripts/lib/host.mjs';
 import { resolveViews, navItems, PANELS } from '../scripts/lib/views.mjs';
 import { communityAssets } from '../scripts/lib/community.mjs';
 import { versionVerdict, isRuntimePath, parseVersion, compareVersions } from '../scripts/lib/release.mjs';
@@ -1285,6 +1285,41 @@ test('host · no remote is reported, not guessed', () => {
   const h = detectHost(dir, {});
   eq(h.kind, 'none');
   eq(gateTarget('wiki', h, { checked: false }).ok, false);
+});
+
+test('host · an enabled wiki that was never initialised reads as half, not on', () => {
+  // The failure this exists to prevent: `caps` printed "on" from has_wiki alone, so the wiki looked ready to
+  // receive a publish, and `publish` then refused — two commands disagreeing about one repository.
+  const dir = fixture('host-wiki-half', { 'docs/A.md': '# A\n' }, { remote: 'git@github.com:acme/widget.git' });
+  const h = detectHost(dir, {});
+  const caps = { checked: true, slug: 'acme/widget', wiki: true, wikiInitialised: false,
+                 pages: true, issues: true, discussions: true, visibility: 'public', defaultBranch: 'main' };
+
+  const report = formatCapabilities(h, caps, false);
+  includes(report, 'half');
+  includes(report, 'not initialised');
+  // The line must not also claim "on" for the same feature, which is the ambiguity being removed.
+  eq(/ on {2}Wiki/.test(report), false, 'an uninitialised wiki must not render as on');
+
+  // And the gate agrees, without a network call: wikiInitialised is reused, not re-probed.
+  const g = gateTarget('wiki', h, caps);
+  eq(g.ok, false);
+  includes(g.reason, 'does not exist yet');
+  includes(g.hint, 'Create the first page');
+});
+
+test('host · an initialised wiki passes the gate, and an unprobed one is not treated as absent', () => {
+  const dir = fixture('host-wiki-ok', { 'docs/A.md': '# A\n' }, { remote: 'git@github.com:acme/widget.git' });
+  const h = detectHost(dir, {});
+  const base = { checked: true, slug: 'acme/widget', wiki: true, pages: true, issues: true,
+                 discussions: true, visibility: 'public', defaultBranch: 'main' };
+
+  eq(gateTarget('wiki', h, { ...base, wikiInitialised: true }).ok, true);
+
+  // A capability cache written before wikiInitialised existed reports undefined. That must not read as
+  // "absent" — an unprobed capability never blocks work — and the report says so rather than guessing.
+  const stale = { ...base };
+  includes(formatCapabilities(h, stale, false), 'unverified');
 });
 
 test('host · GitLab Pages refuses a branch push instead of silently doing nothing', () => {

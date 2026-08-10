@@ -13,9 +13,18 @@ versions follow [Semantic Versioning](https://semver.org/).
 - `atlas plan` — propose the git route for the working tree and wait for approval, rather than only refusing a
   commit once it is attempted.
 
-## [Unreleased]
+## [0.1.30] — 2026-08-10
 
 ### Fixed
+- **`caps` and `publish` disagreed about the same wiki.** `atlas caps` reported the wiki as `on` from
+  GitHub's `has_wiki` alone, which says the *feature* is enabled and nothing about whether the wiki
+  repository exists — GitHub creates `<repo>.wiki.git` only when the first page is saved by hand. So `caps`
+  said the wiki was ready, `publish --target wiki` ran a real `git ls-remote` and refused, and the reasonable
+  reading of that was that publishing was broken. The probe now runs the same check `publish` runs and
+  reports a third state — `half  Wiki — enabled, but not initialised` — with the fix named inline. `publish`
+  reuses the stored result instead of paying for a second call, and a capability cache written before the
+  field existed reports *unverified* rather than guessing. This is why `caps` now makes two requests on a
+  cold run and not one; the result is cached together, so the second call costs nothing.
 - **This repository was indexing its own worklog.** `DEFAULT_CONFIG` excludes `worklog/**` — but a config
   that sets `exclude` **replaces** the default list rather than extending it, so a repository that had ever
   customised exclusions silently lost every default the tool added afterwards. One file per day was landing

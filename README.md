@@ -13,7 +13,7 @@ have, detects rot mechanically, and generates a searchable site, a project dashb
 Your markdown stays the source of truth; everything generated regenerates byte-identically, so it cannot fork
 from your docs. Adapts to what your host actually offers — Wiki, Pages, Issues and Discussions are each
 detected, never assumed. Ships as a Claude Code skill, a portable `AGENTS.md` for any LLM agent, and a
-standalone CLI. Zero dependencies, Node ≥ 18, and **one** optional network call (`atlas caps`).
+standalone CLI. Zero dependencies, Node ≥ 18, and network access from **one** optional command (`atlas caps`).
 
 ---
 
@@ -152,19 +152,34 @@ at any time.
 
 **Everything else:**
 
-```bash
-atlas branch [type slug]   # where you are, and whether it is safe to commit there
-atlas tasks [filter]       # your planning document, with progress bars
-atlas contrib              # who did what, from git history alone
-atlas changes              # what changed, and which documents cite the files you touched
-atlas diff <file>          # that file's diff — uncommitted, else across the branch
-atlas tokens               # where the tokens went — local transcripts, opt-in, never published
-atlas sessions             # how sessions went — turns, interruptions, friction, rework
-atlas caps                 # which host features are on (wiki/pages/issues/discussions)
-atlas community --write    # scaffolding for the features this host supports
-atlas watch                # rebuild on change; the open page reloads itself
-atlas all                  # scan + health + build
-```
+| Command | What it does |
+|---|---|
+| `atlas version` | Which build is answering, where it lives, and whether it is behind the installed one. |
+| `atlas init` | Write `project-atlas.config.json` by detecting this repo's layout — nothing existing is modified. |
+| `atlas scan` | Build the index and summarise it: documents, clusters, links, citations. |
+| `atlas ask <question>` | Answer a question from the project's own documentation, with citations. |
+| `atlas changes` | Uncommitted work, what this branch does, and which documents cite the files you touched. |
+| `atlas diff <file>` | One file's diff — uncommitted, else across the branch. |
+| `atlas health` | Documentation rot report: dead links, forked documents, stale citations, orphans. Exit 1 if a blocking signal fires. |
+| `atlas plan` | The git route for work in progress: branch, type, version bump, way to main. Executes nothing without approval. |
+| `atlas branch [type slug]` | Branch state, or create `type/short-slug` carrying your changes. |
+| `atlas config` | The merged configuration — your overrides shown against the defaults. |
+| `atlas tasks [filter]` | Your planning document, with progress bars. |
+| `atlas caps` | Which host features are on — wiki, pages, issues, discussions. |
+| `atlas community --write` | Scaffolding for the features this host actually supports. |
+| `atlas contrib` | Who did what, from git history alone. |
+| `atlas ownership` | Areas by author, and where the bus factor is one. |
+| `atlas surviving` | Surviving lines by file — what of the work is still standing. |
+| `atlas worklog` | Write the day's log to `worklog/` — commits, rework rate, items closed. |
+| `atlas tokens` | Where the tokens went — local transcripts, opt-in, never published. |
+| `atlas sessions` | How sessions went — turns, interruptions, friction, rework. |
+| `atlas build` | Generate the site: index, dashboard, deck, health. |
+| `atlas watch` | Rebuild on change; the open page reloads itself. |
+| `atlas all` | scan + health + build. |
+| `atlas publish` | Stage a wiki, pages branch, or single-file export — nothing is pushed without `--push`. |
+
+`atlas status` and `atlas review` are not CLI commands — they exist only as the `/atlas:status` and
+`/atlas:review` slash commands, which read the same index and add the judgement a table cannot.
 
 If `atlas` is not on your PATH — you cloned it rather than installing the plugin — every command works the
 same as `./bin/atlas <command>` or `node scripts/atlas.mjs <command>`.
@@ -332,6 +347,17 @@ One distinction worth knowing, because it cost a confusing failure to find: **a 
 same as its repository existing.** GitHub creates `<repo>.wiki.git` only when the first page is saved by hand,
 so the tool checks reachability with `git ls-remote` and tells you exactly that, rather than letting the push
 fail as "Repository not found".
+
+`caps` reports that as a third state rather than folding it into `on`:
+
+```
+  half   Wiki        enabled, but not initialised — no page has ever been saved
+```
+
+This is why `caps` makes two requests on a cold run and not one — the host API answers whether the feature is
+on, and only git answers whether the repository is there. Reporting `on` from the API alone told people the
+wiki was ready to receive a publish, and `publish` then refused: two commands disagreeing about one
+repository. The result is cached together, so the second call costs nothing.
 
 ## Honesty rules, enforced in the output
 

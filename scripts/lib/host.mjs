@@ -131,6 +131,12 @@ export async function probeCapabilities(root, host, { timeoutMs = 6000, offline 
         pages: json.pages_access_level ? json.pages_access_level !== 'disabled' : null,
       };
 
+  // A second network call, and the reason `caps` can be trusted. Reporting "on" from `has_wiki` alone told
+  // people the wiki was ready to receive a publish when it was not, and `publish` then refused — two commands
+  // disagreeing about one repository. Ask git the same question publish asks, and report that instead.
+  // Only when the feature is on: with it off there is no repository to look for, and the answer is not "off".
+  caps.wikiInitialised = caps.wiki ? wikiRepoExists(host) : null;
+
   writeCache(root, caps);
   return caps;
 }
@@ -148,6 +154,25 @@ function writeCache(root, caps) {
   try {
     fs.writeFileSync(cachePath(root), JSON.stringify({ slug: caps.slug, at: Date.now(), caps }), 'utf8');
   } catch { /* .git may be absent or read-only; caching is an optimisation, never a requirement */ }
+}
+
+/**
+ * Definitive check that a wiki repository exists and is reachable with the caller's credentials.
+ *
+ * `has_wiki: true` means the FEATURE is enabled, not that the wiki repository exists. GitHub only creates
+ * `<repo>.wiki.git` when the first page is saved in the UI, and pushing before that fails as "Repository not
+ * found" — which reads as an auth or naming problem and is neither. Only asking the git remote settles it.
+ */
+function wikiRepoExists(host) {
+  if (!host?.wikiGit) return false;
+  try {
+    execFileSync('git', ['ls-remote', '--exit-code', host.wikiGit, 'HEAD'],
+      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 15000,
+        env: { ...process.env, GIT_TERMINAL_PROMPT: '0', GIT_ASKPASS: 'echo' } });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /* ------------------------------------------------------------------ gating */
@@ -184,7 +209,10 @@ export function gateTarget(target, host, caps) {
     // `has_wiki: true` means the FEATURE is enabled, not that the wiki repository exists. GitHub only creates
     // `<repo>.wiki.git` when the first page is saved in the UI, and pushing before that fails as
     // "Repository not found" — which reads as an auth or naming problem and is neither.
-    if (!wikiRepoExists(host)) {
+    // `caps.wikiInitialised` is the same check, already run by the probe. Reuse it rather than paying for a
+    // second `ls-remote`; a cache written before this field existed reports `undefined`, so probe then.
+    const initialised = caps.wikiInitialised ?? wikiRepoExists(host);
+    if (!initialised) {
       return {
         ok: false,
         reason: `The wiki is enabled on ${caps.slug}, but its repository does not exist yet.`,
@@ -193,18 +221,6 @@ export function gateTarget(target, host, caps) {
     }
     return { ok: true };
   }
-
-/** Definitive check that a wiki repository exists and is reachable with the caller's credentials. */
-function wikiRepoExists(host) {
-  try {
-    execFileSync('git', ['ls-remote', '--exit-code', host.wikiGit, 'HEAD'],
-      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 15000,
-        env: { ...process.env, GIT_TERMINAL_PROMPT: '0', GIT_ASKPASS: 'echo' } });
-    return true;
-  } catch {
-    return false;
-  }
-}
 
   if (target === 'pages') {
     // GitLab Pages is published by a CI job that emits a `public/` artifact — there is no branch to push, so
@@ -249,7 +265,19 @@ export function formatCapabilities(host, caps, useColor) {
   }
 
   const mark = (v) => (v === true ? c.green('  on ') : v === false ? c.yellow(' off ') : c.dim('  — '));
-  L.push(`  ${mark(caps.wiki)}  Wiki` + c.dim(caps.wiki ? `        ${host.wikiGit}` : '        publish --target wiki is unavailable'));
+
+  // Three states, not two. An enabled-but-uninitialised wiki is the one that misleads: it reads as ready,
+  // and is the only state where `publish --target wiki` refuses despite the feature being on.
+  if (caps.wiki && caps.wikiInitialised === false) {
+    L.push(`  ${c.yellow('half ')}  Wiki` + c.dim('        enabled, but not initialised — no page has ever been saved'));
+    L.push(c.dim(`                    ${host.web}/wiki → Create the first page → Save`));
+    L.push(c.dim('                    publish --target wiki will refuse until then'));
+  } else if (caps.wiki && caps.wikiInitialised == null) {
+    L.push(`  ${mark(caps.wiki)}  Wiki` + c.dim(`        ${host.wikiGit}`));
+    L.push(c.dim('              existence unverified — publish will check before it stages'));
+  } else {
+    L.push(`  ${mark(caps.wiki)}  Wiki` + c.dim(caps.wiki ? `        ${host.wikiGit}` : '        publish --target wiki is unavailable'));
+  }
   L.push(`  ${mark(caps.pages)}  Pages` + c.dim(caps.pages && host.pagesUrl ? `       ${host.pagesUrl}` : '       not configured'));
   L.push(`  ${mark(caps.issues)}  Issues` + c.dim(caps.issues && host.issuesUrl ? `      ${host.issuesUrl}` : ''));
   L.push(`  ${mark(caps.discussions)}  Discussions` + c.dim(
