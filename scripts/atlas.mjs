@@ -32,6 +32,8 @@ import { buildIndex, discover } from './lib/scan.mjs';
 import { readPlanning } from './lib/planning.mjs';
 import { runHealth, formatReport } from './lib/health.mjs';
 import { renderSite, writeBuildStamp } from './lib/render.mjs';
+import { buildPrompt } from './lib/prompt.mjs';
+import { confine } from './lib/paths.mjs';
 import { buildWikiPages, stageWiki, stagePages, exportSingleFile, exportBundle, gitlabPagesJob } from './lib/publish.mjs';
 import { readContrib, formatContrib } from './lib/contrib.mjs';
 import { detectHost, probeCapabilities, gateTarget, formatCapabilities } from './lib/host.mjs';
@@ -614,6 +616,26 @@ async function main() {
     return;
   }
 
+  if (cmd === 'prompt') {
+    const index = buildIndex(root, cfg, { withGit });
+    const health = runHealth(index, cfg, root);
+    const out = buildPrompt({
+      cfg, index, health,
+      plan: readPlanning(root, cfg),
+      version: runningBuild().version,
+      slug: detectHost(root, cfg).slug || path.basename(root),
+    });
+    const dest = typeof flag('out') === 'string' ? flag('out') : null;
+    if (!dest) { console.log(out); return; }
+    // Confined for the same reason the deck source is: this writes a file at a path the caller names, and
+    // `path.join` would have accepted `../../.ssh/config` without comment.
+    const file = confine(root, dest, '--out', null);
+    fs.writeFileSync(file, out, 'utf8');
+    say(`Wrote ${path.relative(root, file) || file}`);
+    say('  Regenerate rather than edit — every statement in it is read from this repository.');
+    return;
+  }
+
   if (cmd === 'contrib') {
     const k = readContrib(root, cfg);
     if (flag('json')) { console.log(JSON.stringify(k, null, 2)); return; }
@@ -965,6 +987,7 @@ function usage() {
   atlas diff <file>          that file's diff — uncommitted, else across the branch
   atlas tokens [--out FILE]  token accounting from local session transcripts — opt-in, never published
   atlas sessions [--out F]   how sessions went — turns, interruptions, friction, rework
+  atlas prompt [--out FILE]  a system prompt assembled from this repository's own rules and state
   atlas contrib [--json]     who did what, from git history alone
   atlas health [--verbose]   report rot signals; exit 1 if any blocking signal fires
   atlas build                generate the static site (index, dashboard, deck, health)

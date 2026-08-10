@@ -13,7 +13,26 @@ versions follow [Semantic Versioning](https://semver.org/).
 - `atlas plan` — propose the git route for the working tree and wait for approval, rather than only refusing a
   commit once it is attempted.
 
-## [0.1.46] — 2026-08-10
+## [0.1.47] — 2026-08-10
+
+### Added
+- **`atlas prompt`** (`S-4`) — a system prompt assembled from what is true, not written about it. `AGENTS.md`
+  and every `SKILL.md` are hand-written and drift from the repository they describe: this tool's own failure,
+  occurring in the document whose entire job is telling an assistant how to work here, and nothing checks it
+  because prose about conventions has no citation to resolve and no link to break.
+- Every section is read from a source of truth: the taxonomy from the configured clusters, the blocking
+  signals from `blocking`, the branch convention and protected branches from `branch.mjs` and the config,
+  what counts as shipped from the runtime globs, the plan's shape from the planning document, and the current
+  health from the health run. **Change a cluster rule and the prompt changes** — which is what the test
+  asserts, because that is the only difference between generated and merely written.
+- It states which build produced it, so a stale copy is identifiable, and carries a do-not-edit banner:
+  editing it changes nothing and is overwritten. `--out FILE` writes it where you name, confined to the
+  repository; with no `--out` it prints.
+- **It contains no judgement, deliberately.** No tone, no worked examples, no "be helpful" — those are a
+  person's to write, and a generated file carrying them would be exactly the unreviewed generated prose this
+  project refuses everywhere else. It emits the machine-checkable half: the rules, and the current state.
+
+
 
 ### Changed
 - **The work log is one file per contributor per day** (`S-5`). It was `worklog/YYYY-MM-DD/log.md` — a single

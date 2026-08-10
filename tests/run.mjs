@@ -23,6 +23,7 @@ import { renderSite } from '../scripts/lib/render.mjs';
 import { renderMarkdown, inline } from '../scripts/lib/markdown.mjs';
 import { readPlanning, DEFAULT_PLANNING } from '../scripts/lib/planning.mjs';
 import { writeDay, contributorSlug } from '../scripts/lib/worklog.mjs';
+import { buildPrompt } from '../scripts/lib/prompt.mjs';
 import { readDeck } from '../scripts/lib/deck.mjs';
 import { RAMP, STATUS, viewPage } from '../scripts/lib/dashboard.mjs';
 import { buildWikiPages, wikiPageName, isSafePageName, exportSingleFile, exportBundle, RESERVED, gitlabPagesJob, stageWiki } from '../scripts/lib/publish.mjs';
@@ -2705,6 +2706,44 @@ test('design · undesigned areas are the inverse, and small areas are excluded',
   eq(gaps.find((g) => g.area === 'src').citations, 1);
   eq(gaps.find((g) => g.area === 'lib').citations, 0);
   ok(!gaps.some((g) => g.area === 'tiny'), 'one file is not an area');
+});
+
+test('prompt · every claim is read from the repository, so changing a rule changes the prompt', () => {
+  // AGENTS.md and every SKILL.md are hand-written and drift from the repository they describe — this tool's
+  // own failure, in the document that tells an assistant how to work here. The test for "generated, not
+  // described" is that the output moves when the source of truth moves.
+  const dir = fixture('prompt-derived', {
+    'docs/A.md': '# A\n',
+    'docs/TASKS.md': '| Item | % |\n|---|---|\n| Z-1 | 10 |\n\n## Track\n\n**Z-1 · Unfinished thing** — **P0 · Critical**\n*Summary.*\n',
+  });
+  const base = {
+    clusters: [{ id: 'guides', title: 'Guides Of Ours', match: ['docs/**'] }],
+    fallbackCluster: 'guides',
+    planning: { source: 'docs/TASKS.md' },
+  };
+  const make = (extra) => {
+    const cfg = { ...resolveConfig(dir), ...base, ...extra };
+    const index = buildIndex(dir, cfg);
+    return buildPrompt({ cfg, index, health: runHealth(index, cfg, dir), plan: readPlanning(dir, cfg),
+                         version: '9.9.9', slug: 'acme/widget' });
+  };
+
+  const a = make({ blocking: ['H1'] });
+  includes(a, 'acme/widget');
+  includes(a, 'Guides Of Ours', 'the taxonomy comes from the configured clusters');
+  includes(a, 'H1 · Dead internal link', 'the blocking list comes from configuration');
+  includes(a, 'Z-1', 'open plan items are listed');
+  eq(/H3 · Duplicate title[\s\S]*no legitimate cause/.test(a), false,
+     'a signal that is not configured as blocking is not presented as blocking');
+
+  // Move the rule; the prompt must move with it. This is the whole claim.
+  const b = make({ blocking: ['H3'] });
+  includes(b, 'H3 · Duplicate title');
+  eq(b.includes('H1 · Dead internal link'), false, 'H1 is advisory now, and the prompt says so');
+  ok(a !== b, 'the prompt is derived, not a fixed document');
+
+  // And it states which build wrote it, so a stale copy is identifiable.
+  includes(a, '9.9.9');
 });
 
 test('worklog · one file per contributor per day, and a superseded legacy log is not listed twice', () => {
