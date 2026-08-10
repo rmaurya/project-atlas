@@ -177,6 +177,16 @@ async function aboutFacts(root, cfg) {
  * in a repository with almost no markdown — a Swift app with one README does not want a documentation
  * knowledgebase, and a plugin that suggests one in every directory is a plugin people disable.
  */
+/** Semver order, for sorting and comparing. Unparseable sorts first, so it never wins a `.pop()`. */
+function cmpSemver(a, b) {
+  const p = (v) => (/^(\d+)\.(\d+)\.(\d+)/.exec(String(v)) || []).slice(1).map(Number);
+  const [x, y] = [p(a), p(b)];
+  if (x.length !== 3) return -1;
+  if (y.length !== 3) return 1;
+  for (let i = 0; i < 3; i++) if (x[i] !== y[i]) return x[i] - y[i];
+  return 0;
+}
+
 /** Lines from a git command, or `[]`. Never throws — every caller is a gate that must decide, not crash. */
 function gitLines(root, args) {
   try {
@@ -239,6 +249,25 @@ function adoptionNotice() {
  */
 function staleBanner() {
   if (process.env.ATLAS_UPDATE_CHECK === '0' || flag('json') || quiet || cmd === 'version') return;
+
+  // **The session, not the disk.** `atlas version` reports what is *installed*; nothing reported what this
+  // session actually loaded, and that difference caused nearly every failure in the day this was written —
+  // a dashboard that would not rebuild, a branch guard that never fired, an update notice that stayed
+  // silent, and a skill failing with syntax that had been replaced fifteen releases earlier.
+  //
+  // It is detectable without asking anyone: this binary lives in a version-keyed plugin directory, so it
+  // knows which build is running. If that is older than what is registered as installed, the session is
+  // holding a stale copy and no amount of updating the disk will reach it.
+  const running = runningBuild();
+  const regs = readRegistrations();
+  const newest = regs.map((r) => r.version).sort(cmpSemver).pop();
+  if (running.fromCache && newest && cmpSemver(running.version, newest) < 0) {
+    console.error(`This session loaded project-atlas ${running.version}; ${newest} is installed. ` +
+      `Restart Claude Code — hooks, skills and permission rules are read once at session start, so updating ` +
+      `the plugin does not reach a session already running.`);
+    return;                       // one line, not two: the newer problem is the one to act on
+  }
+
   let latest = null;
   try { latest = readCache()?.latest || null; } catch { return; }
   if (!latest) return;

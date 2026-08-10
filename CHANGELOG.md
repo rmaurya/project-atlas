@@ -13,6 +13,24 @@ versions follow [Semantic Versioning](https://semver.org/).
 - `atlas plan` — propose the git route for the working tree and wait for approval, rather than only refusing a
   commit once it is attempted.
 
+## [0.1.29] — 2026-08-10
+
+### Added
+- **A session that loaded an older build than the one installed now says so.** `atlas version` reported what
+  is *installed*; nothing reported what the running session actually loaded, and that gap caused most of a
+  day's debugging — a dashboard that would not rebuild, a branch guard that never fired, an update notice
+  that stayed silent, and a skill failing with syntax replaced fifteen releases earlier.
+
+  It needs no configuration to detect: the binary lives in a version-keyed plugin directory, so it knows
+  which build is running. Older than what is registered means the session is holding a stale copy, and no
+  amount of updating the disk will reach it.
+
+  **The real cause on the machine this was written on was worse and is worth recording.** The plugin was
+  registered twice — a project-scoped `local` entry pinned to `0.1.10`, and a `user` entry at `0.1.28`.
+  `/plugin` updates one scope. Inside that repository the local registration won, so every fix looked correct
+  on disk, the plugin UI showed the new version, and the session loaded the old one. Two registrations for
+  one plugin is a version pin nobody asked for.
+
 ## [0.1.28] — 2026-08-10
 
 ### Fixed
