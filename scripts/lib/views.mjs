@@ -31,6 +31,10 @@ export const PANELS = {
   documents: 'The documents this role owns, with dates, status and signals',
   recent: 'Recent commits — what changed, and when',
   changes: 'What changed, and which documents cite the files you touched',
+  testcases: 'The test inventory — cases by area, and how many exist because something broke',
+  designRecord: 'Which design artifacts exist: HLD, LLD, data flow, decision records, specifications',
+  undesigned: 'Code areas no design document cites',
+  citations: 'Per design document: how many code citations, and how many still resolve',
   caveats: 'What this page does not show, and why',
 };
 
@@ -48,7 +52,7 @@ export const DEFAULT_VIEWS = [
     id: 'qc', title: 'Quality', nav: true,
     blurb: 'Where the corpus is wrong, how often work has to be redone, and what has just landed.',
     clusters: ['procedures', 'planning', 'manuals'],
-    panels: ['health', 'deliveryTiles', 'recent', 'documents', 'coverage', 'caveats'],
+    panels: ['health', 'testcases', 'deliveryTiles', 'recent', 'documents', 'coverage', 'caveats'],
   },
   {
     id: 'product', title: 'Product', nav: true,
@@ -66,7 +70,7 @@ export const DEFAULT_VIEWS = [
     id: 'architecture', title: 'Architecture', nav: true,
     blurb: 'The design record — HLD, LLD, specifications — and where it has drifted from the code it cites.',
     clusters: ['engineering', 'specs'],
-    panels: ['documents', 'health', 'coverage', 'clusters', 'progress', 'caveats'],
+    panels: ['designRecord', 'undesigned', 'citations', 'documents', 'health', 'clusters', 'caveats'],
   },
   {
     id: 'developer', title: 'Developer', nav: true,

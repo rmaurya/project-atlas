@@ -41,6 +41,8 @@ import { route, inferType } from '../scripts/lib/plan.mjs';
 import { dayKey, commitsOn, renderDay } from '../scripts/lib/worklog.mjs';
 import { ownership, areaOf, summariseOwnership } from '../scripts/lib/ownership.mjs';
 import { survivingLines } from '../scripts/lib/surviving.mjs';
+import { testInventory, casesInFile } from '../scripts/lib/testcases.mjs';
+import { designRecord, undesigned, citationHealth } from '../scripts/lib/design.mjs';
 import { manifestUrl, checkForUpdate, fetchLatest, readCache, writeCache, isFresh } from '../scripts/lib/update.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -2374,6 +2376,83 @@ test('automation · neither hook acts in a repository that never adopted the too
   eq(cli(dir, ['build', '--auto', '--quiet']).code, 0);
   ok(!fs.existsSync(path.join(dir, 'docs', '_wiki')), 'no config, no site written');
   eq(cli(dir, ['health', '--gate']).code, 0, 'no config, no gate');
+});
+
+/* ================================================================== what QC and the architect came for */
+
+console.log('\ntest inventory');
+
+test('testcases · cases are read from source, in several languages', () => {
+  // Never from a run: parsing reporter output makes a documentation tool depend on a passing suite, an
+  // installed runner and a stable JSON format — three ways to break for reasons that are not documentation.
+  eq(casesInFile('t/a.test.js', "test('does a thing', () => {})\nit('does another', () => {})").length, 2);
+  eq(casesInFile('t/a_test.go', 'func TestThing(t *testing.T) {}')[0].name, 'TestThing');
+  eq(casesInFile('t/test_a.py', 'def test_thing():\n  pass')[0].name, 'test_thing');
+  // casesInFile extracts; testInventory selects. Keeping those apart means the extractor can be tested on
+  // any string, and the "is this a test file" rule lives in one place instead of two.
+  eq(casesInFile('src/main.js', "test('extraction is not selection', () => {})").length, 1);
+  eq(testInventory('.', ['src/main.js']).cases.length, 0, 'src/main.js is not a candidate');
+});
+
+test('testcases · a case named for a defect is counted as a regression', () => {
+  // A heuristic over wording, and labelled as one everywhere it is reported.
+  const cases = casesInFile('t/a.test.js',
+    "test('renders the header', () => {})\ntest('never overwrites a hand-edited page', () => {})");
+  eq(cases.filter((c) => c.regression).length, 1);
+  eq(cases.find((c) => c.regression).name.includes('never'), true);
+});
+
+test('testcases · a repository with no tests reports zero rather than vanishing', () => {
+  // A panel that disappears when the answer is "none" hides the answer worth seeing most.
+  const dir = fixture('no-tests', { 'docs/A.md': '# A\n' });
+  const k = testInventory(dir, ['docs/A.md', 'README.md']);
+  eq(k.available, true);
+  eq(k.cases.length, 0);
+});
+
+test('testcases · the suite groups by its own section headings', () => {
+  const text = "/* ===== alpha */\ntest('one', () => {})\n/* ===== beta */\ntest('two', () => {})";
+  const cases = casesInFile('t/a.test.js', text);
+  eq(cases[0].section, 'alpha');
+  eq(cases[1].section, 'beta');
+});
+
+console.log('\nthe design record');
+
+test('design · an absent artifact is the finding, so absence is a row', () => {
+  // A list of the documents that exist cannot show you the one that does not.
+  const record = designRecord([{ path: 'docs/architecture/HLD.md' }]);
+  eq(record.find((r) => r.id === 'hld').present, true);
+  eq(record.find((r) => r.id === 'lld').present, false);
+  eq(record.length, 6, 'every expected artifact appears, present or not');
+});
+
+test('design · undesigned areas are the inverse, and small areas are excluded', () => {
+  // The only panel here that finds something the reader was not already looking for. Two files is not an
+  // area worth a design document, and listing it buries the ones that are.
+  const code = ['src/a.js', 'src/b.js', 'src/c.js', 'lib/x.js', 'lib/y.js', 'tiny/z.js'];
+  const docs = [{ path: 'docs/HLD.md', citations: [{ path: 'src/a.js' }] }];
+  const gaps = undesigned(code, docs, { depth: 1 });
+  eq(gaps.find((g) => g.area === 'src').citations, 1);
+  eq(gaps.find((g) => g.area === 'lib').citations, 0);
+  ok(!gaps.some((g) => g.area === 'tiny'), 'one file is not an area');
+});
+
+test('design · "not checked" is kept apart from "does not resolve"', () => {
+  // Collapsing them reports a document as sound because nobody looked.
+  const rows = citationHealth([{ path: 'd.md', citations: [
+    { path: 'a.js', resolved: true }, { path: 'b.js', resolved: false }, { path: 'c.js', resolved: null }] }]);
+  eq(rows[0].resolved, 1);
+  eq(rows[0].broken, 1);
+  eq(rows[0].unchecked, 1);
+});
+
+test('design · a document citing no code is grounded:false, not broken', () => {
+  // It may be a diagram or a rationale. It cannot go stale against anything, which is worth saying rather
+  // than scoring.
+  const rows = citationHealth([{ path: 'd.md', citations: [] }]);
+  eq(rows[0].grounded, false);
+  eq(rows[0].broken, 0);
 });
 
 /* ================================================================== full-width panels lead */

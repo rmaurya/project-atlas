@@ -13,6 +13,28 @@ versions follow [Semantic Versioning](https://semver.org/).
 - `atlas plan` — propose the git route for the working tree and wait for approval, rather than only refusing a
   commit once it is attempted.
 
+## [0.1.26] — 2026-08-10
+
+### Added
+- **Quality now shows what is covered, not only how often it broke.** A rework rate is a symptom; the test
+  inventory is what a QC reader came for. 220 cases here, grouped by the suite's own section headings, with
+  the share **named for a defect rather than a capability** — 56%, the part that exists because something
+  broke. Read from source in five languages, never from a run: parsing reporter output would make a
+  documentation tool depend on a passing suite, an installed runner and a stable JSON format.
+
+  A repository with no tests reports zero rather than hiding the panel. An answer of "none" is the one worth
+  seeing most.
+- **Architecture answers the three questions an architect actually has.**
+  - **Design record** — HLD, LLD, data flow, decision records, specifications: present or absent, as rows.
+    An absence is the finding, and a list of what exists cannot show one. This repository has none of the six.
+  - **Undesigned areas** — the inversion, and the only panel that finds something you were not already
+    looking for: code areas no design document cites. `scripts/lib`, 30 files, cited by nothing.
+  - **Design documents against the code** — citations per document, with **"not checked" kept apart from
+    "broken"**. Collapsing them reports a document as sound because nobody looked.
+
+  All three are coverage, not quality, and say so: a documented area may be described badly, and three
+  utility files may need no design at all.
+
 ## [0.1.25] — 2026-08-10
 
 ### Fixed

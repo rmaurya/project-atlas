@@ -16,6 +16,7 @@
  *    that flattens that distinction is lying quietly.
  */
 
+import { designRecord, undesigned, citationHealth } from './design.mjs';
 import { escapeHtml, escapeAttr } from './markdown.mjs';
 import { SIGNALS } from './health.mjs';
 import { taskCoverage } from './contrib.mjs';
@@ -117,7 +118,7 @@ ${omitted.length ? `<section class="card muted"><h2>Not shown on this page</h2>
 }
 
 /** Returns the panel's HTML, or null when it has nothing to say. */
-function panel(id, { index, health, plan, cfg, contrib, view, nameFor }) {
+function panel(id, { index, health, plan, cfg, contrib, view, nameFor, repo }) {
   const hasPlan = plan && !plan.missing;
   const hasContrib = contrib && contrib.available;
   // Falls back to the plain mapping when a caller has not supplied the collision-resolved map — the two agree
@@ -140,6 +141,10 @@ function panel(id, { index, health, plan, cfg, contrib, view, nameFor }) {
     case 'changes': return changesPanel(cfg, index, pageOf);
     case 'documents': return documentsPanel(index, health, view, pageOf);
     case 'recent': return hasContrib ? recentPanel(contrib, plan) : null;
+    case 'testcases': return testcasesPanel(repo);
+    case 'designRecord': return designRecordPanel(index);
+    case 'undesigned': return undesignedPanel(repo, index);
+    case 'citations': return citationsPanel(index, pageOf);
     case 'caveats': return caveats(plan, health, contrib);
     default: return null;
   }
@@ -830,3 +835,108 @@ const TABLE_JS = `
   poll(); setInterval(poll, 3000);
 })();
 `;
+
+
+/* ------------------------------------------------------------------ quality: the test inventory */
+
+/**
+ * What is covered, not how often it broke.
+ *
+ * The Quality view reported a rework rate and never said what the suite actually tests. A rate is a symptom;
+ * this is the thing a QC reader came for. Grouped by the suite's own section headings where it has them,
+ * because that grouping is the author's and is better than any this could invent.
+ */
+function testcasesPanel(repo) {
+  const k = repo?.tests;
+  if (!k) return null;
+  if (!k.cases.length) {
+    return `<section class="card"><h2>Test cases</h2>
+      <p class="empty">No test cases were found in ${k.candidates} candidate file(s). That is a finding, not a
+      blank — a panel that disappears when the answer is "none" hides the answer worth seeing most.</p></section>`;
+  }
+  const pct = Math.round((k.regressions / k.cases.length) * 100);
+  return `<section class="card">
+  <h2>Test cases <span class="count">${k.cases.length}</span></h2>
+  <p class="cap">Read from source, never from a run — this is what is written, not what passed.
+  <strong>${k.regressions}</strong> of them (${pct}%) are named for a defect rather than a capability, which
+  is the share that exists because something broke. That is inferred from wording, not recorded anywhere.</p>
+  <div class="bars">
+    ${k.sections.slice(0, 12).map((sec) => `
+    <div class="bar">
+      <span class="bl">${escapeHtml(sec.title)}</span>
+      <span class="bt"><span class="bf t-high" style="width:${Math.max(2, Math.round((sec.count / k.sections[0].count) * 100))}%"></span></span>
+      <span class="bv">${sec.count}<span class="bh">${sec.regressions} regression(s)</span></span>
+    </div>`).join('')}
+  </div>
+  ${k.sections.length > 12 ? `<p class="hint">${k.sections.length - 12} more group(s) not shown.</p>` : ''}
+</section>`;
+}
+
+/* ------------------------------------------------------------------ architecture: the design record */
+
+/** An absence is the most valuable thing on this panel, and a list of what exists cannot show one. */
+function designRecordPanel(index) {
+  const record = designRecord(index.documents);
+  return `<section class="card">
+  <h2>Design record</h2>
+  <p class="cap">What a design record is normally expected to carry. <strong>A missing row is the finding</strong> —
+  a list of the documents that exist cannot show you the one that does not.</p>
+  <div class="table-wrap"><table class="mini-table">
+    <thead><tr><th>Artifact</th><th>Present</th><th>Document(s)</th></tr></thead>
+    <tbody>${record.map((r) => `
+      <tr><td>${escapeHtml(r.label)}</td>
+        <td class="${r.present ? 'ok' : 'bad'}">${r.present ? 'yes' : 'absent'}</td>
+        <td class="cap">${r.documents.length ? escapeHtml(r.documents.slice(0, 3).join(', ')) : '—'}</td></tr>`).join('')}
+    </tbody>
+  </table></div>
+</section>`;
+}
+
+/** The inversion: what is built and undescribed. The only panel here that finds an unknown unknown. */
+function undesignedPanel(repo, index) {
+  if (!repo?.code?.length) return null;
+  const design = index.documents.filter((d) => d.cluster === 'engineering' || d.cluster === 'specs' ||
+    /HLD|LLD|ARCHITECTURE|DATA[-_]?FLOW/i.test(d.path));
+  const gaps = undesigned(repo.code, design);
+  if (!gaps.length) return null;
+  const bare = gaps.filter((g) => g.citations === 0);
+  return `<section class="card">
+  <h2>Undesigned areas <span class="count">${bare.length}</span></h2>
+  <p class="cap">Code areas no design document cites. This is the inverse of the list above and the only one
+  that finds something you were not already looking for. <strong>Coverage, not quality</strong> — a documented
+  area may be described badly, and an area of three utility files may need no design at all.</p>
+  <div class="bars">
+    ${gaps.slice(0, 10).map((g) => `
+    <div class="bar">
+      <span class="bl">${escapeHtml(g.area)}</span>
+      <span class="bt"><span class="bf ${g.citations ? 't-mid' : 't-none'}" style="width:${g.citations ? Math.min(100, g.citations * 10) : 100}%"></span></span>
+      <span class="bv">${g.citations}<span class="bh">${g.files} file(s)${g.by.length ? ` · cited by ${escapeHtml(g.by.slice(0, 2).join(', '))}` : ' · cited by nothing'}</span></span>
+    </div>`).join('')}
+  </div>
+</section>`;
+}
+
+/** A design document earns its place by citing code. One whose citations no longer resolve describes a program that is gone. */
+function citationsPanel(index, pageOf) {
+  const design = index.documents.filter((d) => d.cluster === 'engineering' || d.cluster === 'specs' ||
+    /HLD|LLD|ARCHITECTURE|DATA[-_]?FLOW/i.test(d.path));
+  if (!design.length) return null;
+  const rows = citationHealth(design);
+  return `<section class="card">
+  <h2>Design documents against the code <span class="count">${rows.length}</span></h2>
+  <p class="cap">A design document earns its place by citing code. One that cites nothing cannot go stale
+  against anything; one whose citations no longer resolve is describing a program that has moved on.
+  <strong>Not checked</strong> is kept apart from <strong>broken</strong> — they are different claims.</p>
+  <div class="table-wrap"><table class="mini-table">
+    <thead><tr><th>Document</th><th class="num">Citations</th><th class="num">Resolve</th><th class="num">Broken</th><th class="num">Not checked</th><th>Last touched</th></tr></thead>
+    <tbody>${rows.map((r) => `
+      <tr><td><a href="pages/${escapeAttr(pageOf(r.path))}">${escapeHtml(r.title)}</a></td>
+        <td class="num">${r.total || '<span class="cap">none</span>'}</td>
+        <td class="num ok">${r.resolved || ''}</td>
+        <td class="num ${r.broken ? 'bad' : ''}">${r.broken || ''}</td>
+        <td class="num cap">${r.unchecked || ''}</td>
+        <td class="cap">${r.date || 'unknown'}</td></tr>`).join('')}
+    </tbody>
+  </table></div>
+</section>`;
+}

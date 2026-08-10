@@ -18,6 +18,7 @@ import { readContrib } from './contrib.mjs';
 import { resolveViews, navItems, viewFile } from './views.mjs';
 import { risks, summarise } from './insight.mjs';
 import { repoComponents, scorecard } from './score.mjs';
+import { testInventory } from './testcases.mjs';
 import { execFileSync } from 'node:child_process';
 import { PANELS } from './views.mjs';
 
@@ -174,7 +175,21 @@ export function renderSite(index, health, cfg, root) {
   fs.writeFileSync(path.join(outDir, 'health.html'), healthPage(index, health, cfg, docNav.map((n) => ({ ...n, current: n.href === 'health.html' })), nameFor), 'utf8');
   const views = views0;
   const baseNav = docNav;
-  const ctx = { index, health, plan, cfg: { ...cfg, __root: root }, contrib, nameFor };
+  // What the QC and Architecture panels read: the tracked file list, and the test inventory taken from it.
+  // Computed once here rather than per panel — three panels want the same `git ls-files` and running it
+  // three times would make the build slower for no answer it did not already have.
+  let repo = { files: [], code: [], tests: null };
+  try {
+    const files = execFileSync('git', ['-C', root, 'ls-files'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })
+      .split('\n').filter(Boolean);
+    repo = {
+      files,
+      code: files.filter((f) => /\.(m?[jt]sx?|py|go|rs|java|rb|swift|kt|c|h|cpp|cs|php|sh)$/i.test(f)),
+      tests: testInventory(root, files),
+    };
+  } catch { /* not a repository — the panels that need this return null rather than inventing a corpus */ }
+
+  const ctx = { index, health, plan, cfg: { ...cfg, __root: root }, contrib, nameFor, repo };
   for (const v of views) {
     const nav = baseNav.map((n) => ({ ...n, current: n.href === viewFile(v.id) }));
     fs.writeFileSync(path.join(outDir, viewFile(v.id)), viewPage(v, { ...ctx, nav }, shell), 'utf8');
