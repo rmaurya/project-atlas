@@ -114,6 +114,43 @@ If a dashboard-only rebuild cannot be made fast enough to be invisible, the hone
 A session ends and everything it learned that was not written down is gone. The next one re-derives what it
 can and rediscovers the rest by hitting it again — which is how the same trap costs time twice.
 
+### One directory per contributor
+
+A single `HANDOFF.md` and a single journal are contention points the moment two people work in parallel: both
+edit the same file, both hit the same conflict, and the merge is between two people's half-finished thoughts.
+So state is scoped by contributor, and the layout is the design:
+
+```
+docs/handoff/
+  SHARED.md                     what the project decided, what will bite anyone
+  rajneesh-maurya/HANDOFF.md    one directory per contributor, no shared file to conflict on
+  <contributor>/…               anything else that is theirs
+.atlas/journal/
+  <contributor>.jsonl           operational, append-only, never published
+```
+
+**The split is what makes it work, and getting it wrong ruins it in either direction.** A decision recorded
+in a personal file is a decision the team does not have; a half-finished thought recorded in `SHARED.md` is
+noise for everyone else. The rule is one sentence: *if it constrains other people it is shared, if it only
+helps you resume it is yours.*
+
+**Identity comes from git, and from the key the tool already uses.** `atlas contrib` groups commits by email
+with a name fallback (`scripts/lib/contrib.mjs:159`); handoff directories reuse exactly that rather than
+inventing a second notion of who someone is. The directory is the slugified display name because a directory
+named `hi-at-example-com` helps nobody, and each file records the email that disambiguates it. Two
+contributors whose names slugify identically are **reported, never silently merged** — the same rule the
+ownership analysis already holds to.
+
+Why per-contributor files rather than one file with sections: sections still conflict. Separate files cannot,
+and an append-only journal split per contributor cannot conflict even within a single day. Scaling to a large
+team is not a matter of discipline about who edits what; it is a matter of there being nothing to contend
+over.
+
+**Publishing follows the split too.** `SHARED.md` is corpus and publishes with everything else. Personal
+handoffs default to **not published** — they are in the repository, where teammates can read them, but a
+half-formed working note does not belong on a public wiki because somebody else ran a publish. Configurable,
+because a private repository's team may well want the opposite.
+
 Two artefacts, and the split between them is the whole design:
 
 **`HANDOFF.md` — what cannot be derived.** Decisions already taken, traps already paid for, work in flight,

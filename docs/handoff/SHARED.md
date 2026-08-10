@@ -1,13 +1,19 @@
-# Handoff
+# Shared handoff
 
-State a new session needs and cannot derive: what is in flight, what is decided, and what will bite you.
+What the **project** has decided and what will bite **anyone** — not what any one person was in the middle
+of. Personal working state lives in `docs/handoff/<contributor>/`, one directory each, so two people writing
+at once never touch the same file.
 
-Everything derivable lives elsewhere and is not repeated here — the plan is [`ROADMAP.md`](ROADMAP.md), the
-history is `git log`, the corpus is `atlas health`. **If a fact here can be read from the repository, delete
-it from this file.** A handoff that duplicates derived state goes stale exactly the way this project exists
-to detect, and there is a standing warning at the top of `ROADMAP.md` about precisely that failure.
+The split is the point. A decision recorded in someone's personal notes is a decision the team does not have;
+a half-finished thought recorded here is noise for everyone else. **If it constrains other people, it belongs
+in this file. If it only helps you resume, it belongs in yours.**
 
-**Last handed off:** 2026-08-10, at `399765a` · version 0.1.33
+Everything derivable lives elsewhere and is not repeated here — the plan is [`../ROADMAP.md`](../ROADMAP.md),
+the history is `git log`, the corpus is `atlas health`. **If a fact here can be read from the repository,
+delete it from this file.** A handoff that duplicates derived state goes stale exactly the way this project
+exists to detect, and there is a standing warning at the top of `ROADMAP.md` about precisely that failure.
+
+**Last handed off:** 2026-08-10, at `b36e260` · version 0.1.35
 
 ---
 
@@ -18,17 +24,17 @@ Pages and the artifact export are all live and current.
 
 | Surface | State |
 |---|---|
-| `main` | `399765a`, v0.1.33, CI green |
-| Wiki | published, 32 pages, manifest present so the drift guard now has a baseline |
+| `main` | `b36e260`, v0.1.35, CI green |
+| Wiki | published, 36 pages, manifest readable so the drift guard actually works |
 | Pages | live, deployed **by workflow** (`pages.yml`), not from a branch |
-| Artifact | dashboard published as a private Claude artifact — a snapshot, not live |
-| Tests | 233 passing, 1 skipped on Windows by name |
+| Artifact | whole site as one page, private, a snapshot rather than live |
+| Tests | 234 passing, 1 skipped on Windows by name |
 
 ## Decided, so don't re-litigate
 
 - **Autonomy stops at the repository edge.** Derived state may maintain itself; pushing, publishing and
   sharing never happen unattended, and that is not a config option. Full reasoning in
-  [`references/autonomy.md`](references/autonomy.md). Raised as "make it fully autonomous", answered with a
+  [`../references/autonomy.md`](../references/autonomy.md). Raised as "make it fully autonomous", answered with a
   stated boundary rather than a flag.
 - **`gh-pages` must not exist here.** Pages deploys from a workflow, so a pushed branch serves nothing and
   GitHub advertises it for days. One was created and deleted on 2026-08-10; `atlas publish --target pages`

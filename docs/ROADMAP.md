@@ -25,7 +25,7 @@ measured against the code — the same distinction the tool preserves everywhere
 | A-1 | 0 | A-2 | 0 | A-3 | 0 |
 | A-4 | 0 | A-5 | 0 | A-6 | 0 |
 | A-7 | 0 | A-8 | 0 | A-9 | 0 |
-| A-10 | 0 | A-11 | 0 | | |
+| A-10 | 0 | A-11 | 0 | A-12 | 0 |
 
 ---
 
@@ -304,7 +304,7 @@ made invisible, this stays with `atlas watch` and says so.*
 
 **A-9 · Memory and handoff** — **P1 · High**
 *A session ends and everything it learned that was not written down is gone; the next one rediscovers the
-same traps by hitting them. [`HANDOFF.md`](HANDOFF.md) holds what cannot be derived — decisions taken, traps
+same traps by hitting them. [`handoff/SHARED.md`](handoff/SHARED.md) holds what cannot be derived — decisions taken, traps
 paid for, work in flight — and the tool never generates it, because a machine can see that a commit happened
 but not that a decision was argued and settled. `atlas handoff` prints the derived half as a prompt for a
 human to write the rest. One signal, H13: the handoff names a commit far behind HEAD (advisory — a stale
@@ -322,6 +322,16 @@ nothing. Never carries prompt text and is never published — the same rule `atl
 *`HANDOFF.md` is part of the corpus and publishes with it. The journal is excluded by construction, the way a
 token report is refused a path inside the output directory. The distinction is the point: curated prose is
 for readers, an operational record is not.*
+
+**A-12 · Contributor-scoped state** — **P1 · High**
+*One `HANDOFF.md` and one journal are contention points the moment two people work in parallel — same file,
+same conflict, and a merge between two people's half-finished thoughts. `docs/handoff/SHARED.md` holds what
+constrains everyone; `docs/handoff/<contributor>/` and `.atlas/journal/<contributor>.jsonl` hold what only
+helps that person resume. Separate files cannot conflict, which is what makes it scale to a team rather than
+relying on discipline about who edits what. Identity reuses the key `atlas contrib` already groups by
+(`scripts/lib/contrib.mjs:159`), and a slug collision is reported rather than silently merging two people.
+Personal handoffs default to unpublished; a half-formed note should not reach a public wiki because someone
+else ran a publish.*
 
 **A-7 · The boundary holds** — **P0 · Critical**
 *Tests that assert autonomy never pushes, never publishes, never rewrites prose and never acts on an
