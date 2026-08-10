@@ -145,5 +145,12 @@
   "$schema": "https://github.com/rmaurya/project-atlas/schema/v1",
   "branching": {
     "posture": "enforce"
-  }
+  },
+  "blocking": [
+    "H1",
+    "H3",
+    "H8",
+    "H10",
+    "H12"
+  ]
 }
