@@ -11,6 +11,22 @@
 
 import { slugify } from './scan.mjs';
 
+/**
+ * Blank the inside of inline code spans, preserving length so every offset downstream still lines up.
+ *
+ * A link pattern does not stop being a link pattern because it is documented rather than written. A regex in
+ * backticks was read as a link to a file named after its alternation, and H1 — a blocking signal — reported
+ * it dead, so documenting a pattern could refuse a commit. Shared rather than copied: this lives here
+ * because both the corpus scanner and the planning parser need exactly the same rule, and two copies of one
+ * rule is how they drift.
+ *
+ * Only ever applied before extracting *links*. A citation is written in backticks on purpose.
+ */
+export function maskInlineCode(text) {
+  return text.replace(/(`+)([^`]|[^`][\s\S]*?[^`])\1(?!`)/g, (whole, ticks, body) =>
+    ticks + ' '.repeat(body.length) + ticks);
+}
+
 export function escapeHtml(s) {
   return String(s)
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')

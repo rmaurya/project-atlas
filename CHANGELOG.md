@@ -13,6 +13,26 @@ versions follow [Semantic Versioning](https://semver.org/).
 - `atlas plan` — propose the git route for the working tree and wait for approval, rather than only refusing a
   commit once it is attempted.
 
+## [0.1.38] — 2026-08-10
+
+### Added
+- **An item now carries its whole description and the documents that specify it** (`S-7`). The model held a
+  summary clamped to 220 characters and no notion that an item is specified anywhere, which is why a backlog
+  view had nothing to render. `description` is everything the plan says about the item, bounded by the next
+  item *or* the next track heading — without the second bound the last item of a track swallows the whole
+  following section, other items' text included. `sources` are the repository-relative links the item's own
+  prose already contains, resolved against the plan: external URLs and anchors are not specifications, and
+  code citations are excluded because naming an implementation is not the same as naming a specification.
+  Derived rather than declared — a hand-kept item-to-document mapping is one that goes stale, which is the
+  failure this tool exists to detect. `summary` is untouched, so the existing table renders exactly as before.
+- Running it against this repository's own plan: 47 items, and **one** links to a document. That is not a
+  defect in the extraction, it is the finding — the plan almost never says where its work is specified.
+
+### Changed
+- `maskInlineCode` moved to `markdown.mjs` and is now shared by the corpus scanner and the planning parser
+  rather than copied. Both need the identical rule, and two copies of one rule is precisely how they drift —
+  the same mistake that kept Windows red through a release that had already fixed the product.
+
 ## [0.1.37] — 2026-08-10
 
 ### Fixed

@@ -15,6 +15,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { compileRule } from './config.mjs';
 import { confine } from './paths.mjs';
+import { maskInlineCode } from './markdown.mjs';
 
 export const DEFAULT_PLANNING = {
   source: null,                       // e.g. "docs/TASKS.md" — null disables the dashboard's planning half
@@ -65,11 +66,20 @@ export function readPlanning(root, cfg) {
     if (t) { track = t[1].trim(); continue; }
     const m = itemRe.exec(lines[i]);
     if (!m) continue;
+    const body = bodyAfter(lines, i, itemRe, trackRe);
     items.push({
       id: m[1], title: m[2].trim(), priority: m[3], criticality: m[4],
       track: track || 'Untracked',
       line: i + 1,
       summary: summaryAfter(lines, i),
+      // The whole of what the plan says about this item, not the first line clamped to 220 characters. The
+      // summary stays exactly as it was — the table renders it and a wider field there would break the
+      // layout — so this is additive: a caller that wants the detail asks for the detail.
+      description: body,
+      // The documents that specify this item, read out of its own prose rather than kept in a second list.
+      // A hand-maintained mapping of item to document is a mapping that goes stale, which is the failure
+      // this tool exists to detect; the links an author already wrote are the answer they already gave.
+      sources: sourcesIn(body, p.source),
       percent: null, estimated: false,
     });
   }
@@ -124,6 +134,55 @@ export function readPlanning(root, cfg) {
       estimated: est.length,
     },
   };
+}
+
+/**
+ * Everything the plan says about one item: from the line after its heading to whatever comes next.
+ *
+ * The boundary is the next item *or* the next track heading, because the last item in a track is otherwise
+ * unbounded and would swallow the whole of the following section — including other items' text, which then
+ * appears in its source list.
+ */
+function bodyAfter(lines, i, itemRe, trackRe) {
+  const out = [];
+  for (let j = i + 1; j < lines.length; j++) {
+    // `exec` on a /g regex advances lastIndex between calls, so a shared instance silently skips matches.
+    // These two are compiled without /g, but resetting is free and the assumption is not worth inheriting.
+    if (itemRe) { itemRe.lastIndex = 0; if (itemRe.test(lines[j])) break; }
+    if (trackRe) { trackRe.lastIndex = 0; if (trackRe.test(lines[j])) break; }
+    out.push(lines[j]);
+  }
+  return out.join('\n').trim();
+}
+
+/**
+ * The documents an item's own prose links to, resolved relative to the plan.
+ *
+ * Only repository-relative links count. An external URL is a reference, not a specification, and an anchor
+ * is a link to somewhere in this same document. Code citations are deliberately excluded — an item that
+ * mentions `scripts/lib/planning.mjs:69` is naming an implementation, not a document that specifies it.
+ */
+function sourcesIn(body, planSource) {
+  if (!body) return [];
+  const dir = path.posix.dirname(String(planSource || '').split(path.sep).join('/')) || '.';
+  const seen = new Set();
+  const out = [];
+  const re = /\[([^\]]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g;
+  let m;
+  // Masked first, for the same reason the corpus scanner masks: a link pattern inside backticks is prose
+  // about links. Without this, an item documenting a glob acquires a source document that does not exist.
+  const masked = maskInlineCode(body);
+  while ((m = re.exec(masked))) {
+    const raw = m[2];
+    if (/^(https?:|mailto:|tel:|#|data:)/i.test(raw)) continue;
+    const [target] = raw.split('#');
+    if (!target) continue;
+    const resolved = path.posix.normalize(path.posix.join(dir, target));
+    if (seen.has(resolved)) continue;
+    seen.add(resolved);
+    out.push({ path: resolved, text: m[1].replace(/[*`]/g, '').trim() });
+  }
+  return out;
 }
 
 function summaryAfter(lines, i) {

@@ -9,6 +9,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { matchesAny, clusterFor } from './config.mjs';
+import { maskInlineCode } from './markdown.mjs';
 
 const NUL = '\0';
 const US = '\x1f';
@@ -180,23 +181,6 @@ function firstParagraph(text) {
     return plain.slice(0, 300);
   }
   return '';
-}
-
-/**
- * Blank the inside of inline code spans, preserving length so every offset downstream still lines up.
- *
- * Fenced blocks are already dropped when prose is assembled; inline spans were not, and a link pattern does
- * not stop being a link pattern because it is documented rather than written. `[-_](spec|srs)\.md$` inside
- * backticks was read as a link to a file named `spec|srs`, which H1 then reported as dead — a *blocking*
- * finding, so documenting a regex could refuse your commit. Any prose about markdown, globs or bracket
- * syntax hits it.
- *
- * Only links are masked, never citations: `scripts/lib/scan.mjs:185` in backticks is exactly how a citation
- * is meant to be written, and stripping code spans before `extractCitations` would delete the convention.
- */
-function maskInlineCode(text) {
-  return text.replace(/(`+)([^`]|[^`][\s\S]*?[^`])\1(?!`)/g, (whole, ticks, body) =>
-    ticks + ' '.repeat(body.length) + ticks);
 }
 
 function extractLinks(text, from) {

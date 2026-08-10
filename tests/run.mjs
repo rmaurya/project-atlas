@@ -557,6 +557,48 @@ test('planning · items, priorities, criticalities and tracks are extracted', ()
   includes(a1.summary, 'first thing');
 });
 
+test('planning · an item carries its whole description and the documents that specify it', () => {
+  // The model had a summary clamped to 220 characters and no notion that an item is specified anywhere, so
+  // a backlog view had nothing to render. Both come from the markdown — a hand-kept item-to-document mapping
+  // is a mapping that goes stale, which is the failure this tool exists to detect.
+  const dir = fixture('planning-detail', {
+    'docs/TASKS.md': [
+      '| Item | % |', '|---|---|', '| X-1 | 40 |', '',
+      '## Track 1 — Work', '',
+      '**X-1 · Detailed thing** — **P1 · High**',
+      '*One line of summary.*',
+      '',
+      'A second paragraph the summary never carried. Specified by [the SRS](specs/SRS.md) and',
+      'also by [the design](../DESIGN.md). External [docs](https://example.com/x) are not sources,',
+      'nor is an [anchor](#somewhere), and `[not](a-link.md)` is prose about links.',
+      '',
+      '**X-2 · Next thing** — **P2 · Low**',
+      '*Belongs to X-2, not X-1.*',
+      '',
+      '## Track 2 — Other', '',
+      '**X-3 · Last in file** — **P3 · Low**',
+      '*Bounded by end of file.*',
+    ].join('\n'),
+    'docs/specs/SRS.md': '# SRS\n',
+    'DESIGN.md': '# Design\n',
+  });
+  const cfg = resolveConfig(dir);
+  cfg.planning = { source: 'docs/TASKS.md' };
+  const plan = readPlanning(dir, cfg);
+  const x1 = plan.items.find((i) => i.id === 'X-1');
+
+  eq(x1.summary, 'One line of summary.', 'the summary is unchanged — the table still renders it');
+  includes(x1.description, 'A second paragraph the summary never carried');
+  eq(/Belongs to X-2/.test(x1.description), false, 'the next item bounds the description');
+
+  eq(x1.sources.map((s) => s.path), ['docs/specs/SRS.md', 'DESIGN.md'],
+     'repository-relative links only, resolved against the plan, in order');
+
+  // A track heading bounds the last item of a track, or it swallows the following section.
+  const x2 = plan.items.find((i) => i.id === 'X-2');
+  eq(/Last in file/.test(x2.description), false, 'a track heading ends the previous item');
+});
+
 test('planning · percentages are read, and an asterisk marks the figure estimated', () => {
   const cfg = resolveConfig(planRepo);
   cfg.planning = { source: 'docs/TASKS.md' };
