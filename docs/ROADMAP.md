@@ -23,7 +23,7 @@ measured against the code — the same distinction the tool preserves everywhere
 | D-7 | 100 | D-8 | 100 | D-9 | 100 |
 | D-10 | 100 | I-1 | 100 | | |
 | I-3 | 100 | D-11 | 100 | I-2 | 100 |
-| A-1 | 0 | A-2 | 0 | A-3 | 0 |
+| A-1 | 20 | A-2 | 0 | A-3 | 0 |
 | A-4 | 0 | A-5 | 0 | A-6 | 0 |
 | A-7 | 0 | A-8 | 0 | A-9 | 0 |
 | A-10 | 0 | A-11 | 0 | A-12 | 0 |
