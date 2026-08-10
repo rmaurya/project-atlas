@@ -41,6 +41,15 @@ export function writeCache(entry, file = cachePath()) {
   } catch { /* an unwritable cache directory means we re-check tomorrow, which is not worth reporting */ }
 }
 
+/** -1, 0, 1 — or null when either side is unparseable. Local to this module so the cache logic has no imports. */
+function cmpVersions(a, b) {
+  const p = (v) => (/^(\d+)\.(\d+)\.(\d+)/.exec(String(v)) || []).slice(1).map(Number);
+  const [x, y] = [p(a), p(b)];
+  if (x.length !== 3 || y.length !== 3) return null;
+  for (let i = 0; i < 3; i++) if (x[i] !== y[i]) return x[i] < y[i] ? -1 : 1;
+  return 0;
+}
+
 /** `YYYY-MM-DD` in the machine's own timezone, which is the only one the person reading it lives in. */
 export function localDate(t) {
   const d = new Date(t);
@@ -92,10 +101,22 @@ export async function fetchLatest(url, { timeoutMs = TIMEOUT_MS, fetchImpl = glo
  * `force` skips the cache for an explicit `atlas version --check`, where the user is asking on purpose and a
  * day-old answer is not what they wanted.
  */
-export async function checkForUpdate({ repository, force = false, now = null, file = cachePath(), fetchImpl } = {}) {
+export async function checkForUpdate({ repository, force = false, now = null, file = cachePath(), fetchImpl, installed = null } = {}) {
   const t = now ?? new Date().getTime();
   const cached = readCache(file);
-  if (!force && isFresh(cached, t)) {
+
+  // **A cache the installed version has overtaken is provably wrong.**
+  //
+  // The 24-hour window assumes releases are rarer than a day. This project shipped twenty-six versions in
+  // one, and the consequence was silence exactly when the notice mattered: the cache held 0.1.3, the install
+  // was 0.1.10, the real latest was 0.1.26 — and because 0.1.10 is *newer* than the cached figure, the notice
+  // concluded "ahead of the release, nothing to say" and never spoke.
+  //
+  // You cannot be ahead of the published version under normal use, so being ahead is free evidence that the
+  // cached answer is stale. Refetch rather than trust it.
+  const overtaken = installed && cached?.latest && cmpVersions(installed, cached.latest) === 1;
+
+  if (!force && !overtaken && isFresh(cached, t)) {
     return { latest: cached.latest ?? null, checkedAt: cached.date || null, fromCache: true };
   }
   const latest = await fetchLatest(manifestUrl(repository), { fetchImpl });

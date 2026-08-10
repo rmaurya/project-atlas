@@ -2255,6 +2255,30 @@ test('update · the manifest URL is derived from the repository, and refuses unk
   eq(manifestUrl(''), null);
 });
 
+test('update · a cache the installed version has overtaken is refetched, not trusted', async () => {
+  // The 24-hour window assumes releases are rarer than a day. Twenty-six shipped in one, and the notice went
+  // silent exactly when it mattered: cache said 0.1.3, install was 0.1.10, real latest was 0.1.26 — and
+  // because the install was NEWER than the cached figure, it concluded "ahead of the release" and said
+  // nothing. You cannot be ahead of the published version, so being ahead is free evidence the cache is wrong.
+  const file = path.join(tmpRoot, 'uc-overtaken.json');
+  const now = 1770000000000;
+  writeCache({ at: now - 1000, date: '2026-08-10', latest: '0.1.3' }, file);
+  let called = 0;
+  const r = await checkForUpdate({
+    repository: 'https://github.com/a/b', now, file, installed: '0.1.10',
+    fetchImpl: () => { called++; return Promise.resolve({ ok: true, text: async () => '{"version":"0.1.26"}' }); },
+  });
+  eq(called, 1, 'an overtaken cache must be refetched inside the window');
+  eq(r.latest, '0.1.26');
+
+  // And a cache that has NOT been overtaken is still honoured, or every command hits the network.
+  writeCache({ at: now - 1000, date: '2026-08-10', latest: '0.9.9' }, file);
+  let again = 0;
+  await checkForUpdate({ repository: 'https://github.com/a/b', now, file, installed: '0.1.10',
+    fetchImpl: () => { again++; return Promise.resolve({ ok: true, text: async () => '{}' }); } });
+  eq(again, 0);
+});
+
 test('update · a fresh cache is reused and no fetch happens', async () => {
   const file = path.join(tmpRoot, 'uc-fresh.json');
   const now = 1770000000000;

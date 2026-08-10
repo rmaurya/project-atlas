@@ -13,6 +13,30 @@ versions follow [Semantic Versioning](https://semver.org/).
 - `atlas plan` — propose the git route for the working tree and wait for approval, rather than only refusing a
   commit once it is attempted.
 
+## [0.1.27] — 2026-08-10
+
+### Fixed
+- **The update notice went silent exactly when it mattered.** The check caches for 24 hours, which assumes
+  releases are rarer than a day. Twenty-six shipped in one. The cache held `latest: 0.1.3` from the morning,
+  the install was `0.1.10`, and the real published version was `0.1.26` — and because the install was
+  *newer* than the cached figure, the notice concluded "ahead of the release, nothing to say".
+
+  A cache the installed version has overtaken is **provably wrong**: you cannot be ahead of the published
+  version under normal use. That is free evidence to refetch, and it now does. A cache that has not been
+  overtaken is still honoured, or every command would hit the network.
+
+### Added
+- **Any `atlas` command warns when the install is behind**, not only the session-start hook. A session open
+  for hours is precisely the one running stale skills, and the failure arrives as *"/atlas:ask is broken"* —
+  it was not broken, it was thirteen releases old, and nothing said so at the moment it failed.
+
+  Reads the cache, never the network: a command that made an HTTP request would be a command that hangs
+  offline, and this runs on every invocation. Silent with `--json`, `--quiet`, `ATLAS_UPDATE_CHECK=0`, and
+  on `atlas version` itself, which already says it better.
+
+  The line names both steps: `/plugin`, **then** `/reload-plugins` — because hooks and skills are read once
+  at session start, so an updated plugin does not reach a running session.
+
 ## [0.1.26] — 2026-08-10
 
 ### Added

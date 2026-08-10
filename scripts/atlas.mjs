@@ -41,7 +41,7 @@ import { readTokens, formatTokens, formatSessions, transcriptDir, assertNotPubli
 import { readChanges, formatChanges, fileDiff } from './lib/changes.mjs';
 import { formatVersion, updateNotice, isPluginCache } from './lib/version.mjs';
 import { specVerdict } from './lib/spec.mjs';
-import { checkForUpdate } from './lib/update.mjs';
+import { checkForUpdate, readCache } from './lib/update.mjs';
 import { verifySite, formatVerify } from './lib/verify.mjs';
 import { route, formatRoute } from './lib/plan.mjs';
 import { dayKey, commitsOn, renderDay, writeDay } from './lib/worklog.mjs';
@@ -227,7 +227,36 @@ function adoptionNotice() {
          `do nothing here. ${count} markdown file(s) are indexable: run \`atlas init\` then \`atlas all\`.`;
 }
 
+/**
+ * One line on stderr when the installed plugin is behind, printed by **any** command.
+ *
+ * The session-start notice only speaks at session start, and a session that has been open for hours is
+ * precisely the one running stale skills. The failure was reported as "/atlas:ask is broken" — it was not;
+ * it was thirteen releases old, and nothing said so at the moment it failed.
+ *
+ * **Reads the cache, never the network.** A command that made an HTTP request would be a command that hangs
+ * offline, and this runs on every invocation. The fetch stays in the session hook; this is free.
+ */
+function staleBanner() {
+  if (process.env.ATLAS_UPDATE_CHECK === '0' || flag('json') || quiet || cmd === 'version') return;
+  let latest = null;
+  try { latest = readCache()?.latest || null; } catch { return; }
+  if (!latest) return;
+  const behind = readRegistrations().filter((r) => {
+    const p = (v) => (/^(\d+)\.(\d+)\.(\d+)/.exec(String(v)) || []).slice(1).map(Number);
+    const [x, y] = [p(r.version), p(latest)];
+    if (x.length !== 3 || y.length !== 3) return false;
+    for (let i = 0; i < 3; i++) if (x[i] !== y[i]) return x[i] < y[i];
+    return false;
+  });
+  if (!behind.length) return;
+  const worst = behind.map((r) => r.version).sort()[0];
+  console.error(`project-atlas ${worst} is installed; ${latest} is published. Run /plugin, then /reload-plugins — ` +
+                `hooks and skills are read once at session start, so an updated plugin does not reach a running session.`);
+}
+
 async function main() {
+  staleBanner();
   if (cmd === 'help' || flag('help')) return usage();
 
   // Answers from its own installation, so it works in any directory, repository or not.
@@ -239,7 +268,7 @@ async function main() {
 
     let latest = null, checkedAt = null;
     if (!flag('offline')) {
-      const r = await checkForUpdate({ repository, force: !!flag('check') });
+      const r = await checkForUpdate({ repository, force: !!flag('check'), installed: running.version });
       latest = r.latest; checkedAt = r.checkedAt;
     }
 
