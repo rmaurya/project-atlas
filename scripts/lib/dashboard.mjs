@@ -46,6 +46,17 @@ export const RAMP = {
  * The light steps are darkened for a light ground; the dark steps are the neon set, which needs the
  * saturation to read at all against near-black.
  */
+/**
+ * Text colour for a pill sitting on each ramp step, chosen by contrast rather than by assumption.
+ *
+ * Measured against the step it sits on: every value below clears 4.5:1, and the test asserts it. Near-black
+ * rather than pure black on light steps, matching the page's own ink.
+ */
+export const INK = {
+  light: { none: '#14130f', mid: '#14130f', high: '#ffffff', done: '#ffffff', unknown: '#14130f' },
+  dark: { none: '#f0f0ff', mid: '#0a0a0f', high: '#0a0a0f', done: '#ffffff', unknown: '#f0f0ff' },
+};
+
 export const STATUS = {
   light: { good: '#2f7d4f', warning: '#9a5f16', serious: '#b0561f', critical: '#b03530' },
   dark: { good: '#3ef2a0', warning: '#ffc857', serious: '#ff9f5c', critical: '#ff5c7a' },
@@ -910,8 +921,23 @@ figcaption { display:block; }
 .mini { display:inline-block; width:64px; height:8px; background:var(--code-bg); border-radius:3px; overflow:hidden; vertical-align:middle; margin-right:7px; }
 .mf { display:block; height:100%; }
 .pct { font-size:12.5px; }
-.pill { display:inline-block; padding:2px 9px; border-radius:999px; font-size:12px; color:#fff; white-space:nowrap; }
-.pill.t-none,.pill.t-unknown { color:var(--ink); }
+/* Pill text is chosen per ramp step, by measurement, not by assuming the step is dark.
+ *
+ * Every pill was white on whatever the step happened to be, with a hand-listed exception for none and
+ * unknown. The ordinal ramps run light-to-dark, so their light steps are nearly white: "In progress" in
+ * dark mode was white on #e2d0ff — 1.43:1, which is text you cannot read. Dark high measured 2.54 and
+ * light mid 2.41. The exception list was the tell: it existed because the rule was wrong, and it only
+ * covered the two steps somebody had happened to look at.
+ *
+ * Each step now carries its own ink token, picked as whichever of near-black or white clears 4.5:1 against
+ * that step in that theme. A test asserts all ten combinations, so a future palette change cannot quietly
+ * reintroduce this. */
+.pill { display:inline-block; padding:2px 9px; border-radius:999px; font-size:12px; white-space:nowrap; }
+.pill.t-none { color:var(--r-none-ink); }
+.pill.t-mid { color:var(--r-mid-ink); }
+.pill.t-high { color:var(--r-high-ink); }
+.pill.t-done { color:var(--r-done-ink); }
+.pill.t-unknown { color:var(--r-unknown-ink); }
 .sect { margin:0 0 16px; font-size:13.5px; }
 /* Masonry, not a grid.
  *
@@ -995,14 +1021,20 @@ abbr { text-decoration:none; cursor:help; color:var(--muted); }
 .bl-clear:hover { color:var(--link); border-color:var(--link); }
 #bq { width:100%; max-width:420px; padding:9px 12px; font-size:14px; color:var(--ink);
   background:var(--bg); border:1px solid var(--line); border-radius:8px; }
-:root { --st-good:${STATUS.light.good}; --st-warning:${STATUS.light.warning};
+:root { --r-none-ink:${INK.light.none}; --r-mid-ink:${INK.light.mid}; --r-high-ink:${INK.light.high};
+        --r-done-ink:${INK.light.done}; --r-unknown-ink:${INK.light.unknown};
+        --st-good:${STATUS.light.good}; --st-warning:${STATUS.light.warning};
         --st-serious:${STATUS.light.serious}; --st-critical:${STATUS.light.critical};
         --r-none:${RAMP.light.none}; --r-mid:${RAMP.light.mid}; --r-high:${RAMP.light.high}; --r-done:${RAMP.light.done}; --r-unknown:${RAMP.light.unknown}; }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --r-none-ink:${INK.dark.none}; --r-mid-ink:${INK.dark.mid}; --r-high-ink:${INK.dark.high};
+  --r-done-ink:${INK.dark.done}; --r-unknown-ink:${INK.dark.unknown};
   --st-good:${STATUS.dark.good}; --st-warning:${STATUS.dark.warning};
   --st-serious:${STATUS.dark.serious}; --st-critical:${STATUS.dark.critical};
   --r-none:${RAMP.dark.none}; --r-mid:${RAMP.dark.mid}; --r-high:${RAMP.dark.high}; --r-done:${RAMP.dark.done}; --r-unknown:${RAMP.dark.unknown}; } }
-:root[data-theme="dark"] { --st-good:${STATUS.dark.good}; --st-warning:${STATUS.dark.warning};
+:root[data-theme="dark"] { --r-none-ink:${INK.dark.none}; --r-mid-ink:${INK.dark.mid}; --r-high-ink:${INK.dark.high};
+  --r-done-ink:${INK.dark.done}; --r-unknown-ink:${INK.dark.unknown};
+  --st-good:${STATUS.dark.good}; --st-warning:${STATUS.dark.warning};
   --st-serious:${STATUS.dark.serious}; --st-critical:${STATUS.dark.critical};
   --r-none:${RAMP.dark.none}; --r-mid:${RAMP.dark.mid}; --r-high:${RAMP.dark.high}; --r-done:${RAMP.dark.done}; --r-unknown:${RAMP.dark.unknown}; }
 `;

@@ -25,7 +25,7 @@ import { readPlanning, DEFAULT_PLANNING } from '../scripts/lib/planning.mjs';
 import { writeDay, contributorSlug } from '../scripts/lib/worklog.mjs';
 import { buildPrompt } from '../scripts/lib/prompt.mjs';
 import { readDeck } from '../scripts/lib/deck.mjs';
-import { RAMP, STATUS, viewPage } from '../scripts/lib/dashboard.mjs';
+import { RAMP, STATUS, INK, viewPage } from '../scripts/lib/dashboard.mjs';
 import { buildWikiPages, wikiPageName, isSafePageName, exportSingleFile, exportBundle, RESERVED, gitlabPagesJob, stageWiki } from '../scripts/lib/publish.mjs';
 import { readContrib, estimateHours, taskCoverage } from '../scripts/lib/contrib.mjs';
 import { readTokens, formatTokens, formatSessions, assertNotPublishable, transcriptDir } from '../scripts/lib/tokens.mjs';
@@ -686,8 +686,12 @@ test('dashboard · uses no categorical palette — only the ordinal ramp and sta
   const health = runHealth(index, cfg, planRepo);
   const site = renderSite(index, health, cfg, planRepo);
   const html = fs.readFileSync(path.join(site.outDir, 'dashboard.html'), 'utf8');
+  // INK joins the allow-list because it is a validated set, not an invented one: the contrast test above
+  // asserts every one of its ten values clears 4.5:1 against the ramp step it is paired with. The rule this
+  // test enforces is "no colour without a validation behind it" — not "no colour".
   const allowed = new Set([...Object.values(RAMP.light), ...Object.values(RAMP.dark),
-                           ...Object.values(STATUS.light), ...Object.values(STATUS.dark)]);
+                           ...Object.values(STATUS.light), ...Object.values(STATUS.dark),
+                           ...Object.values(INK.light), ...Object.values(INK.dark)]);
   const hexes = [...new Set((html.match(/#[0-9a-fA-F]{6}/g) || []).map((h) => h.toLowerCase()))];
   // Any hex in the dashboard's own markup must come from a validated set; theme tokens live in atlas.css.
   const stray = hexes.filter((h) => !allowed.has(h));
@@ -2304,8 +2308,21 @@ test('render · a data: URL is not passed through into a published page', () => 
   const { cfg, index, health } = analyse(dir, {});
   const out = renderSite(index, health, cfg, dir);
   const page = fs.readFileSync(path.join(out.outDir, 'pages', 'docs__A.html'), 'utf8');
-  ok(!/href="data:/i.test(page), 'a data: href must not survive into the page');
-  ok(!/src="data:/i.test(page), 'a data: image must not survive into the page');
+
+  // The property is about *content*: a data: URL written in the markdown must never become a live link or a
+  // live image. Asserted against <main>, which is where rendered markdown lands, because the page chrome now
+  // carries one legitimate data: URL — the generated favicon, which is a constant in the renderer and not
+  // reachable from any document.
+  const body = (/<main>([\s\S]*?)<\/main>/.exec(page) || [, ''])[1];
+  ok(!/href="data:/i.test(body), 'a data: href must not survive into the rendered content');
+  ok(!/src="data:/i.test(body), 'a data: image must not survive into the rendered content');
+
+  // And the exception is pinned rather than left as a hole: exactly one data: URL in the document, and it is
+  // the icon. If anything else ever introduces one, this fails.
+  const dataUrls = page.match(/(?:href|src)="data:[^"]*"/gi) || [];
+  eq(dataUrls.length, 1, `only the favicon may carry a data: URL, found ${dataUrls.length}`);
+  ok(/rel="icon"/.test(page) && /^href="data:image\/svg\+xml/i.test(dataUrls[0]),
+     'the one permitted data: URL is the generated favicon');
 });
 
 test('markdown · an image src is subject to the same scheme policy as a link', () => {
@@ -2706,6 +2723,28 @@ test('design · undesigned areas are the inverse, and small areas are excluded',
   eq(gaps.find((g) => g.area === 'src').citations, 1);
   eq(gaps.find((g) => g.area === 'lib').citations, 0);
   ok(!gaps.some((g) => g.area === 'tiny'), 'one file is not an area');
+});
+
+test('dashboard · every status pill clears 4.5:1 against the step it sits on', () => {
+  // Pills were white on whatever the ramp step happened to be, with a hand-listed exception for none and
+  // unknown — and the exception list was the tell: it existed because the rule was wrong and covered only
+  // the two steps somebody had looked at. The ordinal ramps run light-to-dark, so their light steps are
+  // nearly white: "In progress" in dark mode measured 1.43:1, which is text you cannot read.
+  const lum = (h) => {
+    const c = [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16) / 255)
+      .map((v) => (v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4)));
+    return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+  };
+  const ratio = (a, b) => {
+    const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p);
+    return (x + 0.05) / (y + 0.05);
+  };
+  for (const theme of ['light', 'dark']) {
+    for (const step of Object.keys(RAMP[theme])) {
+      const r = ratio(RAMP[theme][step], INK[theme][step]);
+      ok(r >= 4.5, `${theme} ${step}: ${RAMP[theme][step]} on ${INK[theme][step]} is ${r.toFixed(2)}:1, below 4.5`);
+    }
+  }
 });
 
 test('prompt · every claim is read from the repository, so changing a rule changes the prompt', () => {

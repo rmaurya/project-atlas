@@ -1,0 +1,37 @@
+<svg viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="project-atlas mark">
+  <!-- Outer contour: one ring, one break (as topo contours break for a label) -->
+  <path d="M88 108
+           L26 108
+           C19.5 108 17.5 102 20 96.5
+           L56.5 19.5
+           C58.5 15.5 61 13.5 64 13.5
+           C67 13.5 69.5 15.5 71.5 19.5
+           L106.5 93
+           C108.8 98 106 103 100 103.5"
+        fill="none" stroke="#4E8F84" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- Middle contour: complete ring -->
+  <path d="M64 28
+           C61.8 28 60 29.5 58.5 32.5
+           L33 87.5
+           C31 92 32.5 96.5 38 96.5
+           L90 96.5
+           C95.5 96.5 97 92 95 87.5
+           L69.5 32.5
+           C68 29.5 66.2 28 64 28 Z"
+        fill="none" stroke="#4E8F84" stroke-width="4.2" stroke-linejoin="round"/>
+
+  <!-- Summit: the source of truth, solid ink -->
+  <path d="M64 44
+           C62.5 44 61.4 45 60.4 47
+           L44.5 81
+           C43 84.2 44.2 87 48 87
+           L80 87
+           C83.8 87 85 84.2 83.5 81
+           L67.6 47
+           C66.6 45 65.5 44 64 44 Z"
+        fill="#1C3A3E" stroke="#1C3A3E" stroke-width="4" stroke-linejoin="round"/>
+
+  <!-- Benchmark: the survey point everything derives from -->
+  <circle cx="64" cy="70.5" r="6" fill="#E5A33C"/>
+</svg>

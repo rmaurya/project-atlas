@@ -35,7 +35,7 @@ const IGNORE_HREF = /^(https?:|mailto:|tel:|#|data:)/i;
  * `siblings` is the set of filenames that exist beside it, so a link to a page that was never written is
  * caught here rather than by a reader clicking it.
  */
-export function verifyPage(name, html, files) {
+export function verifyPage(name, html, files, linkedCss = '') {
   const out = [];
   const add = (rule, detail) => out.push({ page: name, rule, detail });
 
@@ -85,9 +85,15 @@ export function verifyPage(name, html, files) {
 
   // 4 · A class used in the markup that no stylesheet in the page defines. The bundle shipped every figure
   //     with none of its chart CSS and rendered as an unstyled outline; nothing objected.
+  //     The linked stylesheet counts as a stylesheet. Comparing only against the page's inline <style> meant
+  //     every class defined in atlas.css read as undefined — noise that happened to stay under the 50%
+  //     threshold until three footer classes tipped a sparse page over it and reported a stylesheet failure
+  //     on a page whose stylesheet was fine. Including it makes the rule exact rather than lucky, and does
+  //     not weaken what it was written for: the chart CSS it exists to catch lives in the page's own <style>,
+  //     never in atlas.css.
   const styles = [...html.matchAll(/<style>([\s\S]*?)<\/style>/g)].map((m) => m[1]).join('\n');
   if (styles) {
-    const defined = new Set([...styles.matchAll(/\.([A-Za-z][\w-]*)/g)].map((m) => m[1]));
+    const defined = new Set([...(styles + '\n' + linkedCss).matchAll(/\.([A-Za-z][\w-]*)/g)].map((m) => m[1]));
     const used = new Set([...html.matchAll(/\bclass="([^"]+)"/g)].flatMap((m) => m[1].split(/\s+/)).filter(Boolean));
     const missing = [...used].filter((c) => !defined.has(c));
     // A handful of unstyled utility classes is normal; a page whose chart classes all vanished is not.
@@ -114,10 +120,15 @@ export function verifySite(outDir) {
   };
   collect(outDir);
 
+  // The one stylesheet every generated page links. Read once; a page that does not link it is unaffected,
+  // because the rule only ever asks whether a class is defined *somewhere* the page can see.
+  let linkedCss = '';
+  try { linkedCss = fs.readFileSync(path.join(outDir, 'atlas.css'), 'utf8'); } catch { /* not every output has one */ }
+
   const findings = [];
   for (const rel of files) {
     if (!rel.endsWith('.html')) continue;
-    findings.push(...verifyPage(rel, fs.readFileSync(path.join(outDir, rel), 'utf8'), files));
+    findings.push(...verifyPage(rel, fs.readFileSync(path.join(outDir, rel), 'utf8'), files, linkedCss));
   }
   return findings;
 }

@@ -1,6 +1,6 @@
 # Roadmap — project-atlas
 
-**Last updated:** 2026-08-10 · **Version:** 0.1.48 · **Status:** pre-release, dogfooding
+**Last updated:** 2026-08-10 · **Version:** 0.1.49 · **Status:** pre-release, dogfooding
 
 Open work, with an honest completion figure against each item. A figure marked `*` is estimated rather than
 measured against the code — the same distinction the tool preserves everywhere else, applied to itself.
@@ -16,7 +16,7 @@ measured against the code — the same distinction the tool preserves everywhere
 | C-1 | 100 | C-2 | 100 | C-3 | 100 |
 | C-4 | 100 | C-5 | 100 | C-6 | 100 |
 | P-1 | 100 | P-2 | 100 | P-3 | 100 |
-| P-4 | 15 | P-5 | 100 | | |
+| P-4 | 100 | P-5 | 100 | | |
 | Q-1 | 100 | Q-2 | 100 | Q-3 | 100 |
 | D-1 | 100 | D-2 | 100 | D-3 | 100 |
 | D-4 | 100 | D-5 | 100 | D-6 | 100 |
