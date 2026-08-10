@@ -13,6 +13,28 @@ versions follow [Semantic Versioning](https://semver.org/).
 - `atlas plan` — propose the git route for the working tree and wait for approval, rather than only refusing a
   commit once it is attempted.
 
+## [0.1.36] — 2026-08-10
+
+### Fixed
+- **Documenting a link pattern could refuse your commit.** Prose dropped fenced code blocks before extracting
+  links but not *inline* code spans, so a bracketed character class followed by a parenthesised alternation —
+  an ordinary regex, written in backticks — was read as a link to a file named after the alternation, and H1,
+  a blocking signal, reported it dead. Any writing about markdown, globs or
+  bracket syntax hit it, which is to say any documentation of this tool's own patterns. Inline spans are now
+  blanked before links are matched, preserving length so every offset downstream still lines up.
+  Deliberately scoped to links and not citations: `scripts/lib/scan.mjs:185` in backticks is exactly how a
+  citation is meant to be written, and masking code spans before citation extraction would delete the
+  convention. Found by writing Track 7, which documents a regex.
+
+### Added
+- **Track 7 — Specification and consistency**, seven items. The design record is detected and reported but
+  never enforced and never authored: `design.mjs` recognises HLD, LLD, architecture, data flow, decision
+  records and specifications, and nothing in `health.mjs` references any of it. PRD and a manual of style are
+  not recognised at all, and the SRS pattern matches `payments-srs.md` but not `SRS.md`. The track covers
+  those gaps, a generated system prompt, a per-contributor work log on the Delivery view, and a Backlog view
+  carrying each task's full description, the documents that specify it, and who worked on it — all derived,
+  none typed.
+
 ## [0.1.35] — 2026-08-10
 
 ### Fixed

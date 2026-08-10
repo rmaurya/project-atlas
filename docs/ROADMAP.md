@@ -1,6 +1,6 @@
 # Roadmap — project-atlas
 
-**Last updated:** 2026-08-10 · **Version:** 0.1.35 · **Status:** pre-release, dogfooding
+**Last updated:** 2026-08-10 · **Version:** 0.1.36 · **Status:** pre-release, dogfooding
 
 Open work, with an honest completion figure against each item. A figure marked `*` is estimated rather than
 measured against the code — the same distinction the tool preserves everywhere else, applied to itself.
@@ -26,6 +26,9 @@ measured against the code — the same distinction the tool preserves everywhere
 | A-4 | 0 | A-5 | 0 | A-6 | 0 |
 | A-7 | 0 | A-8 | 0 | A-9 | 0 |
 | A-10 | 0 | A-11 | 0 | A-12 | 0 |
+| S-1 | 0 | S-2 | 0 | S-3 | 0 |
+| S-4 | 0 | S-5 | 0 | S-6 | 0 |
+| S-7 | 0 | | | | |
 
 ---
 
@@ -336,3 +339,67 @@ else ran a publish.*
 **A-7 · The boundary holds** — **P0 · Critical**
 *Tests that assert autonomy never pushes, never publishes, never rewrites prose and never acts on an
 unadopted repository. The feature's whole risk is in its defaults, so the defaults are what gets tested.*
+
+## Track 7 — Specification and consistency
+
+*Added 2026-08-10. The design record is **detected and reported, never enforced and never authored** — a
+missing HLD is a row that says "absent" and nothing more, and `atlas` has never written a design document in
+its life. That gap is the track: make the record complete (PRD and a manual of style are not recognised at
+all), make it enforceable where enforcement has no legitimate exception, and give the two audiences that read
+it — architecture and delivery — a page each.*
+
+**S-1 · PRD and the manual of style join the design record** — **P1 · High**
+*`design.mjs:25` recognises HLD, LLD, architecture, data flow, decision records and specifications. It does
+not recognise a PRD at all, and has no concept of a manual of style — the document that makes every other
+document consistent. The SRS pattern is also weaker than it looks — it requires a `spec` or `srs` suffix
+introduced by a dash or underscore, so it matches `payments-srs.md` but not `SRS.md` or `PROJECT_SRS_v1.md`,
+and a repository can carry an SRS this tool reports as absent. Two new kinds, one corrected pattern, and a
+test per shape.*
+
+**S-2 · The design record is enforced, not only reported** — **P1 · High**
+*Nothing in `health.mjs` references `designRecord`. A repository can ship for a year with every design
+artifact missing and the corpus reports clean. Enforcement follows the rule the release and plan gates
+already use — enforce only what has no legitimate exception: **H14** a design document cites code that has
+moved (blocking, it is now wrong rather than merely old); **H15** an expected artifact is absent (advisory,
+because a small repository legitimately has no LLD); **H16** a shipped area no design document cites
+(advisory — `undesigned` already computes it and nothing acts on it).*
+
+**S-3 · The blueprint — one page that assembles the design record** — **P2 · Medium**
+*HLD, LLD, SRS, PRD and the style manual exist as separate documents and are read as separate documents, so
+nobody holds the shape of the system in one view. A generated blueprint page assembles them in dependency
+order with each section's freshness and citation health beside it. Generated, never authored: the words stay
+in the source documents.*
+
+**S-4 · A generated system prompt** — **P1 · High**
+*`AGENTS.md` and each `SKILL.md` are hand-written and drift from the repository they describe — the same
+failure this tool detects everywhere else, in the one document that tells an assistant how to work here.
+`atlas prompt` emits a markdown system prompt assembled from what is actually true: the taxonomy, the
+blocking signals, the branching convention, the release gate, the style manual, and the current state of the
+plan. Opt-in, written to a path the user names, and regenerated rather than edited.*
+
+**S-5 · Daily work log, per contributor, on the Delivery dashboard** — **P2 · Medium**
+*`atlas worklog` writes `worklog/YYYY-MM-DD/log.md` — one file per day for the whole repository, which two
+people writing on the same day contend for, and which no dashboard shows. Split it per contributor under the
+same scheme as A-12, and add a `worklog` panel to the Delivery view so the record is read where delivery is
+read.*
+
+**S-6 · A backlog dashboard with the detail in it** — **P2 · Medium**
+*The `items` panel is a sortable table embedded in other views: an id, a percentage and a summary clamped to
+two lines by CSS. The full text of an item appears nowhere on the site, and no item links to the document
+that specifies it. A dedicated Backlog view, in the nav beside the others, with an expandable detail per
+task carrying three things it does not have today:*
+
+- *the **whole description**, not the clamped summary;*
+- *the **documents that specify it** — the HLD, LLD, SRS or PRD sections that define the work, resolved the
+  way `crossref` already pairs documents rather than by hand-maintained links;*
+- ***who worked on it**, derived from the commits that name the item. `coverage` already computes which items
+  a commit named and reports a single count — the authors are in the same data and are thrown away.*
+
+*Derived from git and the corpus, never typed: an item's contributor list that someone has to maintain is a
+list that goes stale, which is the failure this whole tool exists to detect.*
+
+**S-7 · The item model carries a description and its sources** — **P1 · High**
+*Prerequisite for S-6, and the reason the backlog has nothing to show. `planning.mjs` parses an id, title,
+percentage, status, track, priority and criticality out of the plan, plus a summary it truncates. It has no
+field for a full description and no notion that an item is specified somewhere. Both must exist in the model
+before any view can render them, and both must come from the markdown rather than a second store.*

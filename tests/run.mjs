@@ -1337,6 +1337,30 @@ test('host · an enabled wiki that was never initialised reads as half, not on',
   includes(g.hint, 'Create the first page');
 });
 
+test('scan · a link pattern inside backticks is prose about links, not a link', () => {
+  // Documenting a regex refused your commit. `[-_](spec|srs)\.md$` in inline code was read as a link to a
+  // file named `spec|srs`, H1 reported it dead, and H1 is blocking. Fenced blocks were already excluded from
+  // prose; inline spans were not. Any writing about markdown, globs or bracket syntax hits this.
+  const dir = fixture('inline-code-link', {
+    'docs/A.md': '# A\n\nThe pattern `[-_](spec|srs)\\.md$` matches a suffix, and `[x](y)` is not a link.\n\n' +
+                 'This one is real: [B](B.md)\n',
+    'docs/B.md': '# B\n',
+  });
+  const { index, health } = analyse(dir, {});
+  const a = index.documents.find((d) => d.path === 'docs/A.md');
+  eq(a.links.map((l) => l.target), ['docs/B.md'], 'only the real link outside backticks counts');
+  eq(health.findings.filter((f) => f.signal === 'H1').length, 0, 'documented syntax must not read as a dead link');
+
+  // The citation convention is written in backticks on purpose, so masking must not reach citations.
+  const cited = fixture('inline-code-citation', {
+    'docs/A.md': '# A\n\nSee `scripts/lib/scan.mjs:1` for the detail.\n',
+    'scripts/lib/scan.mjs': 'export const x = 1;\n',
+  });
+  const ci = analyse(cited, {});
+  eq(ci.index.documents.find((d) => d.path === 'docs/A.md').citations.length, 1,
+     'a citation in backticks is still a citation');
+});
+
 test('publish · every name the writer produces, the reader accepts', () => {
   // Round-trip, asserted as a property rather than by example. `.github/DISCUSSIONS-WELCOME.md` produced
   // `.github-DISCUSSIONS-WELCOME`; isSafePageName refuses a leading dot, so from the first publish onward the
