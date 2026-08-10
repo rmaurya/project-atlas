@@ -11,3 +11,9 @@ docs/_wiki/
 # The server's claim on a port, rewritten on every start — churn, not record.
 .atlas/serve.pid
 .atlas/artifact-page.html
+
+# Generated launcher pages — rewritten by `atlas serve --launcher`, published as artifacts.
+.atlas/atlas-dashboard.html
+.atlas/dashboards.html
+# Held for the length of a build, released after — churn, not record.
+.atlas/build.lock
