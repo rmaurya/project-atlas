@@ -483,8 +483,16 @@ function backlogPanel(plan, contrib, index, pageOf) {
     ${sel('bf-crit', 'Criticality', [...new Set(plan.items.map((i) => i.criticality))])}
     ${sel('bf-sourced', 'Specified', ['yes', 'no'], { yes: 'has a source document', no: 'no source document' })}
     ${sel('bf-worked', 'Worked on', ['yes', 'no'], { yes: 'named by a commit', no: 'no commit names it' })}
+    <label class="bl-f bl-f-toggle"><input type="checkbox" id="bf-hidedone">
+      <span>Hide finished</span></label>
+    <label class="bl-f"><span class="bl-f-label">Per page</span>
+      <select class="fsel" id="bf-size" aria-label="Tasks per page">
+        <option value="25">25</option><option value="50">50</option>
+        <option value="100">100</option><option value="0">All</option>
+      </select></label>
     <button type="button" id="bf-clear" class="bl-clear">Clear</button>
     <span class="det" id="bcount"></span>
+    <nav class="bl-pager" id="bpager" aria-label="Backlog pages" hidden></nav>
   </div>
 </section>
 ${byTrack.map((t) => `
@@ -1048,6 +1056,15 @@ abbr { text-decoration:none; cursor:help; color:var(--muted); }
  * above the first task, so the page opened on nothing but filters. A flex-basis small enough for two to
  * share a row halves that, and the selects still grow to fill whatever width is going. */
 .bl-f { display:flex; flex-direction:column; gap:3px; flex:1 1 132px; min-width:0; }
+.bl-f-toggle { flex-direction:row; align-items:center; gap:6px; }
+.bl-f-toggle input { width:15px; height:15px; margin:0; accent-color:var(--accent); }
+.bl-f-toggle span { font-size:12px; color:var(--ink-soft); }
+.bl-pager { display:flex; flex-wrap:wrap; gap:4px; margin-top:10px; }
+.bl-page { font:inherit; font-size:12px; padding:4px 9px; min-height:28px; border-radius:6px;
+  border:1px solid var(--rule); background:var(--surface); color:var(--ink-soft); cursor:pointer; }
+.bl-page:hover:not(:disabled) { border-color:var(--accent); color:var(--ink); }
+.bl-page.on { background:var(--accent); border-color:var(--accent); color:#fff; font-weight:620; }
+.bl-page:disabled { opacity:.4; cursor:default; }
 .bl-f-label { font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); }
 .bl-filters .fsel { width:100%; min-width:0; padding:7px 9px; font-size:13px; }
 @media (min-width:900px) { .bl-f { flex:0 1 auto; } .bl-filters .fsel { min-width:120px; } }
@@ -1093,11 +1110,17 @@ const TABLE_JS = `
                    ['bf-crit', 'crit'], ['bf-sourced', 'sourced'], ['bf-worked', 'worked']];
     var controls = SELECTS.map(function (p) { return { el: document.getElementById(p[0]), key: p[1] }; })
                           .filter(function (c) { return c.el; });
+    var page = 1;
+    var doneCount = cards.filter(function (c) { return c.dataset.status === 'Done'; }).length;
     var bfilter = function () {
       var v = (bq.value || '').trim().toLowerCase();
       var shown = 0;
       cards.forEach(function (c) {
         var hit = !v || c.textContent.toLowerCase().indexOf(v) !== -1;
+        // Separate from the Status filter on purpose. Status answers "show me exactly this state";
+        // hide-finished answers "show me what is left" — and forcing that through Status would make the
+        // reader choose one of Not started or In progress and lose the other.
+        if (hit && hideDone() && c.dataset.status === 'Done') hit = false;
         for (var i = 0; hit && i < controls.length; i++) {
           var want = controls[i].el.value;
           if (want && c.dataset[controls[i].key] !== want) hit = false;
@@ -1109,17 +1132,81 @@ const TABLE_JS = `
         var any = Array.prototype.some.call(t.querySelectorAll('.bl-item'), function (c) { return c.style.display !== 'none'; });
         t.style.display = any ? '' : 'none';
       });
-      var active = !!v || controls.some(function (c) { return !!c.el.value; });
-      bcount.textContent = active ? shown + ' of ' + cards.length + ' tasks shown' : cards.length + ' tasks';
+      var active = !!v || controls.some(function (c) { return !!c.el.value; }) || hideDone();
+
+      // **Pagination applies to what matched, never to the raw list.** Page 2 of a filter has to be page 2
+      // of the filtered set, or the pager is describing a list nobody is looking at.
+      var matched = cards.filter(function (c) { return c.style.display !== 'none'; });
+      var size = pageSize();
+      var pages = size ? Math.max(1, Math.ceil(matched.length / size)) : 1;
+      if (page > pages) page = pages;
+      if (size) {
+        var from = (page - 1) * size, to = from + size;
+        matched.forEach(function (c, i) { if (i < from || i >= to) c.style.display = 'none'; });
+      }
+      // Re-hide tracks whose rows all fell off this page, after paging rather than before.
+      tracks.forEach(function (t) {
+        var any = Array.prototype.some.call(t.querySelectorAll('.bl-item'), function (c) { return c.style.display !== 'none'; });
+        t.style.display = any ? '' : 'none';
+      });
+
+      // **The count states what it counts.** "10 tasks" while 49 match, or while 45 are hidden, is a sample
+      // presented as a total — the quiet lie this project refuses everywhere else. Shown range first,
+      // matched total next, then what the toggle is holding back.
+      var visible = size ? Math.min(size, Math.max(0, matched.length - (page - 1) * size)) : matched.length;
+      var firstIdx = matched.length ? (size ? (page - 1) * size + 1 : 1) : 0;
+      var lastIdx = size ? firstIdx + visible - 1 : matched.length;
+      var parts = [];
+      if (matched.length !== cards.length || size) {
+        parts.push(matched.length ? firstIdx + '\u2013' + lastIdx + ' of ' + matched.length + ' matching' : '0 of ' + matched.length + ' matching');
+      } else {
+        parts.push(cards.length + ' tasks');
+      }
+      if (matched.length !== cards.length) parts.push(cards.length + ' total');
+      if (hideDone()) parts.push(doneCount + ' finished hidden');
+      bcount.textContent = parts.join(' \u00b7 ');
+
+      renderPager(pages);
       var clear = document.getElementById('bf-clear');
       if (clear) clear.hidden = !active;
     };
-    bq.addEventListener('input', bfilter);
-    controls.forEach(function (c) { c.el.addEventListener('change', bfilter); });
+
+    function pageSize() { var el = document.getElementById('bf-size'); return el ? Number(el.value) : 25; }
+    function hideDone() { var el = document.getElementById('bf-hidedone'); return !!(el && el.checked); }
+
+    // The pager is rebuilt rather than pre-rendered: the number of pages depends on the filters, which
+    // depend on what the reader typed, so there is no correct static markup for it.
+    function renderPager(pages) {
+      var host = document.getElementById('bpager');
+      if (!host) return;
+      if (pages <= 1) { host.innerHTML = ''; host.hidden = true; return; }
+      host.hidden = false;
+      host.innerHTML = '';
+      var mk = function (label, target, disabled, current) {
+        var b = document.createElement('button');
+        b.type = 'button'; b.className = 'bl-page' + (current ? ' on' : '');
+        b.textContent = label; b.disabled = !!disabled;
+        if (current) b.setAttribute('aria-current', 'page');
+        b.addEventListener('click', function () { page = target; bfilter(); host.scrollIntoView({ block: 'nearest' }); });
+        return b;
+      };
+      host.appendChild(mk('\u2039 Prev', Math.max(1, page - 1), page === 1));
+      for (var i = 1; i <= pages; i++) host.appendChild(mk(String(i), i, false, i === page));
+      host.appendChild(mk('Next \u203a', Math.min(pages, page + 1), page === pages));
+    }
+
+    bq.addEventListener('input', function () { page = 1; bfilter(); });
+    controls.forEach(function (c) { c.el.addEventListener('change', function () { page = 1; bfilter(); }); });
+    var sizeEl = document.getElementById('bf-size');
+    if (sizeEl) sizeEl.addEventListener('change', function () { page = 1; bfilter(); });
+    var hideEl = document.getElementById('bf-hidedone');
+    if (hideEl) hideEl.addEventListener('change', function () { page = 1; bfilter(); });
     var clearBtn = document.getElementById('bf-clear');
     if (clearBtn) clearBtn.addEventListener('click', function () {
       bq.value = '';
       controls.forEach(function (c) { c.el.value = ''; });
+      var h = document.getElementById('bf-hidedone'); if (h) h.checked = false;
+      page = 1;
       bfilter();
     });
     bfilter();
@@ -1299,6 +1386,18 @@ const TABLE_JS = `
     if (frow) Array.prototype.forEach.call(frow.querySelectorAll('[data-kind]'), function (c) {
       if (c.value) s.filters[c.dataset.kind] = c.value;
     });
+
+    // The backlog's own controls, including where in the list the reader had got to. Without this a rebuild
+    // returns them to page 1 with the finished items back — and on a live dashboard that happens *while
+    // they are reading*, which is worse than not being live at all.
+    s.backlog = {};
+    var bqe = document.getElementById('bq'); if (bqe) s.backlog.q = bqe.value;
+    var hd = document.getElementById('bf-hidedone'); if (hd) s.backlog.hideDone = hd.checked;
+    var sz = document.getElementById('bf-size'); if (sz) s.backlog.size = sz.value;
+    var cur = document.querySelector('#bpager .bl-page.on'); if (cur) s.backlog.page = cur.textContent;
+    ['bf-track', 'bf-status', 'bf-pri', 'bf-crit', 'bf-sourced', 'bf-worked'].forEach(function (id) {
+      var e = document.getElementById(id); if (e && e.value) s.backlog[id] = e.value;
+    });
     return s;
   }
 
@@ -1317,6 +1416,30 @@ const TABLE_JS = `
       c.value = v;
     });
     if (qq) qq.dispatchEvent(new Event('input'));
+
+    // Restore the backlog controls, then the page. Order matters: the pager is rebuilt by the filter run,
+    // so the page has to be re-selected after that run rather than before it. The same "a value that no
+    // longer exists is left alone" rule applies — a rebuild can legitimately remove a track or a status.
+    if (s.backlog) {
+      var bqe = document.getElementById('bq'); if (bqe && s.backlog.q) bqe.value = s.backlog.q;
+      var hd = document.getElementById('bf-hidedone'); if (hd && typeof s.backlog.hideDone === 'boolean') hd.checked = s.backlog.hideDone;
+      var sz = document.getElementById('bf-size'); if (sz && s.backlog.size) sz.value = s.backlog.size;
+      ['bf-track', 'bf-status', 'bf-pri', 'bf-crit', 'bf-sourced', 'bf-worked'].forEach(function (id) {
+        var e = document.getElementById(id), v = s.backlog[id];
+        if (!e || v == null) return;
+        if (!Array.prototype.some.call(e.options, function (o) { return o.value === v; })) return;
+        e.value = v;
+      });
+      if (bqe) bqe.dispatchEvent(new Event('input'));
+      if (s.backlog.page) {
+        var want = Array.prototype.filter.call(document.querySelectorAll('#bpager .bl-page'), function (b) {
+          return b.textContent === s.backlog.page;
+        })[0];
+        // A page that no longer exists — the list shrank — leaves the reader on page 1 rather than on a
+        // blank page, which is the one outcome worse than losing their place.
+        if (want) want.click();
+      }
+    }
     window.scrollTo(0, s.scroll);
   }
 

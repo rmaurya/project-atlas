@@ -1,6 +1,6 @@
 # Roadmap — project-atlas
 
-**Last updated:** 2026-08-10 · **Version:** 0.1.57 · **Status:** pre-release, dogfooding
+**Last updated:** 2026-08-10 · **Version:** 0.1.58 · **Status:** pre-release, dogfooding
 
 Open work, with an honest completion figure against each item. A figure marked `*` is estimated rather than
 measured against the code — the same distinction the tool preserves everywhere else, applied to itself.
@@ -16,7 +16,7 @@ measured against the code — the same distinction the tool preserves everywhere
 | C-1 | 100 | C-2 | 100 | C-3 | 100 |
 | C-4 | 100 | C-5 | 100 | C-6 | 100 |
 | P-1 | 100 | P-2 | 100 | P-3 | 100 |
-| P-4 | 100 | P-5 | 100 | | |
+| P-4 | 100 | P-5 | 100 | P-6 | 100 |
 | Q-1 | 100 | Q-2 | 100 | Q-3 | 100 |
 | D-1 | 100 | D-2 | 100 | D-3 | 100 |
 | D-4 | 100 | D-5 | 100 | D-6 | 100 |
@@ -30,7 +30,8 @@ measured against the code — the same distinction the tool preserves everywhere
 | S-1 | 100 | S-2 | 100 | S-3 | 0 |
 | S-4 | 100 | S-5 | 100 | S-6 | 100 |
 | S-7 | 100 | M-1 | 0 | M-2 | 0 |
-| A-13 | 100 | | | | |
+| A-13 | 100 | A-14 | 100 | A-15 | 100 |
+| A-16 | 0 | | | | |
 
 ---
 
@@ -167,6 +168,31 @@ reachable — the same shape as the existing export, which strips the poll rathe
 ***Real-time is a different product.*** *Push (SSE or WebSocket) needs a server running somewhere, which
 contradicts the zero-dependency, no-service promise this tool makes on its first page. "Live" here means
 updating without a full reload when new data is published — not a socket.*
+
+**P-6 · The backlog paginates, and hides what is finished** — **P2 · Medium**
+*Shipped in 0.1.58.*
+*The backlog is one page of 49 rows and 45 of them are done. The work someone opens it to see is five items
+buried under everything already finished, and it gets worse with every item that lands.*
+
+*Two controls, answering different questions:*
+
+- *A **page size** — 10, 25, 50, all — because "show me everything" and "show me a screenful" are both
+  legitimate and neither should be the only option.*
+- *A **hide-done toggle**, separate from the Status filter. Status answers "show me exactly this state";
+  hide-done answers "show me what is left", which is the question the page is actually opened with. Making
+  someone express that as a status filter forces them to pick one of `Not started` or `In progress` and
+  lose the other.*
+
+*Three constraints, and the last is what makes this harder than it looks:*
+
+- ***Paginate the filtered set, not the raw one.*** *Page 2 of a filter must be page 2 of what matched.*
+- ***State survives a live update.*** *The page patches itself in place when a rebuild lands, and
+  `readState`/`applyState` already carry the filters across that swap. Page number, page size and the
+  toggle join them — otherwise a rebuild silently returns the reader to page 1, which on a live dashboard
+  happens while they are reading it.*
+- ***The count must say what it counts.*** *A footer reading "10 tasks" while 49 match, or while 45 are
+  hidden, is a sample presented as a total — the quiet lie this project refuses everywhere else. It states
+  the shown range, the matched total, and how many the toggle is hiding.*
 
 ## Track 3 — Quality
 
@@ -455,10 +481,56 @@ tool already parses with `percentCellPattern`, in a table whose format it define
 deterministically is the same class of act as regenerating a dashboard — and the roadmap's own header says
 that maintaining these figures by hand does not work.*
 
+**A-16 · The reasoning behind a decision outlives the session that made it** — **P1 · High**
+*The journal already records that a decision was taken (`kind: decision`), and `atlas state` reads it back.
+What it does not do is keep the **reasoning** anywhere a reader will find it later: a record saying "chose X"
+answers what, and the expensive question is always why — because the next person's instinct is to undo it,
+and they will, unless the argument against is written where they are standing.*
+
+*Three parts, and the third is the one that makes it worth building:*
+
+- ***Capture is already free.*** *`atlas note decision "…"` exists and agents already call it. What is
+  missing is a place for the argument: what was chosen, what it rules out, what was tried first and why it
+  failed. That is a second field, not a second mechanism.*
+- ***Surface it on the Architecture view***, beside the design record it explains. Architecture answers
+  "how is this built"; the decisions are why it is built that way, and separating them is how a design
+  document ends up describing a shape nobody can justify.*
+- ***Link each decision to what it touched.*** *A decision carries `refs` — files, commits, plan items —
+  and those already resolve to pages elsewhere in the site. A decision floating free of the code it governs
+  is an anecdote; one linked to the file it constrains is a warning the next reader actually receives.*
+
+***The tool must never write the reasoning.*** *Same boundary as `HANDOFF.md`: a machine can see that a
+choice was made, not what was argued and settled. It prompts, groups, links and surfaces — the words stay
+whoever's they were. A generated rationale would be exactly the confident unreviewed prose this project
+exists to detect, attached to the decisions people trust most.*
+
+*Distinct from a formal ADR directory, which `design.mjs:31` already recognises. An ADR is a document
+somebody sat down to write; this is the reasoning that accumulates during the work and is otherwise lost
+when the session ends. A project with both should have them agree — which is a crossref pair, and therefore
+already H9's job.*
+
 **A-7 · The boundary holds** — **P0 · Critical**
 *Shipped in 0.1.55.*
 *Tests that assert autonomy never pushes, never publishes, never rewrites prose and never acts on an
 unadopted repository. The feature's whole risk is in its defaults, so the defaults are what gets tested.*
+
+**A-14 · Two builds must not fight over the output directory** — **P1 · High**
+*Shipped in 0.1.58.*
+*A consequence of A-8, found twice in the session that shipped it. A watcher now always runs, so a build
+started by hand races the one the watcher is already doing: the output directory is cleared and repopulated,
+and whichever build looks at it mid-clear sees a directory with content but none of its markers and refuses.
+The guard is right to refuse — it cannot tell a half-written build from someone's real files — so the fix is
+not to weaken it but to stop the two builds overlapping. A lock, held for the length of a build and released
+whether it succeeds or not, with a waiter that gives up rather than blocking forever.*
+
+**A-15 · A server the tool cannot see is a server it cannot stop** — **P1 · High**
+*Shipped in 0.1.58.*
+*`serve --status` reported "Not running" while a detached server was alive and rebuilding, because status is
+read from a pidfile and the pidfile was gone. The process outlived its own record, which is the orphan the
+idle timer exists to bound — but a 30-minute bound is not the same as being able to answer the question.
+Status should probe the derived port as well as the pidfile, and report the disagreement plainly: something
+is serving here and this repository did not record starting it. A tool that says "not running" about a
+running process teaches people to stop believing it.*
 
 ## Track 7 — Specification and consistency
 

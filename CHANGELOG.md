@@ -13,6 +13,35 @@ versions follow [Semantic Versioning](https://semver.org/).
 - `atlas plan` — propose the git route for the working tree and wait for approval, rather than only refusing a
   commit once it is attempted.
 
+## [0.1.58] — 2026-08-11
+
+### Added
+- **The backlog paginates and can hide finished work** (P-6). Page size 25/50/100/all, and a hide-finished
+  toggle kept separate from the Status filter — Status answers "show me exactly this state", hide-finished
+  answers "show me what is left", and forcing the second through the first makes you pick one of
+  `Not started` or `In progress` and lose the other. Pagination applies to the filtered set, and the count
+  states what it counts: `1-8 of 8 matching · 53 total · 45 finished hidden`. A footer reading "10 tasks"
+  while 53 match would be a sample presented as a total.
+- **Page, page size and the toggle survive a live rebuild** along with the filters. Verified in a browser:
+  a reader sitting on page 2 stayed on page 2 through a rebuild, with no reload. Without this the dashboard
+  would return them to page 1 *while they were reading it*, which is worse than not being live.
+
+### Fixed
+- **Two builds no longer fight over the output directory** (A-14). A watcher now always runs, so an
+  overlapping build is the normal case: the directory is cleared and repopulated, and whichever build reads
+  it mid-clear sees content with none of its markers and refuses. The guard is right — it cannot tell a
+  half-written build from someone's real files — so the builds are serialised instead. A lock held by a
+  dead process, or held implausibly long, is stolen and said to have been stolen: the thing protected is
+  regenerable, so wedging the tool would be the worse outcome.
+- **`serve --status` said "Not running" about a running server** (A-15). Status was read from a pidfile,
+  and a process can outlive its record — one did, staying alive and rebuilding while the tool reported
+  nothing there. Status now probes the port too and reports the disagreement plainly.
+
+### Note
+- A running watcher executes the code it was started with. After changing build behaviour, restart it
+  (`atlas serve --stop` then `atlas serve`) or the old logic keeps running — which is how A-14's fix
+  appeared not to work immediately after it landed.
+
 ## [0.1.57] — 2026-08-11
 
 ### Fixed

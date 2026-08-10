@@ -123,6 +123,19 @@ export const pidFile = (root) => path.join(root, '.atlas', 'serve.pid');
  * none because it stops the real server from ever starting. So the pid is checked with signal 0 and a dead
  * entry is cleared rather than believed.
  */
+/**
+ * Is something serving on this repository's port that we have no record of?
+ *
+ * `serverStatus` reports "not running" whenever the pidfile is missing — and a process can outlive its own
+ * record, which is exactly what happened: a detached server stayed alive and rebuilding while status said
+ * nothing was there. The idle timer bounds that to thirty minutes, but a bound is not an answer, and a tool
+ * that says "not running" about a running process teaches people to stop believing it.
+ */
+export async function unmanagedServer(root, port) {
+  const p = port || portForRoot(root);
+  return (await portInUse(p)) ? { port: p, url: `http://127.0.0.1:${p}/` } : null;
+}
+
 export function serverStatus(root) {
   const file = pidFile(root);
   let raw;

@@ -46,6 +46,7 @@ import { ownership, areaOf, summariseOwnership } from '../scripts/lib/ownership.
 import { survivingLines } from '../scripts/lib/surviving.mjs';
 import { setItemPercent, itemFromBranch, contradictsPlan, STARTED_PERCENT } from '../scripts/lib/progress.mjs';
 import { handoffAge, handoffsIn, formatHandoffPrompt } from '../scripts/lib/handoff.mjs';
+import { acquire as acquireLock, STALE_AFTER_MS } from '../scripts/lib/lock.mjs';
 import { note as journalNote, read as journalRead, MAX_TEXT, slugCollisions } from '../scripts/lib/journal.mjs';
 import { testInventory, casesInFile } from '../scripts/lib/testcases.mjs';
 import { designRecord, undesigned, citationHealth, EXPECTED } from '../scripts/lib/design.mjs';
@@ -3966,6 +3967,38 @@ test('journal · a record written by the tool itself lands in the contributor fi
   const out = journalRead(dir);
   eq(out.records.length, 2);
   eq(out.contributors.join(','), 'ann-example,unknown');
+});
+
+test('lock · a build waits for another, and a dead owner never wedges the tool', () => {
+  // A watcher now always runs, so overlapping builds are the normal case. The output directory is cleared
+  // and repopulated, and whichever build reads it mid-clear sees content with none of its markers and
+  // refuses — correctly, because it cannot tell a half-written build from someone's real files.
+  const dir = fixture('build-lock', { 'docs/A.md': '# A\n' });
+
+  const first = acquireLock(dir);
+  eq(first.ok, true);
+
+  // A live owner is honoured, and the waiter gives up rather than hanging. A build that waits forever is a
+  // hang, not a queue.
+  const second = acquireLock(dir, { waitMs: 30 });
+  eq(second.ok, false);
+  eq(second.heldBy, process.pid);
+  first.release();
+
+  // A lock left behind by a process that died must never stop a build permanently: the thing being
+  // protected is regenerable output, so wedging the tool is the worse outcome.
+  fs.writeFileSync(path.join(dir, '.atlas', 'build.lock'), JSON.stringify({ pid: 999999999, at: Date.now() }));
+  const third = acquireLock(dir, { waitMs: 30 });
+  eq(third.ok, true, 'a lock held by a dead process is stolen');
+  eq(third.stole, true, 'and the theft is reported rather than silent');
+  third.release();
+
+  // Same for a live owner that has held it implausibly long — a wedged build must not be permanent either.
+  fs.writeFileSync(path.join(dir, '.atlas', 'build.lock'),
+    JSON.stringify({ pid: process.pid, at: Date.now() - (STALE_AFTER_MS + 1000) }));
+  const fourth = acquireLock(dir, { waitMs: 30 });
+  eq(fourth.ok, true, 'a stale lock is stolen even from a living owner');
+  fourth.release();
 });
 
 console.log(`\n${pass} passed, ${fail} failed${skipped ? `, ${skipped} skipped on ${process.platform}` : ''}\n`);

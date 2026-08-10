@@ -54,7 +54,8 @@ import { survivingLines, formatSurviving } from './lib/surviving.mjs';
 import { note, read as readJournal, formatState, KINDS } from './lib/journal.mjs';
 import { setItemPercent, itemFromBranch, contradictsPlan, STARTED_PERCENT } from './lib/progress.mjs';
 import { handoffPath, handoffAge, formatHandoffPrompt, DEFAULT_STALE_AFTER } from './lib/handoff.mjs';
-import { startServer, spawnDetached, serverStatus, stopServer, writePid, clearPid, openInBrowser, portInUse,
+import { acquire as acquireBuildLock } from './lib/lock.mjs';
+import { startServer, spawnDetached, serverStatus, stopServer, writePid, clearPid, openInBrowser, portInUse, unmanagedServer,
          portForRoot, readRegistry, registerServer, deregisterServer, DEFAULT_PORT, DEFAULT_IDLE_MS } from './lib/serve.mjs';
 
 const argv = process.argv.slice(2);
@@ -949,7 +950,20 @@ async function main() {
     }
 
     if (flag('status')) {
-      if (!st.running) { say(`Not running.${st.stale ? ` Cleared a stale pidfile for pid ${st.stale}.` : ''}`); return; }
+      if (!st.running) {
+        // Ask the port, not only the record. A process that outlived its pidfile is invisible to a
+        // pidfile-only check, and reporting "not running" about something that is answering is the kind of
+        // wrong answer that costs more than no answer.
+        const loose = await unmanagedServer(root, typeof flag('port') === 'string' ? Number(flag('port')) : null);
+        if (loose) {
+          say(`Not running as far as this repository's record goes — but something is answering on ${loose.url}.`);
+          say(`  Either a server outlived its pidfile, or another program holds the port.`);
+          say(`  \`lsof -nP -iTCP:${loose.port} -sTCP:LISTEN\` names it.`);
+          return;
+        }
+        say(`Not running.${st.stale ? ` Cleared a stale pidfile for pid ${st.stale}.` : ''}`);
+        return;
+      }
       const stamp = (() => {
         try { return fs.readFileSync(path.join(confine(root, cfg.output, 'output', cfg.__configPath), 'build-stamp.txt'), 'utf8').trim(); }
         catch { return 'no build stamp — the page it serves cannot tell whether it is current'; }
@@ -1116,6 +1130,16 @@ function formatTasks(plan, filter, useColor) {
 }
 
 function doBuild(root, cfg, withGit, withReport, { stamp = false, autoDerived = true } = {}) {
+  // One build at a time. A watcher now always runs, so an overlapping build is the normal case — and the
+  // overlap is not benign: the output directory is cleared and repopulated, and whichever build reads it
+  // mid-clear sees content with none of its markers and refuses. See lock.mjs.
+  const lock = acquireBuildLock(root);
+  if (!lock.ok) {
+    say(`  Another build is running (pid ${lock.heldBy}); skipped after waiting ${Math.round(lock.waited / 1000)}s.`);
+    return { pages: 0, outDir: path.resolve(root, cfg.output), health: { blockingCount: 0 }, skipped: true };
+  }
+  if (lock.stole) say('  Took over a stale build lock — a previous build did not finish.');
+  try {
   const index = buildIndex(root, cfg, { withGit });
   const health = runHealth(index, cfg, root);
   if (withReport) say(formatReport(health, index, { verbose: !!flag('verbose'), color }), '\n');
@@ -1180,6 +1204,9 @@ function doBuild(root, cfg, withGit, withReport, { stamp = false, autoDerived = 
   say(deck ? `  Deck: ${deck.slides.length} slide(s) from ${deck.source}.` : `  Deck: none — create docs/atlas/DECK.md to add one.`);
   say(`  Open: file://${path.join(outDir, 'index.html')}`);
   return { index, health, pages, outDir };
+  } finally {
+    lock.release();
+  }
 }
 
 /** Cheap change detector for watch mode: names, sizes and mtimes of every input the build reads. */
