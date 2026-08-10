@@ -201,16 +201,25 @@ function progressChart(plan) {
 }
 
 function statusChart(plan) {
-  const rows = plan.stats.byStatus.filter((b) => b.count)
+  // Every configured band, including the empty ones.
+  //
+  // Filtering to `b.count` dropped a band with nothing in it, so a plan with no work underway showed
+  // "Not started" and "Done" and no "In progress" row at all — and a reader concluded the state did not
+  // exist rather than that it was empty. Zero here is a measurement, not missing data: it says nothing is in
+  // that state. The same reasoning the caveats panel uses, applied to a chart.
+  //
+  // Unknown is different and stays conditional: it is only meaningful when some item carries no figure.
+  const rows = plan.stats.byStatus.map((b) => ({ ...b }))
     .concat(plan.stats.unknown ? [{ label: 'Unknown', tone: 'unknown', count: plan.stats.unknown }] : []);
   if (!rows.length) return null;
+  const peak = Math.max(1, ...rows.map((x) => x.count));
   return `
 <figure class="card">
   <figcaption><h2>Items by status</h2>
     <p class="cap">Every tracked item, bucketed by its recorded completion. Colour follows the same ordinal ramp as the bars above; each bucket is labelled, so colour is never the only signal.</p></figcaption>
   ${hbar(rows.map((b) => ({
-    label: b.label, value: b.count, max: Math.max(...rows.map((x) => x.count)),
-    tone: b.tone, hint: `${b.count} item(s)`,
+    label: b.label, value: b.count, max: peak,
+    tone: b.tone, hint: b.count ? `${b.count} item(s)` : 'none in this state',
   })))}
 </figure>`;
 }

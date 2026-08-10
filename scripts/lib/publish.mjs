@@ -572,11 +572,21 @@ ${sections.map((s) => `<script>${inlineScript(s.js)}</script>`).join('\n')}
 <script>(function(){
   var links = document.querySelectorAll('[data-go]');
   function show(name){
-    var found = false;
-    document.querySelectorAll('[data-page]').forEach(function(m){
-      var on = m.getAttribute('data-page') === name; m.classList.toggle('on', on); if (on) found = true;
-    });
-    if (!found) return false;
+    // Find the page BEFORE touching anything. The previous version toggled every page off while looking,
+    // so a hash that is not a page id — a cluster chip, a table-of-contents entry, any heading anchor —
+    // hid the entire bundle and left a blank document. In a single file every in-page anchor arrives here,
+    // so this is the common case rather than an edge one.
+    var panes = document.querySelectorAll('[data-page]');
+    var match = null;
+    panes.forEach(function(m){ if (m.getAttribute('data-page') === name) match = m; });
+    if (!match) {
+      // Not a page: an ordinary anchor. Leave the visible page alone and scroll to it, which is what the
+      // same link does on the generated site.
+      var el = name && document.getElementById(name);
+      if (el && el.scrollIntoView) el.scrollIntoView({ block: 'start' });
+      return false;
+    }
+    panes.forEach(function(m){ m.classList.toggle('on', m === match); });
     links.forEach(function(a){
       var on = a.getAttribute('data-go') === name;
       a.classList.toggle('on', on);

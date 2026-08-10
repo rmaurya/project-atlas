@@ -13,7 +13,22 @@ versions follow [Semantic Versioning](https://semver.org/).
 - `atlas plan` — propose the git route for the working tree and wait for approval, rather than only refusing a
   commit once it is attempted.
 
-## [0.1.47] — 2026-08-10
+## [0.1.48] — 2026-08-10
+
+### Fixed
+- **Every in-page anchor in a single-file bundle blanked the whole document.** The bundle routes
+  `hashchange` to `show(hash)`, and `show` toggled every page off while looking for a match — so a hash that
+  is not a page id (a cluster chip on the Wiki index, a table-of-contents entry, any heading anchor) hid
+  every page and left an empty screen. In one file every in-page anchor arrives at that router, so this was
+  the common case, not an edge one. The page is now found before anything is toggled, and a hash that is not
+  a page scrolls to the element instead — what the same link does on the generated site.
+- **A status band with no items vanished from the chart.** "Items by status" filtered to bands with a count,
+  so a plan with nothing underway showed *Not started* and *Done* and no *In progress* row at all — and the
+  state read as missing rather than empty. Zero here is a measurement, not missing data. Every configured
+  band is now shown, empty ones reading "none in this state". *Unknown* stays conditional: it is only
+  meaningful when some item carries no figure.
+
+
 
 ### Added
 - **`atlas prompt`** (`S-4`) — a system prompt assembled from what is true, not written about it. `AGENTS.md`
