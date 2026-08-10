@@ -6,9 +6,9 @@ _Written by `atlas worklog`. Measured from git and the corpus; no prompt text, a
 
 | | |
 |---|---|
-| Commits | 11 |
-| Lines | +3,784 / −142 |
-| Rework rate | 81.3% — a file re-touched within 3 days |
+| Commits | 12 |
+| Lines | +3,799 / −147 |
+| Rework rate | 81.4% — a file re-touched within 3 days |
 | Reverts | 0 |
 | Documentation | 0 blocking finding(s) at end of day |
 
@@ -48,6 +48,7 @@ _Written by `atlas worklog`. Measured from git and the corpus; no prompt text, a
 - `01f94c0` feat(signals,launcher): a check nobody configured looks exactly like a check that passes (P-7, A-19, A-3)
 - `33ee7c0` feat(charts): the first palette in this project whose job is identity, and it was computed (P-8)
 - `1443522` chore(config): enable H10 and H12 now the installed build knows them (A-4)
+- `b23b05f` chore(plan): A-4 was finished and the table still read 10% (A-4)
 
 ---
 
