@@ -3946,6 +3946,28 @@ test('handoff · contributors are enumerated from disk, and SHARED.md is not one
   eq(found.join(','), 'ann,bo');
 });
 
+test('journal · a record written by the tool itself lands in the contributor file, not "unknown"', () => {
+  // `note()` defaults identity to null, which slugs to `unknown`. Every record the tool wrote for itself —
+  // the branch command marking an item in progress — therefore went to unknown.jsonl instead of the
+  // person's own file, quietly defeating the per-contributor scheme it exists to support. It only surfaced
+  // because a stray unknown.jsonl turned up in `git status`.
+  const dir = fixture('journal-identity', { 'docs/A.md': '# A\n' });
+  const cfg = resolveConfig(dir);
+  journalNote(dir, cfg, { kind: 'progress', text: 'no identity given' });
+  ok(fs.existsSync(path.join(dir, '.atlas', 'journal', 'unknown.jsonl')),
+    'an omitted identity is still recorded — losing the record would be worse than misfiling it');
+
+  journalNote(dir, cfg, { kind: 'progress', text: 'identity given', identity: 'Ann Example' });
+  ok(fs.existsSync(path.join(dir, '.atlas', 'journal', 'ann-example.jsonl')),
+    'a named contributor gets their own file');
+
+  // Both are readable, and each record still says which file it came from — the merge is at read time, so
+  // a misfiled record is recoverable rather than lost.
+  const out = journalRead(dir);
+  eq(out.records.length, 2);
+  eq(out.contributors.join(','), 'ann-example,unknown');
+});
+
 console.log(`\n${pass} passed, ${fail} failed${skipped ? `, ${skipped} skipped on ${process.platform}` : ''}\n`);
 if (fail) {
   console.log('Failures:');

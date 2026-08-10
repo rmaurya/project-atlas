@@ -385,7 +385,13 @@ async function main() {
           const upd = setItemPercent(root, cfg, id, STARTED_PERCENT);
           if (upd.changed) {
             say(`  ${id} marked in progress (${upd.from}% → ${upd.to}%) in ${upd.source}.`);
-            try { note(root, cfg, { kind: 'progress', text: `started ${id} on ${r.name}`, refs: [r.name] }); } catch {}
+            // Identity must be passed explicitly. Omitting it defaults to null, which slugs to `unknown` —
+            // so every record the tool wrote itself landed in unknown.jsonl instead of the contributor's
+            // file, quietly defeating the per-contributor scheme it was written to support.
+            try {
+              note(root, cfg, { kind: 'progress', text: `started ${id} on ${r.name}`, refs: [r.name],
+                identity: gitLines(root, ['config', 'user.name'])[0] || null });
+            } catch {}
             // Rebuild so the dashboard shows it now. Detached from the caller's success: a branch that was
             // created must not report failure because a rebuild did.
             try { doBuild(root, cfg, withGit, false, { stamp: true }); } catch {}

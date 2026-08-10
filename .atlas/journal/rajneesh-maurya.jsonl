@@ -3,3 +3,7 @@
 {"at":"2026-08-10T18:10:24.438Z","agent":"main","kind":"trap","text":"Stop fires every turn — an unconditional hook record buries real records under heartbeats","refs":["hooks/on-continuity.sh"]}
 {"at":"2026-08-10T18:34:05.249Z","agent":"main","kind":"trap","text":"running atlas build while atlas watch is live races on the output dir; the build guard refuses, correctly","refs":["scripts/lib/render.mjs"]}
 {"at":"2026-08-10T18:34:05.399Z","agent":"main","kind":"finding","text":"the user was reading all.standalone.html on a dead localhost server, never the live site — curl against Pages verified the wrong artifact three times","refs":["scripts/lib/publish.mjs"]}
+{"at": "2026-08-10T19:18:33.026Z", "agent": "main", "kind": "progress", "text": "started A-13 on feat/a-13-plan-marks-itself", "refs": ["feat/a-13-plan-marks-itself"]}
+{"at": "2026-08-10T19:22:20.114Z", "agent": "main", "kind": "progress", "text": "started A-13 on feat/a-13-plan-marks-itself", "refs": ["feat/a-13-plan-marks-itself"]}
+{"at": "2026-08-10T19:22:20.827Z", "agent": "main", "kind": "progress", "text": "started A-7 on test/a-7-boundary", "refs": ["test/a-7-boundary"]}
+{"at": "2026-08-10T19:25:46.663Z", "agent": "main", "kind": "progress", "text": "started A-5 on feat/a-5-branching-posture", "refs": ["feat/a-5-branching-posture"]}

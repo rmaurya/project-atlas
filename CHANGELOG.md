@@ -13,6 +13,16 @@ versions follow [Semantic Versioning](https://semver.org/).
 - `atlas plan` — propose the git route for the working tree and wait for approval, rather than only refusing a
   commit once it is attempted.
 
+## [0.1.57] — 2026-08-11
+
+### Fixed
+- **Records the tool wrote for itself landed in `unknown.jsonl`.** `note()` defaults identity to null,
+  which slugs to `unknown`, and the branch command never passed one — so every automatic progress record
+  went to a shared file instead of the contributor's own, quietly defeating the per-contributor scheme it
+  was written to support. Surfaced only because a stray file turned up in `git status`. An omitted
+  identity is still recorded rather than dropped, and reading merges every file, so a misfiled record is
+  recoverable rather than lost.
+
 ## [0.1.56] — 2026-08-11
 
 ### Added
