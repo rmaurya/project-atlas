@@ -24,8 +24,19 @@ jobs:
         with: { fetch-depth: 0 }   # the tool reads git history; a shallow clone would hide it
       - uses: actions/setup-node@v4
         with: { node-version: '${{ matrix.node }}' }
-      - name: Git must not rewrite line endings, or every hash and diff differs by platform
-        run: git config --global core.autocrlf false
+      # This used to be `git config --global core.autocrlf false`, which cannot work: it ran after
+      # actions/checkout had already converted the tree, so Windows failed every run for reasons that had
+      # nothing to do with the change under test. `.gitattributes` fixes it at checkout. This step verifies
+      # the fix rather than restating it — a claim about line endings that is never executed is how the
+      # original one survived nineteen releases.
+      - name: The working tree is LF, whatever the platform converts by default
+        run: |
+          set -euo pipefail
+          if git ls-files --eol | grep -E 'w/crlf|w/mixed'; then
+            echo "::error::Working tree contains CRLF. .gitattributes should have prevented this." >&2
+            exit 1
+          fi
+          echo "Working tree is LF throughout."
       - name: Runtime packages are in sync
         run: node scripts/sync-runtimes.mjs --check
       # Runs on push as well as on pull_request: the commit that motivated this gate went straight to main,

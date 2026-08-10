@@ -1,0 +1,17 @@
+# Line endings are LF in the working tree on every platform, including Windows.
+#
+# Windows CI failed on every commit from the day the matrix was added, and the reason was not the code the
+# matrix was added to test. GitHub's windows-latest runners default `core.autocrlf` to true, so checkout
+# rewrote every file to CRLF before a single step ran. `sync-runtimes.mjs --check` then compared committed
+# bytes against freshly generated ones and called all eleven skills stale; the hook tests compared script
+# text and failed the same way. Neither had drifted — the checkout had.
+#
+# ci.yml does set `core.autocrlf false`, but it runs *after* actions/checkout, which is too late: the
+# working tree is already converted. Configuration cannot undo a conversion that has already happened, and a
+# fix that depends on step order is one reordering away from silently returning.
+#
+# `.gitattributes` is applied by checkout itself, so it holds regardless of step order, and it holds for
+# contributors on Windows too — who were hitting the same corruption locally with nothing to tell them why.
+#
+# `text=auto` still detects binary content and leaves it alone; this repository currently tracks none.
+* text=auto eol=lf
