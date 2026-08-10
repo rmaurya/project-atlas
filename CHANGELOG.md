@@ -13,6 +13,19 @@ versions follow [Semantic Versioning](https://semver.org/).
 - `atlas plan` — propose the git route for the working tree and wait for approval, rather than only refusing a
   commit once it is attempted.
 
+## [0.1.40] — 2026-08-10
+
+### Fixed
+- **The backlog page emitted a dead link and failed `build --verify`.** An item's description is the plan's
+  own markdown, so its relative links point at documents relative to the *plan* — `docs/ROADMAP.md` — not to
+  the output directory the page is written into. A link written in the plan as `handoff/SHARED.md` therefore
+  rendered with that same target into `view-backlog.html`, where nothing of that name exists. The `sources` list
+  resolved correctly all along, which is precisely why the prose was easy to miss. Descriptions now render
+  through a link resolver: a target in the corpus becomes its generated page, and anything else is named and
+  marked rather than pointed at a file the site does not carry.
+- Caught by CI, not locally, because `atlas build --verify` is what the dogfood step runs and I had been
+  running plain `atlas build`.
+
 ## [0.1.39] — 2026-08-10
 
 ### Added

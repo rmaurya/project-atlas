@@ -289,6 +289,31 @@ function backlogPanel(plan, contrib, index, pageOf) {
   // text rather than rendered as a link that goes nowhere.
   const known = new Set(index.documents.map((d) => d.path));
 
+  // The description is the plan's own markdown, so its links are relative to the plan — not to the output
+  // directory this page is written into. Rendering it verbatim emitted `handoff/SHARED.md` into
+  // view-backlog.html, where nothing of that name exists; `atlas build --verify` refused the site and CI went
+  // red. The sources list resolved correctly all along, which is exactly why the prose was easy to miss.
+  const planDir = (plan.source || '').split('/').slice(0, -1).join('/') || '.';
+  const joinFrom = (base, rel) => {
+    const parts = (base === '.' ? [] : base.split('/')).concat(rel.split('/'));
+    const out = [];
+    for (const seg of parts) {
+      if (!seg || seg === '.') continue;
+      if (seg === '..') out.pop(); else out.push(seg);
+    }
+    return out.join('/');
+  };
+  const resolveLink = (href) => {
+    if (/^(https?:|mailto:|tel:|#|data:)/i.test(href)) return { href, cls: '' };
+    const [target, anchor] = String(href).split('#');
+    if (!target) return { href, cls: '' };
+    const abs = joinFrom(planDir, target);
+    if (known.has(abs)) return { href: `pages/${pageOf(abs)}${anchor ? '#' + anchor : ''}`, cls: '' };
+    // Named, marked, and pointed nowhere rather than at a file the site does not carry. A link that looks
+    // live and is not is worse than one that admits it.
+    return { href: '#', cls: 'dead' };
+  };
+
   const byTrack = [...new Set(plan.items.map((i) => i.track))].map((name) => ({
     name, items: plan.items.filter((i) => i.track === name),
   }));
@@ -317,7 +342,7 @@ function backlogPanel(plan, contrib, index, pageOf) {
       <p class="det bl-meta">${escapeHtml(it.track)} · ${escapeHtml(it.priority)} · ${escapeHtml(it.criticality)}${
         it.estimated ? ' · <span class="bl-est">figure estimated in the source</span>' : ''}</p>
       ${it.description
-        ? `<div class="prose bl-desc">${renderMarkdown(it.description)}</div>`
+        ? `<div class="prose bl-desc">${renderMarkdown(it.description, { resolveLink })}</div>`
         : '<p class="empty">The plan says nothing beyond this item\'s title.</p>'}
       <div class="bl-cols">
         <div>
