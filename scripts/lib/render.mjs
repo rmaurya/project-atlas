@@ -708,12 +708,39 @@ a { color:var(--link); text-decoration:none; }
 a:hover { text-decoration:underline; }
 code, pre, .dp { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; }
 
+/* The navigation wraps, and that is the whole fix.
+ *
+ * Measured at 390px: the nav was 778px wide inside a 386px viewport. The overflow-x:hidden on html and body
+ * meant the page did not scroll sideways — so nothing *looked* broken — and every link past the second was
+ * simply clipped away and unreachable. A menu that is invisible and unscrollable is worse than one that
+ * overflows visibly, because there is no cue that anything is missing.
+ *
+ * Wrapped rather than turned into a horizontal scroll strip: a scroll strip reintroduces exactly that
+ * problem, hiding items behind a gesture with no indication they exist. Ten links over two or three lines
+ * costs vertical space and hides nothing. */
 .topbar {
-  position:sticky; top:0; z-index:10; display:flex; align-items:center; gap:24px;
-  padding:12px 5%; background:var(--bg); border-bottom:1px solid var(--line);
+  position:sticky; top:0; z-index:10; display:flex; align-items:center; gap:12px 24px;
+  flex-wrap:wrap; padding:12px 5%; background:var(--bg); border-bottom:1px solid var(--line);
 }
 .brand { font-weight:650; color:var(--ink); white-space:nowrap; }
-.topbar nav { display:flex; gap:16px; margin-left:auto; }
+.topbar nav { display:flex; flex-wrap:wrap; gap:10px 16px; margin-left:auto; align-items:center; }
+@media (max-width:760px) {
+  /* Below this the brand and ten links cannot share a line at a readable size. The nav takes its own row
+   * and starts at the left edge, so it reads as a menu rather than as a ragged tail of the title. */
+  .topbar { gap:8px; padding:10px 4%; }
+  .topbar nav { margin-left:0; width:100%; gap:8px 14px; }
+  /* 44px of vertical target, per the platform guidance, without moving the text. Measured rather than
+   * assumed: 6px of padding produced 38px and had to be raised. */
+  .topbar nav a { padding:9px 0; }
+}
+/* Sticky only while the bar is a single row.
+ *
+ * CSS cannot ask whether a flex line wrapped, so this is a width proxy — and the first attempt put it at
+ * 760px, which left a 768px tablet pinning a 130px two-row bar to the top of every scroll. Ten links need
+ * roughly a laptop to sit on one line, so that is where sticky resumes. Below it the bar scrolls away and is
+ * one flick back, which costs less than a sixth of the screen held permanently by navigation, on pages whose
+ * whole job is to show figures. */
+@media (max-width:1024px) { .topbar { position:static; } }
 footer { border-top:1px solid var(--line); padding:20px 5%; color:var(--muted); font-size:13px; }
 
 h1 { font-size:30px; line-height:1.25; margin:8px 0 12px; letter-spacing:-.01em; }

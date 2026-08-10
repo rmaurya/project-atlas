@@ -1,6 +1,6 @@
 # Roadmap — project-atlas
 
-**Last updated:** 2026-08-10 · **Version:** 0.1.34 · **Status:** pre-release, dogfooding
+**Last updated:** 2026-08-10 · **Version:** 0.1.35 · **Status:** pre-release, dogfooding
 
 Open work, with an honest completion figure against each item. A figure marked `*` is estimated rather than
 measured against the code — the same distinction the tool preserves everywhere else, applied to itself.
@@ -77,8 +77,12 @@ Built, tested, and dogfooded on a 387-file corpus.
 
 **P-2 · Dashboard and deck** — **P1 · High**
 *Charts, a sortable item table, and a browser slide deck from a markdown source.*
-Built. Remaining: the two-column layout is verified on desktop only — the tablet breakpoints rest on standard
-media queries but have not been checked in a real viewport.
+Built. **The breakpoints have now been checked in a real viewport, and they were wrong.** At 390px the top
+navigation rendered 778px wide and `overflow-x:hidden` clipped it, so every link past the second was
+invisible and unscrollable while nothing appeared broken. Fixed in 0.1.35 and verified at 320, 390, 430, 768,
+1024 and 1440 across the dashboard, index, role views, health and wiki: no horizontal page scroll, no clipped
+element, 44px tap targets. The claim that stood here for nineteen releases was that the media queries were
+"standard" — which is exactly the kind of untested assertion this project exists to catch.
 
 **P-3 · Publishing** — **P1 · High**
 *GitHub Wiki with drift detection, a pages branch, and a single-file export.*

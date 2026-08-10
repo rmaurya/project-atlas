@@ -13,6 +13,25 @@ versions follow [Semantic Versioning](https://semver.org/).
 - `atlas plan` — propose the git route for the working tree and wait for approval, rather than only refusing a
   commit once it is attempted.
 
+## [0.1.35] — 2026-08-10
+
+### Fixed
+- **The top navigation was unreachable on a phone, and nothing looked wrong.** Measured in a 390px viewport,
+  `.topbar nav` rendered 778px wide — and because `html, body` carry `overflow-x:hidden`, the page did not
+  scroll sideways, so the overflow was silently clipped instead. Every link past the second one was invisible
+  *and* unscrollable, with no cue that anything was missing. The nav now wraps. Deliberately wrapped rather
+  than made a horizontal scroll strip: a scroll strip reintroduces the same defect, hiding items behind a
+  gesture with no indication they exist.
+- **The bar no longer sticks while it is wrapped.** Two or three rows of links pinned to the top cost a sixth
+  of a phone screen on pages whose whole job is to show figures. Sticky resumes at 1024px, where ten links
+  fit on one line. The first attempt at 760px left a 768px tablet pinning a 130px bar — corrected after
+  measuring, not assumed.
+- Nav tap targets are 44px on small viewports. Also measured: 6px of padding produced 38px.
+
+Verified in a real viewport at 320, 390, 430, 768, 1024 and 1440 across the dashboard, index, role views,
+health and wiki pages: no horizontal page scroll and no clipped element at any width. `P-2` recorded that the
+breakpoints "have not been checked in a real viewport" — they have now, and they were wrong.
+
 ## [0.1.34] — 2026-08-10
 
 ### Fixed
