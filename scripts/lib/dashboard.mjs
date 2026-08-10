@@ -17,7 +17,7 @@
  */
 
 import { designRecord, undesigned, citationHealth } from './design.mjs';
-import { escapeHtml, escapeAttr } from './markdown.mjs';
+import { escapeHtml, escapeAttr, renderMarkdown } from './markdown.mjs';
 import { SIGNALS } from './health.mjs';
 import { taskCoverage } from './contrib.mjs';
 import { PANELS } from './views.mjs';
@@ -82,6 +82,12 @@ export function viewPage(view, ctx, shell) {
 
   // The item table is wide; on a view that shows it, it takes the side column and everything else the main.
   const showsItems = rendered.some((b) => b.id === 'items');
+  // A backlog is read in order — tracks, then items within a track. The masonry layout used elsewhere packs
+  // cards down one column before moving right, which is correct for panels that are peers with no narrative
+  // between them and wrong here: it puts Track 6 beside Track 1 and breaks the sequence the plan encodes.
+  // The stylesheet already says masonry is "only applied where the panels are peers with no narrative order";
+  // this is the case that rule was describing.
+  const isReading = rendered.some((b) => b.id === 'backlog');
   // **Full-width panels lead.**
   //
   // `column-span:all` splits a multi-column flow into fragments: everything before the spanning element is
@@ -101,6 +107,7 @@ export function viewPage(view, ctx, shell) {
 <p class="lede">${escapeHtml(view.blurb || '')}
 <span class="stamp" id="stamp"></span></p>
 ${showsItems ? `<div class="dash"><div class="dash-main">${main}</div><aside class="dash-side">${side}</aside></div>`
+             : isReading ? `<div class="dash-read">${main}</div>`
              : `<div class="dash-single">${main}</div>`}
 ${omitted.length ? `<section class="card muted"><h2>Not shown on this page</h2>
   <p class="cap">Omitted because there is no data behind them, not because they were excluded.</p>
@@ -130,6 +137,7 @@ function panel(id, { index, health, plan, cfg, contrib, view, nameFor, repo }) {
     case 'progress': return hasPlan ? progressChart(plan) : null;
     case 'status': return hasPlan ? statusChart(plan) : null;
     case 'items': return hasPlan ? itemTable(plan) : null;
+    case 'backlog': return hasPlan ? backlogPanel(plan, contrib, index, pageOf) : null;
     case 'health': return healthChart(health, cfg);
     case 'clusters': return clusterChart(index);
     case 'deliveryTiles': return hasContrib ? deliveryTiles(contrib) : null;
@@ -259,6 +267,98 @@ function hbar(rows) {
 const toneFor = (p) => (p === null ? 'unknown' : p === 0 ? 'none' : p >= 100 ? 'done' : p >= 90 ? 'high' : 'mid');
 
 /* ------------------------------------------------------------------ table */
+
+/**
+ * Every task in full: what it says, what specifies it, and who has worked on it.
+ *
+ * Deliberately not the item table with more columns. That table is a scanning tool — an id, a figure, a
+ * summary clamped to two lines — and widening it would ruin the one job it does. This is the reading view,
+ * and the three things it adds are the three the table cannot hold.
+ *
+ * Everything here is derived. The description and the source links come out of the plan's own prose
+ * (`planning.mjs`), and the contributors come from the commits that named the item — the data
+ * `taskCoverage` always had and reported as a bare count.
+ *
+ * **An absence is stated, never left blank.** "No document links to this item from the plan" is a finding;
+ * an empty space where sources would go reads as "not applicable", which is a different claim.
+ */
+function backlogPanel(plan, contrib, index, pageOf) {
+  const cov = contrib?.available ? taskCoverage(contrib, plan) : null;
+  const covById = new Map((cov?.rows || []).map((r) => [r.id, r]));
+  // A link resolves to a page only if that document is actually in the corpus; anything else is named as
+  // text rather than rendered as a link that goes nowhere.
+  const known = new Set(index.documents.map((d) => d.path));
+
+  const byTrack = [...new Set(plan.items.map((i) => i.track))].map((name) => ({
+    name, items: plan.items.filter((i) => i.track === name),
+  }));
+
+  const card = (it) => {
+    const c = covById.get(it.id);
+    const pct = it.percent === null ? null : it.percent;
+    const sources = (it.sources || []).map((s) => (known.has(s.path)
+      ? `<li><a href="pages/${escapeAttr(pageOf(s.path))}">${escapeHtml(s.text || s.path)}</a>
+           <span class="det">${escapeHtml(s.path)}</span></li>`
+      : `<li>${escapeHtml(s.text || s.path)} <span class="det">${escapeHtml(s.path)} — not in the corpus</span></li>`)).join('');
+    const people = (c?.authors || []).map((a) =>
+      `<li>${escapeHtml(a.name)} <span class="det">${a.commits} commit${a.commits === 1 ? '' : 's'}</span></li>`).join('');
+    const commits = (c?.recent || []).map((r) =>
+      `<li><code class="mono">${escapeHtml(r.hash)}</code> ${escapeHtml(r.subject)}
+         <span class="det">${escapeHtml(r.date)}</span></li>`).join('');
+
+    return `
+    <article class="card bl-item" id="item-${escapeAttr(it.id)}">
+      <header class="bl-head">
+        <code class="mono bl-id">${escapeHtml(it.id)}</code>
+        <h3>${escapeHtml(it.title)}</h3>
+        <span class="pill t-${toneClass(it.status?.tone)}">${escapeHtml(it.status?.label || 'Unknown')}</span>
+        <span class="bl-pct">${pct === null ? '—' : pct + '%'}</span>
+      </header>
+      <p class="det bl-meta">${escapeHtml(it.track)} · ${escapeHtml(it.priority)} · ${escapeHtml(it.criticality)}${
+        it.estimated ? ' · <span class="bl-est">figure estimated in the source</span>' : ''}</p>
+      ${it.description
+        ? `<div class="prose bl-desc">${renderMarkdown(it.description)}</div>`
+        : '<p class="empty">The plan says nothing beyond this item\'s title.</p>'}
+      <div class="bl-cols">
+        <div>
+          <p class="bl-sub">Specified by</p>
+          ${sources ? `<ul class="linklist">${sources}</ul>`
+                    : '<p class="empty">No document is linked from this item in the plan.</p>'}
+        </div>
+        <div>
+          <p class="bl-sub">Worked on by</p>
+          ${people ? `<ul class="linklist">${people}</ul>`
+                   : `<p class="empty">${cov ? 'No commit names this item.' : 'Git metadata is off, so contributors are unknown.'}</p>`}
+        </div>
+      </div>
+      ${commits ? `<details class="bl-commits"><summary>${c.commits} commit${c.commits === 1 ? '' : 's'}${
+        c.commits > (c.recent || []).length ? ` · showing the ${c.recent.length} most recent` : ''}</summary>
+        <ul class="linklist">${commits}</ul></details>` : ''}
+    </article>`;
+  };
+
+  const withSources = plan.items.filter((i) => (i.sources || []).length).length;
+  const withCommits = (cov?.rows || []).filter((r) => r.commits > 0).length;
+
+  return `
+<section class="card" id="backlog">
+  <h2>Backlog <span class="count">${plan.items.length}</span></h2>
+  <p class="cap">Every task the plan carries, in full. <strong>${withSources}</strong> of
+  ${plan.items.length} link to a document that specifies them${cov
+    ? `, and <strong>${withCommits}</strong> have been named by a commit` : ''}.
+  Both figures are read from the plan and from git — neither is maintained by hand, so neither can go stale
+  without the underlying record going stale first.</p>
+  <div class="tbar">
+    <input id="bq" type="search" placeholder="Filter by id, title, track or text…" autocomplete="off">
+    <span class="det" id="bcount"></span>
+  </div>
+</section>
+${byTrack.map((t) => `
+<section class="bl-track" data-track="${escapeAttr(t.name)}">
+  <h2 class="bl-track-h">${escapeHtml(t.name)} <span class="count">${t.items.length}</span></h2>
+  ${t.items.map(card).join('\n')}
+</section>`).join('\n')}`;
+}
 
 function itemTable(plan) {
   return `
@@ -694,6 +794,28 @@ figcaption { display:block; }
 .ref { font-size:11.5px; padding:2px 8px; border-radius:999px; background:var(--code-bg); color:var(--muted); }
 .stamp { color:var(--muted); font-size:12px; }
 abbr { text-decoration:none; cursor:help; color:var(--muted); }
+
+/* Backlog — a reading view, so it is one column of cards rather than a grid.
+ * Measured against the house rule: body text near 65 characters, so the description column is capped and
+ * the two metadata columns sit beside each other only when there is room for both. */
+.dash-read { display:block; max-width:100%; }
+.bl-track-h { margin:34px 0 12px; font-size:15px; text-transform:uppercase; letter-spacing:.07em; color:var(--muted); }
+.bl-item { margin:0 0 14px; }
+.bl-head { display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; }
+.bl-head h3 { margin:0; font-size:17px; flex:1 1 auto; }
+.bl-id { font-size:12.5px; color:var(--muted); }
+.bl-pct { font-variant-numeric:tabular-nums; font-weight:640; }
+.bl-meta { margin:4px 0 10px; font-size:12.5px; }
+.bl-est { color:var(--warn); }
+.bl-desc { max-width:68ch; font-size:14px; }
+.bl-desc p:first-child { margin-top:0; }
+.bl-cols { display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:14px; margin-top:12px; }
+.bl-sub { margin:0 0 6px; font-size:12px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); }
+.bl-commits { margin-top:12px; font-size:13px; }
+.bl-commits summary { cursor:pointer; color:var(--muted); }
+.bl-commits summary:hover { color:var(--link); }
+#bq { width:100%; max-width:420px; padding:9px 12px; font-size:14px; color:var(--ink);
+  background:var(--bg); border:1px solid var(--line); border-radius:8px; }
 :root { --st-good:${STATUS.light.good}; --st-warning:${STATUS.light.warning};
         --st-serious:${STATUS.light.serious}; --st-critical:${STATUS.light.critical};
         --r-none:${RAMP.light.none}; --r-mid:${RAMP.light.mid}; --r-high:${RAMP.light.high}; --r-done:${RAMP.light.done}; --r-unknown:${RAMP.light.unknown}; }
@@ -711,6 +833,32 @@ const TABLE_JS = `
   // Wiring lives in a function so it can be re-run against replaced markup. Everything below closes over
   // elements that a live update swaps out, so a refresh has to re-bind rather than patch references.
   function wire() {
+  // Backlog filter. Plain text across the whole card, including the description — the point of this page is
+  // that the detail is present, so the filter has to search the detail. A track heading whose items are all
+  // hidden hides too, or the page reads as a list of empty sections.
+  var bq = document.getElementById('bq');
+  if (bq) {
+    var cards = Array.prototype.slice.call(document.querySelectorAll('.bl-item'));
+    var tracks = Array.prototype.slice.call(document.querySelectorAll('.bl-track'));
+    var bcount = document.getElementById('bcount');
+    var bfilter = function () {
+      var v = (bq.value || '').trim().toLowerCase();
+      var shown = 0;
+      cards.forEach(function (c) {
+        var hit = !v || c.textContent.toLowerCase().indexOf(v) !== -1;
+        c.style.display = hit ? '' : 'none';
+        if (hit) shown++;
+      });
+      tracks.forEach(function (t) {
+        var any = Array.prototype.some.call(t.querySelectorAll('.bl-item'), function (c) { return c.style.display !== 'none'; });
+        t.style.display = any ? '' : 'none';
+      });
+      bcount.textContent = v ? shown + ' of ' + cards.length + ' tasks shown' : cards.length + ' tasks';
+    };
+    bq.addEventListener('input', bfilter);
+    bfilter();
+  }
+  // The item table is optional: the backlog page has none, and the wiring above must still run for it.
   var tbl = document.getElementById('itbl'); if (!tbl) return;
   var tb = tbl.tBodies[0], rows = Array.prototype.slice.call(tb.rows);
   var q = document.getElementById('tq'), cnt = document.getElementById('tcount');
@@ -823,6 +971,7 @@ const TABLE_JS = `
   if (doneBox) doneBox.addEventListener('change', filter);
   filter();
   }
+
   wire();
 
   /* ---------------------------------------------------------------- live update

@@ -35,6 +35,7 @@ export const PANELS = {
   designRecord: 'Which design artifacts exist: HLD, LLD, data flow, decision records, specifications',
   undesigned: 'Code areas no design document cites',
   citations: 'Per design document: how many code citations, and how many still resolve',
+  backlog: 'Every task in full: description, the documents that specify it, and who worked on it',
   caveats: 'What this page does not show, and why',
 };
 
@@ -47,6 +48,14 @@ export const DEFAULT_VIEWS = [
     id: 'dashboard', title: 'Overview', nav: true,
     blurb: 'Everything, in the order a maintainer reads it.',
     panels: ['tiles', 'progress', 'status', 'health', 'clusters', 'deliveryTiles', 'velocity', 'models', 'people', 'desks', 'coverage', 'items', 'caveats'],
+  },
+  {
+    // Its own page, not a panel on someone else's. The item table elsewhere is a scanning tool — an id, a
+    // figure, a clamped summary — and it deliberately stays that way. This is the reading view: the whole
+    // description, where the work is specified, and who has touched it.
+    id: 'backlog', title: 'Backlog', nav: true,
+    blurb: 'Every task in full — what it says, what specifies it, and who has worked on it.',
+    panels: ['backlog', 'caveats'],
   },
   {
     id: 'qc', title: 'Quality', nav: true,

@@ -282,11 +282,28 @@ export function taskCoverage(contrib, plan) {
       referenced.get(r).push(cm);
     }
   }
-  const rows = plan.items.map((i) => ({
-    id: i.id, title: i.title, percent: i.percent,
-    commits: (referenced.get(i.id) || []).length,
-    last: (referenced.get(i.id) || []).slice(-1)[0]?.date.slice(0, 10) || null,
-  }));
+  const rows = plan.items.map((i) => {
+    const cms = referenced.get(i.id) || [];
+    // Who worked on it was always in this data and was thrown away — only the count survived. Grouped by the
+    // same key the rest of the contribution analysis uses (email, falling back to name), so one person with
+    // two spellings of their name is one person here too.
+    const by = new Map();
+    for (const cm of cms) {
+      const key = cm.email || cm.author;
+      if (!by.has(key)) by.set(key, { name: cm.author, email: cm.email, commits: 0 });
+      by.get(key).commits++;
+    }
+    return {
+      id: i.id, title: i.title, percent: i.percent,
+      commits: cms.length,
+      last: cms.slice(-1)[0]?.date.slice(0, 10) || null,
+      authors: [...by.values()].sort((a, b) => b.commits - a.commits),
+      // Newest first, and capped — an item with sixty commits should not push the page over. The cap is
+      // reported wherever this renders, because a truncated list shown as a whole list is the quiet lie.
+      recent: cms.slice(-8).reverse()
+        .map((cm) => ({ hash: cm.hash, subject: cm.subject, date: cm.date.slice(0, 10), author: cm.author })),
+    };
+  });
   return {
     rows,
     withCommits: rows.filter((r) => r.commits > 0).length,

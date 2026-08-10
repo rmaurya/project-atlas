@@ -13,6 +13,29 @@ versions follow [Semantic Versioning](https://semver.org/).
 - `atlas plan` — propose the git route for the working tree and wait for approval, rather than only refusing a
   commit once it is attempted.
 
+## [0.1.39] — 2026-08-10
+
+### Added
+- **A Backlog view** (`S-6`) — every task in full, in the nav beside the other views. Three things the item
+  table cannot hold, because that table is a scanning tool whose summary is clamped to two lines: the whole
+  description, **the documents that specify the task**, and **who has worked on it**. All derived — the
+  description and links from the plan's own prose, the contributors from the commits that named the item.
+  `taskCoverage` always had those commits and kept only a count; the authors were computed and thrown away.
+- **An absence is stated, never left blank.** "No document is linked from this item in the plan" is a
+  finding; an empty space where sources would go reads as "not applicable", which is a different claim. With
+  git metadata off, contributors read as *unknown* rather than as none.
+- Against this repository: **1 of 47** tasks links to a document that specifies it, and **26** have been
+  named by a commit. Both figures are on the page, and neither is maintained by hand.
+
+### Changed
+- The backlog uses a reading layout rather than the masonry one. Masonry packs cards down a column before
+  moving right, which is right for panels that are peers and wrong for a plan: it placed Track 6 beside
+  Track 1 and broke the sequence. The stylesheet already said masonry was "only applied where the panels are
+  peers with no narrative order" — this is the case that note was describing.
+- `BUNDLE_PAGES` gains the backlog, without which the single-file export carried a nav link to a page that
+  does not travel with it. Caught by the existing bundle test, which asserts that no link points at a file
+  rather than checking a list someone has to remember to update.
+
 ## [0.1.38] — 2026-08-10
 
 ### Added

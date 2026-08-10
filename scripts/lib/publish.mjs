@@ -702,6 +702,10 @@ function aboutSection(about, title) {
 export const BUNDLE_PAGES = [
   { file: 'index', label: 'Home' },
   { file: 'dashboard', label: 'Overview' },
+  // Adding a view means adding it here too, or the bundle carries a nav link to a file that does not travel
+  // with it. The bundle test caught exactly that when the backlog view was added — which is why the test
+  // asserts "no link points at a file" rather than checking a list someone has to remember to update.
+  { file: 'view-backlog', label: 'Backlog' },
   { file: 'view-qc', label: 'Quality' },
   { file: 'view-product', label: 'Product' },
   { file: 'view-delivery', label: 'Delivery' },

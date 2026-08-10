@@ -2333,6 +2333,42 @@ test('dashboard · a tone from outside the known set cannot escape its class att
   includes(html, 't-unknown', 'an unrecognised tone falls back to the unknown class');
 });
 
+test('backlog · every task in full, with its sources and an absence stated rather than left blank', () => {
+  // The backlog view exists because the item table cannot hold this: it is a scanning tool with a summary
+  // clamped to two lines. The three additions are the description, the documents that specify the task, and
+  // who worked on it — and an absence must be *stated*, because an empty space reads as "not applicable".
+  const dir = fixture('backlog-view', {
+    'docs/TASKS.md': [
+      '| Item | % |', '|---|---|', '| K-1 | 50 |', '| K-2 | 0 |', '',
+      '## Track 1 — Work', '',
+      '**K-1 · Specified thing** — **P1 · High**',
+      '*Short summary.*',
+      '',
+      'Detail the summary never carried, specified by [the SRS](specs/SRS.md).',
+      '',
+      '**K-2 · Unspecified thing** — **P3 · Low**',
+      '*Nothing links to a document here.*',
+    ].join('\n'),
+    'docs/specs/SRS.md': '# SRS\n',
+  });
+  const cfg = { ...resolveConfig(dir), planning: { source: 'docs/TASKS.md' } };
+  const index = buildIndex(dir, cfg);
+  const health = runHealth(index, cfg, dir);
+  const plan = readPlanning(dir, cfg);
+  const html = viewPage({ id: 'backlog', title: 'Backlog', panels: ['backlog'] },
+    { index, health, plan, cfg, contrib: null, nav: [] }, (o) => o.body);
+
+  includes(html, 'Detail the summary never carried', 'the full description is rendered, not the clamped summary');
+  includes(html, 'docs/specs/SRS.md', 'a source document is named');
+  includes(html, 'No document is linked from this item in the plan.', 'an absence is stated, not blank');
+  includes(html, 'Git metadata is off, so contributors are unknown.',
+    'unknown contributors are declared as unknown rather than as none');
+
+  // The reading layout, not the masonry one: a backlog has an order and columns break it.
+  includes(html, 'dash-read');
+  eq(/class="dash-single"/.test(html), false, 'the backlog must not use the column-packed layout');
+});
+
 test('scan · a citation extension containing a regex metacharacter does not crash the scan', () => {
   // `e.replace('.', '\\.')` is a STRING replace: it escaped the first dot and nothing else, so
   // citationExtensions: ["("] built an unterminated group and took the whole scan down.
