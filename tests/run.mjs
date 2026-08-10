@@ -3602,6 +3602,32 @@ test('journal · a repository with no journal is reported as absent, not as empt
   eq(out.records.length, 0);
 });
 
+test('spec gate · names the actual reason the message was unreadable, not always stdin', () => {
+  // One line covered three causes and named stdin. A commit written as -F "$DIR/msg.txt" was told "a hook
+  // cannot see a message passed on stdin — use -m or -F <file>": advice to do the thing that had just been
+  // done. A guard is trusted, so a guard that misdiagnoses costs more than one that says nothing — the
+  // reader stops looking for the real cause. Hit twice in one session before it was fixed.
+  const changed = ['scripts/lib/thing.mjs'];
+  const items = [{ id: 'A-1', title: 'x', percent: 0 }];
+
+  const stdin = specVerdict({ changed, message: null, items, whyUnreadable: 'stdin' });
+  includes(stdin.message, 'passed on stdin');
+  includes(stdin.message, 'Write it to a file first');
+
+  const unresolved = specVerdict({ changed, message: null, items, whyUnreadable: 'unresolved' });
+  includes(unresolved.message, 'could not be opened');
+  includes(unresolved.message, 'shell expands it');
+  ok(!unresolved.message.includes('stdin'),
+    'an unresolvable -F path must not be blamed on stdin — that is the misdiagnosis this fixes');
+
+  const absent = specVerdict({ changed, message: null, items, whyUnreadable: 'absent' });
+  includes(absent.message, 'Neither `-m` nor `-F`');
+  ok(!absent.message.includes('stdin'), 'no message flag at all is not a stdin problem either');
+
+  // Whatever the cause, the verdict still refuses: a gate that waves through what it could not parse is off.
+  for (const v of [stdin, unresolved, absent]) eq(v.ok, false);
+});
+
 console.log(`\n${pass} passed, ${fail} failed${skipped ? `, ${skipped} skipped on ${process.platform}` : ''}\n`);
 if (fail) {
   console.log('Failures:');

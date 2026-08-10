@@ -60,7 +60,7 @@ const argv = process.argv.slice(2);
  * boolean, so a positional after a boolean flag stays positional — `atlas tasks --json safety` keeps `safety`
  * as the filter rather than swallowing it as `--json`'s value.
  */
-const VALUE_FLAGS = new Set(['target', 'page', 'out', 'root', 'config', 'interval', 'refs', 'agent', 'since', 'day']);
+const VALUE_FLAGS = new Set(['target', 'page', 'out', 'root', 'config', 'interval', 'refs', 'agent', 'since', 'day', 'why']);
 
 const { cmd, positionals, flags } = parseArgs(argv);
 
@@ -707,7 +707,10 @@ async function main() {
     const staged = gitLines(root, ['diff', '--cached', '--name-only']);
     if (!staged.length) return;                          // nothing staged; git will refuse this commit anyway
     const message = await readStdin();
-    const v = specVerdict({ changed: staged, message, items: plan.items, roadmapPath: plan.source });
+    // `--why` carries the reason the message is missing, which only the caller knows: the hook can see
+    // whether it was stdin, an unresolvable -F path, or no message flag at all, and the gate cannot.
+    const v = specVerdict({ changed: staged, message, items: plan.items, roadmapPath: plan.source,
+      whyUnreadable: typeof flag('why') === 'string' ? flag('why') : 'absent' });
     if (v.ok) return;
     console.error(`project-atlas: ${v.message}\n`);
     process.exitCode = 1;

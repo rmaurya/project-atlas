@@ -56,12 +56,23 @@ fi
 # a check that is off.
 msg=$(printf '%s' "$cmd" | sed -n 's/.*-m[[:space:]][[:space:]]*"\([^"]*\)".*/\1/p')
 [ -z "$msg" ] && msg=$(printf '%s' "$cmd" | sed -n "s/.*-m[[:space:]][[:space:]]*'\([^']*\)'.*/\1/p")
+
+# Why the message is missing is something only this script can tell, and the difference matters: the gate
+# used to name stdin for every case, which told someone who had written `-F "$DIR/msg.txt"` to use `-F
+# <file>` — advice to do the thing they had just done. A guard is trusted, so misdiagnosis costs more than
+# silence.
+why=absent
 if [ -z "$msg" ]; then
   f=$(printf '%s' "$cmd" | sed -n 's/.*-F[[:space:]][[:space:]]*\([^[:space:]]*\).*/\1/p')
-  [ -n "$f" ] && [ "$f" != "-" ] && [ -r "$f" ] && msg=$(cat "$f")
+  f=$(printf '%s' "$f" | sed "s/^[\"']//; s/[\"']$//")     # a quoted path is still quoted at hook time
+  if [ "$f" = "-" ]; then
+    why=stdin
+  elif [ -n "$f" ]; then
+    if [ -r "$f" ]; then msg=$(cat "$f"); else why=unresolved; fi
+  fi
 fi
 
-printf '%s' "$msg" | "$ATLAS" spec --gate >&2
+printf '%s' "$msg" | "$ATLAS" spec --gate --why "$why" >&2
 st=$?
 [ $st -eq 0 ] && exit 0
 [ $st -ne 1 ] && echo "project-atlas: the plan gate could not run (exit $st). This commit was NOT checked." >&2

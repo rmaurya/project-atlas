@@ -38,7 +38,29 @@ export function idsIn(text) {
  * it failed to parse is a gate that is off, and the whole argument of this project is that a check which
  * cannot run must never report success.
  */
-export function specVerdict({ changed = [], message, items = [], roadmapPath = null }) {
+/**
+ * Why the message could not be read, and what to actually do about it.
+ *
+ * There was one line here for all three causes, and it named stdin. That is right for exactly one of them
+ * and actively misleading for the other two: a commit written as `-F "$MSG/file.txt"` was told *"a hook
+ * cannot see a message passed on stdin — use `-m` or `-F <file>`"*, which is advice to do the thing that had
+ * just been done. A guard is trusted, so a guard that misdiagnoses costs more than one that says nothing —
+ * the reader stops looking at the real cause.
+ */
+const UNREADABLE = {
+  stdin:
+    '  The message was passed on stdin (`git commit -F -`), where a PreToolUse hook cannot see it.\n' +
+    '  Write it to a file first, then `git commit -F <file>`.',
+  unresolved:
+    '  A `-F <path>` was given but the path could not be opened. The hook sees the command before the\n' +
+    '  shell expands it, so a variable or `~` in the path is still literal text at that point.\n' +
+    '  Pass the path as a literal, or use `-m "…"`.',
+  absent:
+    '  Neither `-m` nor `-F` was given, so the message would have come from an editor the hook cannot read.\n' +
+    '  Use `-m "…"` or `-F <file>` so the gate can see which item this advances.',
+};
+
+export function specVerdict({ changed = [], message, items = [], roadmapPath = null, whyUnreadable = 'absent' }) {
   const runtime = changed.filter((p) => isRuntimePath(p));
   if (!runtime.length) {
     return { ok: true, message: 'No shipped file changed — no item needs naming.' };
@@ -52,8 +74,8 @@ export function specVerdict({ changed = [], message, items = [], roadmapPath = n
       ok: false,
       message:
         `${runtime.length} shipped file(s) changed and the commit message could not be read, so nothing was checked.\n` +
-        `  A PreToolUse hook cannot see a message passed on stdin (\`git commit -F -\`).\n` +
-        `  Use \`-m "…"\` or \`-F <file>\` so the plan gate can see which item this advances.`,
+        UNREADABLE[whyUnreadable] + '\n' +
+        `  Nothing is wrong with the commit; the gate refuses only because it could not see the message.`,
     };
   }
 

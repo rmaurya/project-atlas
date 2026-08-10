@@ -13,6 +13,20 @@ versions follow [Semantic Versioning](https://semver.org/).
 - `atlas plan` — propose the git route for the working tree and wait for approval, rather than only refusing a
   commit once it is attempted.
 
+## [0.1.53] — 2026-08-10
+
+### Fixed
+- **The commit gate blamed stdin for every unreadable message, including the two cases that were not
+  stdin.** A message file referenced through a shell variable was refused with *"a PreToolUse hook cannot
+  see a message passed on stdin"* plus advice to use the flag that had just been used. The real cause is
+  that the hook sees the command **before** the shell expands it, so a variable in the path is still
+  literal text when the guard tries to open it. Three causes now carry three messages — stdin, an
+  unresolvable path, and no message flag at all — and each says what to do about that one. A guard is
+  trusted, so misdiagnosis costs more than silence: the reader stops looking for the real cause. Hit twice
+  in one session before it was fixed.
+- The refusal now states that nothing is wrong with the commit itself — only that the gate could not see
+  the message. It still refuses in all three cases: a gate that waves through what it could not parse is off.
+
 ## [0.1.52] — 2026-08-10
 
 ### Added
