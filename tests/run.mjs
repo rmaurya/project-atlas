@@ -56,17 +56,28 @@ const filter = (() => {
 // cannot run there — and a suite that silently drops four tests on one platform is a suite that reports a
 // green tick for coverage it did not have. They are skipped by name and counted.
 const POSIX_SHELL = process.platform !== 'win32';
+// One injection test proves a filename cannot terminate an href attribute, so the fixture's *name* contains
+// `"`, `<` and `>`. NTFS forbids those characters outright, so the file cannot be created on Windows at all
+// and the test failed there on ENOENT — reported as a security regression when nothing had regressed. The
+// escaping it guards is platform-independent and stays covered on Linux and macOS; what Windows cannot do is
+// hold the fixture. Skipped by name and counted, never quietly passed.
+const POSIX_FILENAMES = process.platform !== 'win32';
 let skipped = 0;
 
 let pass = 0, fail = 0;
 const failures = [];
 
 const pendingAsync = [];
-function test(name, fn, { needsPosixShell = false } = {}) {
+function test(name, fn, { needsPosixShell = false, needsPosixFilenames = false } = {}) {
   if (filter && !name.toLowerCase().includes(filter.toLowerCase())) return;
   if (needsPosixShell && !POSIX_SHELL) {
     skipped++;
     process.stdout.write(`  \x1b[33m-\x1b[0m ${name}  (skipped: no POSIX shell on ${process.platform})\n`);
+    return;
+  }
+  if (needsPosixFilenames && !POSIX_FILENAMES) {
+    skipped++;
+    process.stdout.write(`  \x1b[33m-\x1b[0m ${name}  (skipped: ${process.platform} forbids " < > in filenames)\n`);
     return;
   }
   try {
@@ -826,6 +837,15 @@ test('tokens · refuses to write a report into the published directory', () => {
   // Anywhere else is fine.
   assertNotPublishable(dir, cfg, 'tokens.txt');
   assertNotPublishable(dir, cfg, 'reports/tokens.txt');
+});
+
+test('tokens · the store slug carries no colon, so a Windows drive letter cannot make it unopenable', () => {
+  // `C:\Users\me\proj` split on the separator kept its colon — `C:-Users-me-proj` — which is not a legal
+  // Windows path component, so every read failed at mkdir with ENOENT and `atlas tokens` reported nothing to
+  // account for. That is indistinguishable from an honestly empty store, which is why it survived.
+  // Asserted with a colon in the path rather than under win32, so the regression fails on every platform.
+  const dir = transcriptDir(path.join(tmpRoot, 'drive:letter'), { tokens: { transcriptRoot: '/store' } });
+  eq(path.basename(dir).includes(':'), false, `slug must not contain a colon: ${path.basename(dir)}`);
 });
 
 test('tokens · a missing transcript store degrades, it does not throw', async () => {
@@ -2145,7 +2165,7 @@ test('render · a filename cannot terminate an href attribute', () => {
   for (const f of fs.readdirSync(path.join(out.outDir, 'pages'))) {
     ok(/^[A-Za-z0-9._-]+$/.test(f), `page filename is not restricted: ${f}`);
   }
-});
+}, { needsPosixFilenames: true });
 
 test('render · two documents that flatten to one page name are both written, and the count is the truth', () => {
   // `docs/a/b.md` and `docs/a__b.md` both produced docs__a__b.html; the second write won, and the reported

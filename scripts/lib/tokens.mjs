@@ -39,10 +39,19 @@ export const DEFAULT_TOKENS = {
   ratesAsOf: null,               // the date those rates were correct — printed with any cost figure
 };
 
-/** ~/.claude/projects/<slug>, where the slug is the absolute path with separators replaced by hyphens. */
+/**
+ * ~/.claude/projects/<slug>, where the slug is the absolute path with separators replaced by hyphens.
+ *
+ * The drive colon has to go too. `C:\Users\me\proj` split on the separator keeps its colon — `C:-Users-me-proj`
+ * — and a colon is not legal in a Windows path component, so every read of the store failed at mkdir with
+ * ENOENT. That reads as "no transcripts here", which is indistinguishable from the honest empty case and is
+ * why it went unnoticed: `atlas tokens` on Windows reported nothing to account for, and nothing is exactly
+ * what it would say if the store were genuinely empty. Replacing it yields `C--Users-me-proj`, which is the
+ * name the transcripts are actually written under.
+ */
 export function transcriptDir(root, cfg = {}) {
   const base = cfg.tokens?.transcriptRoot || path.join(os.homedir(), '.claude', 'projects');
-  const slug = path.resolve(root).split(path.sep).join('-');
+  const slug = path.resolve(root).split(path.sep).join('-').replace(/:/g, '-');
   return path.join(base, slug);
 }
 

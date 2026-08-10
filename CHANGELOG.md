@@ -13,6 +13,30 @@ versions follow [Semantic Versioning](https://semver.org/).
 - `atlas plan` — propose the git route for the working tree and wait for approval, rather than only refusing a
   commit once it is attempted.
 
+## [0.1.31] — 2026-08-10
+
+### Fixed
+- **Windows CI was red on every commit since the matrix was added, and never once for the reason under
+  test.** GitHub's windows-latest runners default `core.autocrlf` to true, so checkout rewrote the tree to
+  CRLF before any step ran; `sync-runtimes --check` then called all eleven skills stale and failed the job at
+  the second step. `ci.yml` set `core.autocrlf false` *after* checkout, which cannot undo a conversion
+  already applied. A `.gitattributes` of `* text=auto eol=lf` fixes it at checkout, for contributors on
+  Windows as well as CI, and the workflow step now asserts the tree is LF rather than claiming it.
+- With the tree readable, the matrix found the three Windows defects it was added to find:
+  - **`atlas tokens` and `atlas sessions` reported nothing on Windows.** The transcript-store slug kept the
+    drive colon — `C:-Users-me-proj` — which is not a legal Windows path component, so every read failed at
+    mkdir. An empty report is exactly what an honestly empty store produces, so nothing looked wrong.
+  - **A first wiki publish was refused as unreachable, with a blank reason.** The clone's failure text was
+    read as `err.stderr || err.message`, and an *empty Buffer is truthy* — so where git left stderr empty the
+    fallback never ran, an empty string matched none of the "repository not found" patterns, and the normal
+    first-publish case was misclassified.
+  - **Every in-document link in a single-file export was dead.** `from` was built with `path.join`, giving
+    `pages\A.html`, so the `startsWith('pages/')` test that decides how a document's links resolve went false
+    for every document.
+- The injection test whose fixture *filename* contains `"`, `<` and `>` is skipped on Windows, which forbids
+  those characters outright — by name and counted, never silently passed. The escaping it guards is
+  platform-independent and stays covered elsewhere.
+
 ## [0.1.30] — 2026-08-10
 
 ### Fixed

@@ -232,7 +232,13 @@ export function stageWiki(root, cfg, built, { push = false, force = false, impor
     execFileSync('git', ['clone', '--depth', '1', url, work], { stdio: ['ignore', 'ignore', 'pipe'] });
     cloned = true;
   } catch (err) {
-    const msg = String(err?.stderr || err?.message || err);
+    // Every stream, not the first truthy one. `err.stderr` is a Buffer, and an *empty* Buffer is truthy — so
+    // on Windows, where git left stderr empty and put the reason elsewhere, `String(err.stderr)` produced ''
+    // and the `|| err.message` fallback never ran. An empty string matches none of the patterns below, so a
+    // first publish to a wiki that simply did not exist yet was refused as unreachable, with the reason blank.
+    const msg = [err?.stderr, err?.stdout, err?.message]
+      .map((v) => (v == null ? '' : String(v)))
+      .filter(Boolean).join('\n').trim() || String(err);
     // GitHub answers a wiki that was never created with "remote: Repository not found." and a matching fatal.
     // GitLab answers with "not found". Anything else is a failure to *reach* the wiki, not evidence about it.
     if (!/repository not found|not found|does not exist/i.test(msg)) {
@@ -441,7 +447,12 @@ export function exportBundle(root, cfg, pages = null, about = {}) {
   const docsDir = path.join(outDir, 'pages');
   const docs = fs.existsSync(docsDir)
     ? fs.readdirSync(docsDir).filter((f) => f.endsWith('.html')).sort()
-        .map((f) => ({ file: `doc--${f.slice(0, -5)}`, label: null, from: path.join('pages', f) }))
+        // A posix separator, deliberately, and not `path.join`. `from` is an identity that gets *compared*
+        // (`from.startsWith('pages/')` decides how a link inside a document page resolves), not only a path
+        // that gets read. On Windows `path.join` made it `pages\A.html`, that comparison went false for every
+        // document, and each one's links to its siblings were left pointing at files no bundle carries.
+        // Reading still works: path.join(outDir, 'pages/A.html') is valid on every platform.
+        .map((f) => ({ file: `doc--${f.slice(0, -5)}`, label: null, from: `pages/${f}` }))
     : [];
   const all = [...nav.map((p) => ({ ...p, from: `${p.file}.html` })), ...docs];
 

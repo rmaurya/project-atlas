@@ -1,6 +1,6 @@
 {
   "name": "atlas",
-  "version": "0.1.30",
+  "version": "0.1.31",
   "description": "A derived, auditable knowledgebase over your repository's own documentation — index, dashboard, deck and rot detection, generated from the markdown you already have.",
   "author": {
     "name": "Rajneesh Maurya"
