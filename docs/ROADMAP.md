@@ -29,7 +29,7 @@ measured against the code — the same distinction the tool preserves everywhere
 | A-10 | 0 | A-11 | 0 | A-12 | 0 |
 | S-1 | 100 | S-2 | 100 | S-3 | 0 |
 | S-4 | 100 | S-5 | 100 | S-6 | 100 |
-| S-7 | 100 | | | | |
+| S-7 | 100 | M-1 | 0 | M-2 | 0 |
 
 ---
 
@@ -473,3 +473,39 @@ list that goes stale, which is the failure this whole tool exists to detect.*
 percentage, status, track, priority and criticality out of the plan, plus a summary it truncates. It has no
 field for a full description and no notion that an item is specified somewhere. Both must exist in the model
 before any view can render them, and both must come from the markdown rather than a second store.*
+
+## Track 8 — Integration
+
+*Added 2026-08-10. Everything this tool knows is reachable through one CLI and one generated site, both of
+which assume a person is present. The request behind this track was "let other local software talk to Claude
+Code" — and that turns out to be two different mechanisms pointing in opposite directions, which is why it is
+two items rather than one. Specifying the wrong one is the expensive mistake here: an MCP server does not
+let anything drive a session, and no amount of implementing it would deliver what M-2 describes.*
+
+**M-1 · atlas as an MCP server** — **P2 · Medium**
+*Direction: an agent asks atlas. MCP servers expose tools that a client — Claude Code, Claude Desktop, any
+MCP-speaking editor — decides to call. So this makes the corpus queryable in-session without shelling out:
+`atlas_health`, `atlas_plan`, `atlas_search`, `atlas_changes`, `atlas_contrib`, each returning the same
+derived data the CLI prints, as structured results rather than parsed stdout. The value is that an assistant
+working in a repository can ask "what is failing and which document cites it" as a tool call, and get the
+answer atlas already computes rather than a re-derivation from `grep`.*
+
+*Two constraints this must respect, both of which the CLI already holds to. **Read-only**: no tool publishes,
+pushes, or writes prose — the same boundary Track 6 draws, and the reason a server is safe to expose at all.
+**Zero-dependency is a real cost here**: `@modelcontextprotocol/sdk` is the official implementation and
+would be this project's first runtime dependency, against a stdio JSON-RPC loop that is small enough to
+write by hand. Decide that deliberately and record the decision, rather than adding a dependency because a
+package existed.*
+
+**M-2 · Driving a session from local software** — **P3 · Low**
+*Direction: software drives Claude Code. This is what the original request described — send instructions,
+take an update, send input, get output — and **it is not MCP**. MCP has no channel for an outside process to
+start work, steer it mid-run, or read its output; the client always initiates. The mechanisms that do this
+are the Claude Agent SDK (`@anthropic-ai/claude-agent-sdk` / `claude-agent-sdk`) and headless `claude -p`,
+neither of which atlas currently touches.*
+
+*Scoped low deliberately, and it may not be atlas's job at all. Atlas is a knowledgebase over a repository;
+a session driver is a different product that would happen to live in the same package. The plausible
+version is narrow — a thin wrapper that runs an atlas-shaped task headlessly and returns structured output,
+so CI or a local tool can ask for a health report or a publish dry-run without a terminal. Anything wider
+than that is a general-purpose agent runner wearing this project's name.*
