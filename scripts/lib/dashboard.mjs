@@ -300,6 +300,20 @@ function unwrapEmphasis(body) {
   return inner.includes('*') ? body : inner;
 }
 
+/**
+ * A select whose options are read from the data. Offering a filter value that matches nothing is a control
+ * that can only disappoint, and hardcoding the list means a new track or status band silently loses its
+ * filter — the same class of "list someone has to remember" that let a nav link ship without its page.
+ */
+function sel(id, label, values, labels = {}) {
+  const opts = values.filter(Boolean).map((v) =>
+    `<option value="${escapeAttr(v)}">${escapeHtml(labels[v] || v)}</option>`).join('');
+  return `<label class="bl-f"><span class="bl-f-label">${escapeHtml(label)}</span>
+    <select class="fsel" id="${escapeAttr(id)}" aria-label="Filter by ${escapeAttr(label)}">
+      <option value="">All</option>${opts}
+    </select></label>`;
+}
+
 function backlogPanel(plan, contrib, index, pageOf) {
   const cov = contrib?.available ? taskCoverage(contrib, plan) : null;
   const covById = new Map((cov?.rows || []).map((r) => [r.id, r]));
@@ -354,7 +368,12 @@ function backlogPanel(plan, contrib, index, pageOf) {
     // task is hidden behind the toggle. The detail is one click, and the browser gives keyboard and find-in-
     // page behaviour for free, which a div-and-script accordion would have to reimplement and usually breaks.
     return `
-    <details class="card bl-item" id="item-${escapeAttr(it.id)}">
+    <details class="card bl-item" id="item-${escapeAttr(it.id)}"
+      data-track="${escapeAttr(it.track)}" data-status="${escapeAttr(it.status?.label || 'Unknown')}"
+      data-pri="${escapeAttr(it.priority)}" data-crit="${escapeAttr(it.criticality)}"
+      data-pct="${it.percent === null ? -1 : it.percent}"
+      data-sourced="${(it.sources || []).length ? 'yes' : 'no'}"
+      data-worked="${(covById.get(it.id)?.commits || 0) > 0 ? 'yes' : 'no'}">
       <summary class="bl-head">
         <span class="bl-chev" aria-hidden="true"></span>
         <code class="mono bl-id">${escapeHtml(it.id)}</code>
@@ -398,8 +417,15 @@ function backlogPanel(plan, contrib, index, pageOf) {
     ? `, and <strong>${withCommits}</strong> have been named by a commit` : ''}.
   Both figures are read from the plan and from git — neither is maintained by hand, so neither can go stale
   without the underlying record going stale first.</p>
-  <div class="tbar">
+  <div class="tbar bl-filters">
     <input id="bq" type="search" placeholder="Filter by id, title, track or text…" autocomplete="off">
+    ${sel('bf-track', 'Track', [...new Set(plan.items.map((i) => i.track))])}
+    ${sel('bf-status', 'Status', [...new Set(plan.items.map((i) => i.status?.label || 'Unknown'))])}
+    ${sel('bf-pri', 'Priority', [...new Set(plan.items.map((i) => i.priority))].sort())}
+    ${sel('bf-crit', 'Criticality', [...new Set(plan.items.map((i) => i.criticality))])}
+    ${sel('bf-sourced', 'Specified', ['yes', 'no'], { yes: 'has a source document', no: 'no source document' })}
+    ${sel('bf-worked', 'Worked on', ['yes', 'no'], { yes: 'named by a commit', no: 'no commit names it' })}
+    <button type="button" id="bf-clear" class="bl-clear">Clear</button>
     <span class="det" id="bcount"></span>
   </div>
 </section>
@@ -877,6 +903,13 @@ abbr { text-decoration:none; cursor:help; color:var(--muted); }
 .bl-commits { margin-top:12px; font-size:13px; }
 .bl-commits summary { cursor:pointer; color:var(--muted); }
 .bl-commits summary:hover { color:var(--link); }
+.bl-filters { align-items:end; gap:10px 12px; }
+.bl-f { display:flex; flex-direction:column; gap:3px; }
+.bl-f-label { font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); }
+.bl-filters .fsel { min-width:120px; padding:7px 9px; font-size:13px; }
+.bl-clear { font:inherit; font-size:13px; color:var(--muted); background:var(--bg); cursor:pointer;
+  border:1px solid var(--line); border-radius:8px; padding:7px 12px; }
+.bl-clear:hover { color:var(--link); border-color:var(--link); }
 #bq { width:100%; max-width:420px; padding:9px 12px; font-size:14px; color:var(--ink);
   background:var(--bg); border:1px solid var(--line); border-radius:8px; }
 :root { --st-good:${STATUS.light.good}; --st-warning:${STATUS.light.warning};
@@ -904,11 +937,21 @@ const TABLE_JS = `
     var cards = Array.prototype.slice.call(document.querySelectorAll('.bl-item'));
     var tracks = Array.prototype.slice.call(document.querySelectorAll('.bl-track'));
     var bcount = document.getElementById('bcount');
+    // Every select is matched against a data attribute on the row rather than against its rendered text, so
+    // filtering by status cannot be fooled by the word "Done" appearing in a description.
+    var SELECTS = [['bf-track', 'track'], ['bf-status', 'status'], ['bf-pri', 'pri'],
+                   ['bf-crit', 'crit'], ['bf-sourced', 'sourced'], ['bf-worked', 'worked']];
+    var controls = SELECTS.map(function (p) { return { el: document.getElementById(p[0]), key: p[1] }; })
+                          .filter(function (c) { return c.el; });
     var bfilter = function () {
       var v = (bq.value || '').trim().toLowerCase();
       var shown = 0;
       cards.forEach(function (c) {
         var hit = !v || c.textContent.toLowerCase().indexOf(v) !== -1;
+        for (var i = 0; hit && i < controls.length; i++) {
+          var want = controls[i].el.value;
+          if (want && c.dataset[controls[i].key] !== want) hit = false;
+        }
         c.style.display = hit ? '' : 'none';
         if (hit) shown++;
       });
@@ -916,9 +959,19 @@ const TABLE_JS = `
         var any = Array.prototype.some.call(t.querySelectorAll('.bl-item'), function (c) { return c.style.display !== 'none'; });
         t.style.display = any ? '' : 'none';
       });
-      bcount.textContent = v ? shown + ' of ' + cards.length + ' tasks shown' : cards.length + ' tasks';
+      var active = !!v || controls.some(function (c) { return !!c.el.value; });
+      bcount.textContent = active ? shown + ' of ' + cards.length + ' tasks shown' : cards.length + ' tasks';
+      var clear = document.getElementById('bf-clear');
+      if (clear) clear.hidden = !active;
     };
     bq.addEventListener('input', bfilter);
+    controls.forEach(function (c) { c.el.addEventListener('change', bfilter); });
+    var clearBtn = document.getElementById('bf-clear');
+    if (clearBtn) clearBtn.addEventListener('click', function () {
+      bq.value = '';
+      controls.forEach(function (c) { c.el.value = ''; });
+      bfilter();
+    });
     bfilter();
 
     // A link to #item-A-9 lands on a closed row, which looks like the anchor is broken. Open it and put it
@@ -1072,6 +1125,19 @@ const TABLE_JS = `
   // "built HH:MM:SS" indicator silently went blank after the first refresh.
   function stampEl() { return document.getElementById('stamp'); }
   var seen = null, timer = null, misses = 0;
+  // Back-off, because one interval cannot serve both cases. Under atlas watch a rebuild lands seconds
+  // after you save and three seconds is right; on a deployed site the content changes when CI redeploys, so
+  // a tab left open overnight would ask a CDN twenty thousand times to learn nothing. Quiet polls widen the
+  // gap, a change snaps it back to fast — so the interval matches how often the page is actually changing
+  // rather than a guess about where it is hosted.
+  var STEPS = [3000, 10000, 30000, 60000];
+  var step = 0, quiet = 0;
+  function reschedule(next) {
+    if (next === step) return;
+    step = next;
+    if (timer) clearInterval(timer);
+    timer = setInterval(poll, STEPS[step]);
+  }
 
   function readState() {
     var s = { scroll: window.scrollY, filters: {} };
@@ -1143,14 +1209,17 @@ const TABLE_JS = `
         if (t === null) return;
         t = t.trim();
         if (seen === null) { seen = t; var e0 = stampEl(); if (e0) e0.textContent = '\u00b7 built ' + t; return; }
-        if (t !== seen) { seen = t; refresh(t); }
+        if (t !== seen) { seen = t; quiet = 0; reschedule(0); refresh(t); return; }
+        // Four quiet polls at a step widen the gap. The counter is per step, not cumulative, so a page that
+        // has been idle for an hour still returns to three seconds the moment something moves.
+        if (++quiet >= 4 && step < STEPS.length - 1) { quiet = 0; reschedule(step + 1); }
       })
       // A transient failure is not an answer. Only a definitive 404 stops the timer — the first version
       // cleared it on any rejection, so a single connection reset during a rebuild (trivially reproducible
       // against a single-threaded dev server) disabled live updates for the rest of the session, silently.
       .catch(function () {});
   }
-  poll(); timer = setInterval(poll, 3000);
+  poll(); timer = setInterval(poll, STEPS[0]);
 })();
 `;
 

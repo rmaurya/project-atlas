@@ -673,7 +673,7 @@ async function main() {
     // No config file means this repository never opted in. The plugin is installed user-wide, so without this
     // every markdown edit in every unrelated repository would generate a docs/_wiki nobody asked for.
     if (flag('auto') && (!cfg.__configPath || cfg.automation.buildOnWrite === false)) return;
-    const r = doBuild(root, cfg, withGit, cmd === 'all');
+    const r = doBuild(root, cfg, withGit, cmd === 'all', { stamp: flag('stamp') });
     // `--verify` audits what was just written. The tool checked other people's markdown and never its own
     // HTML; six defects shipped in one afternoon and a person found every one of them.
     if (flag('verify')) {
@@ -842,7 +842,13 @@ function doBuild(root, cfg, withGit, withReport, { stamp = false } = {}) {
   const health = runHealth(index, cfg, root);
   if (withReport) say(formatReport(health, index, { verbose: !!flag('verbose'), color }), '\n');
   const { outDir, pages, truncated, plan, deck, collisions } = renderSite(index, health, cfg, root);
-  if (stamp || flag('watch')) writeBuildStamp(root, cfg, new Date().toISOString().slice(11, 19));
+  // Watch shows a time of day, which is all you need when the rebuild happened seconds ago. A deployed site
+  // is read hours or days after it was built, so `--stamp` writes the date too — a bare "14:03:22" on a
+  // published page is a number with no year attached to it.
+  if (stamp || flag('watch')) {
+    const now = new Date().toISOString();
+    writeBuildStamp(root, cfg, flag('watch') ? now.slice(11, 19) : now.replace('T', ' ').slice(0, 19) + ' UTC');
+  }
 
   // `pages` is counted from the files actually written, not from the index — see render.mjs. A collision that
   // had to be renamed is stated rather than left to look like an ordinary build.

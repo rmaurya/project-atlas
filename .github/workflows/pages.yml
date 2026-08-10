@@ -25,8 +25,13 @@ jobs:
           fetch-depth: 0        # the tool reads git history; a shallow clone would hide every date
       - uses: actions/setup-node@v4
         with: { node-version: '20' }
+      # --stamp writes build-stamp.txt into the uploaded artifact. Without it the deployed page polls a file
+      # that will never exist, gives up after three misses, and only ever changes when someone reloads. With
+      # it, an open tab notices the new deploy and patches itself in place — scroll position, sort order and
+      # every filter preserved. The page backs its own polling off, so a tab left open is not asking a CDN
+      # every three seconds all night.
       - name: Build the site
-        run: node scripts/atlas.mjs build
+        run: node scripts/atlas.mjs build --stamp
       - uses: actions/upload-pages-artifact@v3
         with: { path: docs/_wiki }
 

@@ -13,7 +13,27 @@ versions follow [Semantic Versioning](https://semver.org/).
 - `atlas plan` — propose the git route for the working tree and wait for approval, rather than only refusing a
   commit once it is attempted.
 
-## [0.1.42] — 2026-08-10
+## [0.1.43] — 2026-08-10
+
+### Added
+- **The deployed site updates itself between visits.** `atlas build --stamp` writes `build-stamp.txt`, and
+  `pages.yml` now uses it, so an open tab notices a new deploy and patches itself in place — scroll position,
+  sort order and every filter preserved — using the machinery 0.1.37 already built. Previously the stamp was
+  written only under `atlas watch`, so the published page polled a file that would never exist, gave up after
+  three misses, and changed only when someone reloaded. A published stamp carries the date as well as the
+  time: a bare "14:03:22" on a page read the next day is a number with no year attached to it.
+- **Polling backs off.** One interval cannot serve both cases: under `atlas watch` a rebuild lands seconds
+  after a save, while a deployed site changes when CI redeploys. Quiet polls widen the gap 3s → 10s → 30s →
+  60s and any change snaps it back, so the interval tracks how often the page is actually changing rather
+  than guessing where it is hosted.
+- **Filters on the Backlog view** — track, status, priority, criticality, whether a task has a source
+  document, and whether any commit names it. They compose with the text box and with each other, and every
+  option list is built from the corpus: offering a value that matches nothing is a control that can only
+  disappoint, and a hardcoded list silently loses its filter the first time a track is added. Matching is
+  against data attributes rather than rendered text, so filtering by status cannot be fooled by the word
+  "Done" appearing in a description.
+
+
 
 ### Added
 - **The design record is enforced, not only reported** (`S-2`). `design.mjs` has recognised HLD, LLD,
