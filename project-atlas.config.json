@@ -21,6 +21,16 @@
       ]
     },
     {
+      "id": "about",
+      "title": "What it does",
+      "blurb": "Capabilities, the verified feature inventory, and the questions people ask first.",
+      "match": [
+        "docs/CAPABILITIES.md",
+        "docs/FEATURES.md",
+        "docs/FAQ.md"
+      ]
+    },
+    {
       "id": "agent",
       "title": "Agent instructions",
       "blurb": "What an assistant loads, and what it is governed by: the skill source, the portable equivalent, and the hooks that enforce rather than ask.",
@@ -28,6 +38,40 @@
         "SKILL.md",
         "AGENTS.md",
         "hooks/**"
+      ]
+    },
+    {
+      "id": "specs",
+      "title": "Specifications",
+      "blurb": "What the system is required to do, stated formally.",
+      "match": [
+        "docs/design/SRS.md",
+        "docs/design/PRD.md"
+      ]
+    },
+    {
+      "id": "engineering",
+      "title": "Design record",
+      "blurb": "High- and low-level design, architecture, data flow, and the style manual.",
+      "match": [
+        "docs/design/**"
+      ]
+    },
+    {
+      "id": "procedures",
+      "title": "Procedures and decisions",
+      "blurb": "SOPs, and the decision records that explain why things are as they are.",
+      "match": [
+        "docs/sop/**",
+        "docs/decisions/**"
+      ]
+    },
+    {
+      "id": "presentation",
+      "title": "Presentation",
+      "blurb": "The slide deck and anything else written to be shown rather than read.",
+      "match": [
+        "docs/atlas/**"
       ]
     },
     {
@@ -41,7 +85,7 @@
     {
       "id": "planning",
       "title": "Planning & history",
-      "blurb": "What is open, what changed, what the figures mean \u2014 and the state a new session cannot derive. Handoff is shared at the top and per contributor below it, so two people writing at once never contend for one file.",
+      "blurb": "What is open, what changed, what the figures mean — and the state a new session cannot derive. Handoff is shared at the top and per contributor below it, so two people writing at once never contend for one file.",
       "match": [
         "docs/ROADMAP.md",
         "CHANGELOG.md",
@@ -59,9 +103,17 @@
       ]
     },
     {
+      "id": "legal",
+      "title": "Legal",
+      "blurb": "The owner's position and the facts behind it: terms, data handling verified against the code, what the reports do not guarantee, and the dependency position. Alongside the MIT licence, never over it.",
+      "match": [
+        "docs/legal/**"
+      ]
+    },
+    {
       "id": "community",
       "title": "Community",
-      "blurb": "Issue and PR templates, conduct and security policy \u2014 the files GitHub surfaces itself.",
+      "blurb": "Issue and PR templates, conduct and security policy — the files GitHub surfaces itself.",
       "match": [
         ".github/**",
         "CODE_OF_CONDUCT.md",
@@ -114,7 +166,7 @@
     {
       "signal": "H2",
       "path": "skills/**",
-      "reason": "The review skill quotes src/auth.ts:88 inside an example of a well-written review sentence. It is deliberately not a real path here, and resolving it would be meaningless \u2014 the same case as the illustrative citation already suppressed under docs/references/."
+      "reason": "The review skill quotes src/auth.ts:88 inside an example of a well-written review sentence. It is deliberately not a real path here, and resolving it would be meaningless — the same case as the illustrative citation already suppressed under docs/references/."
     },
     {
       "signal": "H6",

@@ -3,8 +3,17 @@
 Everything project-atlas can do without being asked, what it will never do without being asked, and the one
 line that separates them.
 
-This is a design document for a capability that is **not yet built**. It exists first because the feature's
-whole risk is in its defaults, and defaults are cheaper to argue about than to retract.
+**This was written before the capability existed, and the capability now exists.** It was a design document
+first because the feature's whole risk is in its defaults, and defaults are cheaper to argue about than to
+retract. That opening line — *"not yet built"* — then stayed put through the releases that built it, which is
+the ordinary way a design document becomes a lie: nobody re-reads the first paragraph of a file they are
+adding a section to.
+
+What ships today: the five automation switches, all defaulting on, enforced at `scripts/atlas.mjs:386`,
+`:864`, `:896` and `:925`; the journal and its continuity hooks; the branch posture; the local artifact. What
+is still design and says so where it is described: nothing on the far side of the line below. **The line
+itself has held** — no release has moved push or publish out of "never", and `docs/references/agent-control.md`
+extends the same refusal to an external driver.
 
 ## The line
 

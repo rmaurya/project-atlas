@@ -6,10 +6,10 @@ _Written by `atlas worklog`. Measured from git and the corpus; no prompt text, a
 
 | | |
 |---|---|
-| Commits | 21 |
-| Lines | +7,866 / −247 |
+| Commits | 22 |
+| Lines | +8,236 / −262 |
 | Desks | rajneesh-maurya |
-| Rework rate | 81.9% — a file re-touched within 3 days |
+| Rework rate | 82.1% — a file re-touched within 3 days |
 | Reverts | 0 |
 | Documentation | 0 blocking finding(s) at end of day |
 
@@ -44,6 +44,10 @@ _Written by `atlas worklog`. Measured from git and the corpus; no prompt text, a
 - **A-23** A dashboard nobody was told about was never delivered — 100%
 - **A-24** A server that cannot bind must not linger — 100%
 - **M-3** The control plane belongs outside this tool — 40%
+- **A-25** The dashboard could not see the work the session was doing — 100%
+- **A-26** Every page linked its own source, and the link 404'd — 100%
+- **A-27** A dashboard people leave open should say when now is — 100%
+- **A-28** The Executive view was the least readable page in the site — 100%
 
 ## Commits
 
@@ -68,6 +72,7 @@ _Written by `atlas worklog`. Measured from git and the corpus; no prompt text, a
 - `91c3de7` fix(serve,dashboard): the link was only ever printed by the one hook a first run cannot reach (A-23, A-24)
 - `92ee74a` feat(mcp,statusline,dashboard): three surfaces that each answered a question nobody could get an answer to (A-23, A-24)
 - `43f5622` docs(mcp,autonomy): the request was to give the MCP server full control, and that cannot be built (M-3)
+- `be9bf48` feat(dashboard,serve): the page could not see the session's work, could not link its own sources, and could not say when now was (A-25, A-26, A-27, A-28)
 
 ---
 

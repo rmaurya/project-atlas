@@ -128,8 +128,20 @@ export const DEFAULT_VIEWS = [
      * `charts` replaces it, which is what this page was missing: it is the only view with a plan figure, a
      * delivery figure and no picture of either, so the one audience least able to spend time reading was the
      * one being handed the most prose. Composition, contribution and effort in a glance, then the numbers.
+     *
+     * **`coverage` joins them, and it is the only question here that is not a self-report.** Everything else
+     * on this page is the plan describing itself or git describing itself; spec-to-build crosses the two and
+     * asks whether the items claiming progress are the items commits actually name. On this repository as
+     * this is written that is 61 of 69 named, and 8 reporting progress with no commit against them — a number
+     * an executive can act on, phrased as a question rather than an accusation. The panel already existed and
+     * already shipped on Overview and Quality; the one page whose whole job is the summary did not have it.
+     *
+     * **The list stays short on purpose, and the layout depends on it.** `viewPage` gives a view the full
+     * width when it has no more masonry cards than masonry has columns, and this page has exactly three:
+     * progress, coverage and the caveats. A fourth would put it back into three narrow columns and undo the
+     * reason this view was rebuilt — so a panel added here has to earn its place against that.
      */
-    panels: ['tiles', 'charts', 'deliveryTiles', 'progress', 'caveats'],
+    panels: ['tiles', 'charts', 'deliveryTiles', 'progress', 'coverage', 'caveats'],
   },
 ];
 

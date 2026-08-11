@@ -4,18 +4,25 @@
 and any session can drift from it. A hook is executed by the harness, so it cannot be forgotten, reasoned
 around, or skipped because a change "seemed small".
 
-There are **two**, and they answer different questions: *is the derived site current?* and *is this commit
-about to land known rot?*
+There are **six scripts, wired to eight entries across six events**. *This paragraph said "two" for as long as
+there were more than two — a count in prose, next to a list that grew, with nothing checking the two against
+each other. It is the same drift the tool detects in documentation, in the documentation of the tool.*
 
 | When | Hook | What it does | Blocks? |
 |---|---|---|---|
-| session start | `on-session-start.sh` | `atlas version --notice` — one line if the install is behind | never |
-| after a `.md` write | `on-write.sh` | `atlas build` — index, dashboard, health page, six role views | never |
+| session start | `on-session-start.sh` | update notice, then starts the dashboard and prints its URL | never |
+| after a `.md` write | `on-write.sh` | `atlas build` — index, dashboard, health, role views, knowledge graph | never |
+| after `TaskCreate` / `TaskUpdate` | `on-task.sh` | records the task change, then rebuilds so the page is not stale | never |
+| after **any** tool use | `on-activity.sh` | keeps the dashboard alive; tells this session its URL once | never |
 | before `git commit` | `on-commit.sh` | `atlas branch`, then `atlas health --gate` | yes, exit 2 |
+| `Stop` · `SubagentStop` · `PreCompact` | `on-continuity.sh` | flushes a journal record at each boundary | never |
 
-Both are inert in a repository with no `project-atlas.config.json`. The plugin is installed user-wide, and a
-plugin that starts writing `docs/_wiki` into unrelated repositories — or refusing their commits — has decided
-someone else's policy for them.
+Every one of them is inert in a repository with no `project-atlas.config.json`. The plugin is installed
+user-wide, and a plugin that starts writing `docs/_wiki` into unrelated repositories — or refusing their
+commits — has decided someone else's policy for them.
+
+`atlas-bin.sh` is a helper rather than a hook: it decides *which build answers*, so that working on this tool
+does not have the installed copy rebuild the working copy's output with an older feature set.
 
 ## The branch guard
 

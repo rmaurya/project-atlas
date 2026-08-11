@@ -555,17 +555,42 @@ async function main() {
    * is wrong" without a terminal and without parsing output written for a person. It does not drive a
    * session — see task.mjs for why that belongs to the Agent SDK rather than here.
    */
-  if (cmd === 'ask') {
+  /*
+   * **Two features collided on this one command name, and the older one lost silently.**
+   *
+   * `/atlas:ask` shipped first: a person types a question, and the skill runs `atlas ask $ARGUMENTS` to get
+   * the documents worth reading. Its handler is still further down this file, and its comment explains that
+   * it was moved out of a shell block precisely so the skill would run at all. Then M-2 added
+   * `atlas ask <task>` — structured JSON for a program — on the same name, and returned unconditionally.
+   *
+   * From that release, every question a human asked was rejected as an unknown task and the handler written
+   * for them became unreachable code. Nothing failed loudly; the skill simply stopped working, and the
+   * feature that replaced it looked fine because *its* form still worked.
+   *
+   * So the argument decides, and the test is exact rather than heuristic: a known task name is the program's
+   * call, anything else is a person's question. A task list is a closed set this file already owns, which is
+   * what makes that safe — no guessing at intent from shape or word count.
+   */
+  if (cmd === 'ask' && positionals.length && !TASKS.includes(positionals[0])) {
+    // Fall through to the document search below. Written as an early skip rather than by reordering the
+    // handlers, so the structured path stays first and stays the one a reader finds when following M-2.
+  } else if (cmd === 'ask') {
     const task = positionals[0];
     if (!task) {
       say('');
       say('  atlas ask <task> [--json]        one structured answer, for software rather than a terminal');
+      say('  atlas ask <question>             the documents worth reading, for a person');
       say('');
       for (const t of TASKS) say(`    ${t}`);
       say('');
       say('  Exit 0 answered and clean · 1 answered and something blocking · 2 could not answer.');
       say('  The 1/2 split is the point: a build should fail on findings, not on a tool that could not run.');
       say('');
+      // **Exit 2, not 0.** Printing usage and falling out left the exit code at 0 — "answered and clean" —
+      // so a pipeline calling `atlas ask "$TASK"` with an empty variable was told the documentation was
+      // sound when nothing had been asked. That is the exact 1-versus-2 confusion this command's own help
+      // text warns about, two lines above where it was happening.
+      process.exitCode = 2;
       return;
     }
     const args = {};
@@ -1346,7 +1371,7 @@ function doBuild(root, cfg, withGit, withReport, { stamp = false, autoDerived = 
   const stampValue = flag('watch') ? now.slice(11, 19) : now.replace('T', ' ').slice(0, 19) + ' UTC';
   if (stamping) cfg = { ...cfg, __stamp: stampValue };
 
-  const { outDir, pages, truncated, plan, deck, collisions } = renderSite(index, health, cfg, root);
+  const { outDir, pages, truncated, plan, deck, collisions, kb } = renderSite(index, health, cfg, root);
   if (stamping) writeBuildStamp(root, cfg, stampValue);
 
   /*
@@ -1392,6 +1417,11 @@ function doBuild(root, cfg, withGit, withReport, { stamp = false, autoDerived = 
     ? `  Dashboard: ${plan.stats.total} item(s) from ${plan.source}${plan.stats.unknown ? `, ${plan.stats.unknown} without a figure` : ''}.`
     : `  Dashboard: no planning source configured — set planning.source to chart a task list.`);
   say(deck ? `  Deck: ${deck.slides.length} slide(s) from ${deck.source}.` : `  Deck: none — create docs/atlas/DECK.md to add one.`);
+  // **Say that the agent-readable half exists.** The HTML is announced by the `Open:` line below and the
+  // markdown knowledge graph was announced nowhere — which is the same defect this release spent the day
+  // fixing for the dashboard URL: a surface that is generated, correct, and unmentioned is a surface nobody
+  // uses. It is the half of the output meant for something that will never look at a browser.
+  if (kb?.files) say(`  Knowledge graph: ${kb.files} markdown file(s) for agents → ${path.relative(root, kb.dir)}/README.md`);
   say(`  Open: file://${path.join(outDir, 'index.html')}`);
   return { index, health, pages, outDir };
   } finally {

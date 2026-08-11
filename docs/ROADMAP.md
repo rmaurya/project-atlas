@@ -1,6 +1,6 @@
 # Roadmap — project-atlas
 
-**Last updated:** 2026-08-10 · **Version:** 0.1.64 · **Status:** pre-release, dogfooding
+**Last updated:** 2026-08-12 · **Version:** 0.1.67 · **Status:** pre-release, dogfooding
 
 Open work, with an honest completion figure against each item. A figure marked `*` is estimated rather than
 measured against the code — the same distinction the tool preserves everywhere else, applied to itself.
@@ -36,7 +36,7 @@ measured against the code — the same distinction the tool preserves everywhere
 | A-20 | 100 | A-21 | 100 | A-22 | 100 |
 | A-23 | 100 | A-24 | 100 | M-3 | 40 |
 | A-25 | 100 | A-26 | 100 | A-27 | 100 |
-| A-28 | 100 | | | | |
+| A-28 | 100 | M-4 | 100 | A-29 | 100 |
 
 ---
 
@@ -119,9 +119,18 @@ overwrite. Three tests build a bare repository, publish into it, edit a page the
 assert: the publish refuses, `--import` rescues the human text with a `MAPPING.json` back to the source, and
 `--force` is the only way past.
 
-**One thing remains and it is not code.** GitHub Pages has never served this site: the workflow builds and
-uploads on every push, and the repository's Pages source is not set to *GitHub Actions*. That is a setting in
-this repository, the same class as branch protection, and no amount of tool work reaches it.
+**It serves. That was stated as an open item long after it stopped being one.** For several releases this
+paragraph read *"GitHub Pages has never served this site"* and named an unset repository setting as the last
+missing piece. Checked on 2026-08-11: `https://rmaurya.github.io/project-atlas/` returns **200** and serves
+this project's own generated site, as do `health.html`, `dashboard.html`, `wiki.html` and `view-blueprint.html`.
+The setting was evidently changed and nothing told the plan.
+
+*Worth keeping as an entry rather than deleting, because of how it was found.* Nobody re-read this item; an
+agent writing the README needed a live URL, tried the obvious one, and got a 200 back. The tool measures
+documentation against **code**, and a claim about a hosting setting is outside everything it can check —
+`git`, the corpus and the filesystem all agree with a sentence that the internet contradicts. That is the
+shape of the drift this project cannot detect, and the reason the README now links the live site: a page
+somebody clicks is a claim that gets tested.
 
 **P-4 · The brand appears in what the tool generates** — **P2 · Medium**
 *`assets/atlas-logo.svg`, `atlas-logo-dark.svg` and `atlas-mark.svg` exist and the palette they use is
@@ -701,6 +710,26 @@ picture of either — the audience least able to spend time reading was handed t
 comes off, the charts go on, and the headline tile still says how many files are in flight and links to the
 view that lists them.*
 
+**A-29 · The tool's own documentation had drifted from the tool** — **P1 · High**
+*Shipped in 0.1.67.* *Eight claims in this corpus were contradicted by the code, and all eight were found the
+same way: an agent told to verify before writing, doing so. Nine rot signals in `SKILL.md` and both manifests
+when sixteen ship. Two hooks in `hooks/README.md` when there are eight entries across six events. An
+`autonomy.md` opening that still called a shipped subsystem "not yet built". A P-3 paragraph naming an unset
+Pages setting as the last missing piece, while the site returns 200. A hook comment quoting an idle window
+A-21 changed four releases ago. `/atlas:ask` broken since M-2 gave two features one command name. Six of the
+eight cluster ids the shipped views reference missing from the taxonomy, leaving their document panels
+empty.*
+***The pattern is worth more than the list.*** *Every one sits in a place no signal reaches — a count in
+prose, an opening paragraph, a code comment, a hosting setting, a command name shared by two handlers, a
+cluster id referenced in code and defined in config. H1 through H16 check links, titles, citations and dates:
+the things that can be compared mechanically. None of these could be, and none of them was noticed by the
+tool that exists to notice this. The corpus was internally consistent throughout.*
+*What generalises: `SKILL.md` is the highest-cost instance, because it is read by an agent in every
+repository, and it had been describing a different tool for seven releases. The narrow lesson is that a count
+stated in prose beside a list that grows is a defect waiting to happen. The broad one is that "the
+documentation is clean" and "the documentation is true" are different claims, and this tool only measures the
+first.*
+
 **A-7 · The boundary holds** — **P0 · Critical**
 *Shipped in 0.1.55.*
 *Tests that assert autonomy never pushes, never publishes, never rewrites prose and never acts on an
@@ -870,3 +899,50 @@ refusals must be a `PreToolUse` hook, which runs first and fires on every call, 
 and a test that fails when the hook is removed. An untested refusal is a claim.*
 *The runner itself is not built here, for the reason M-2 already gave. What this project owes an external
 driver is the contract, and that is what the reference document is.*
+
+**M-4 · The derived layer, in markdown, for an agent with only Read and Grep** — **P1 · High**
+*Shipped.* *`scripts/lib/kb.mjs` writes `<output>/kb/` on every build: an entry point, a node page per
+document, cluster pages, and an orientation layer — architecture, rules, routes, vocabulary, health, plan,
+resume. Interconnected with working relative links, and carrying no document prose.*
+
+***The gap was measured, not assumed.*** *A 403-document repository built 417 files, every one of them HTML,
+and had no `.mcp.json`. So an agent could read all 403 sources and reach **none** of the analysis: the
+taxonomy, the link graph, backlinks, whether a citation still resolves, the health findings, which commits
+name a plan item, what the last session was doing. Both channels this tool offers — a browser and
+[M-1](#track-8--integration)'s server — assume something the working case does not have. The third channel
+is the one every agent always has, and it was the one the tool never wrote to.*
+
+**The constraint is the feature, and it is the only way this could have gone wrong.** The derived markdown
+carries relationships and derived facts; **every explanation is a link**. A second set of `.md` files holding
+the same sentences is the forked document this project exists to detect, and it would not be excused by one
+of them being generated — an agent would grep, find two copies, and have no way to tell which is
+authoritative. So node pages state path, title, cluster, status, version, date, git last-touched, headings
+with line numbers, links out, backlinks, citations and their resolution state, findings, and the plan items
+that name the document. Excerpts are prose and are emitted nowhere, including from `blueprint()`, which
+offers one.
+
+*The guard that was actually needed was not the obvious one.* `scan.mjs::fieldValue` is deliberately loose,
+and on the first build it read the sentence *"**Date every page, and re-stamp when you revise.** An undated
+page…"* out of `docs/references/authoring.md` as that document's date and printed a hundred and ten
+characters of its advice onto the node page. A scraped field is now quoted only when it has the shape of the
+thing it claims to be, and a value that fails is reported as unquotable rather than dropped.
+
+*Three boundaries are held rather than described.* **Journal text never appears** — `resume.md` carries
+counts, kinds, timespans, agents and refs, because the tree is written into a publishable directory and a
+page quoting a record would route around `assertUnpublished` instead of breaking it. **No handoff is
+authored** — the page routes to `SHARED.md` and each contributor's `HANDOFF.md`, reports how far HEAD has
+moved past the commit each names, and says plainly when there is none. **No working-tree state** — a dirty
+count baked into a file is wrong within a second and stays wrong, which is the frozen-clock argument
+`render.mjs` already makes; `atlas state` is named as the live reading instead.
+
+*It lives inside the output directory rather than beside it, and that is not a filing preference.
+`prepareOutputDir` clears exactly one directory, and its two guards have already stopped `{"output":"."}`
+from deleting a repository. Anything written outside that directory is never cleared, so a renamed document
+would leave a node page behind for ever and the stale page would be indistinguishable from a live one —
+which would end the sentence the whole safety argument rests on, that you can delete the output and rebuild.*
+
+*Nothing is reimplemented. `buildPrompt` is embedded verbatim in `rules.md` rather than restated,
+`blueprint()` orders the design record, `taskCoverage` supplies the commits naming each plan item, and
+`undesigned` supplies the coverage inversion. The one thing computed here that nothing computed before is
+the **reverse citation index**: code file → the documents that cite it, which is the direction of the
+question an agent about to change a file actually has.*

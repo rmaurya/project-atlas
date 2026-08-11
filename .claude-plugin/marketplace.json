@@ -7,7 +7,7 @@
     {
       "name": "atlas",
       "source": "./",
-      "description": "A derived, auditable knowledgebase over your repository's own documentation — index, dashboard, deck, and nine mechanical rot signals, generated from the markdown you already have.",
+      "description": "A derived, auditable knowledgebase over your repository's own documentation — index, dashboard, deck, and sixteen mechanical rot signals, generated from the markdown you already have.",
       "category": "documentation",
       "keywords": [
         "documentation",

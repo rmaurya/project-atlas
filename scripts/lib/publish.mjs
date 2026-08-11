@@ -377,6 +377,22 @@ export function stagePages(root, cfg, { push = false } = {}) {
   copyDir(outDir, work);
   fs.writeFileSync(path.join(work, '.nojekyll'), '');   // without this, Jekyll drops files beginning with _
 
+  /*
+   * **This is the target where getting it wrong is public and permanent-ish.**
+   *
+   * `copyDir` copies the built site verbatim, which is right for everything the corpus produced and wrong for
+   * the panels that describe the machine that ran the build. The dashboard grew a work-in-flight panel and a
+   * session task list, and a copy of those went straight into a directory whose whole purpose is to be served
+   * on the open internet: the subject lines of a private task list, and the path of every uncommitted file.
+   *
+   * The export path strips them too, and the export is the *safer* of the two — someone chooses to hand that
+   * file to somebody. This one force-pushes to a branch a search engine indexes. So the strip runs here on
+   * every HTML file in the staged tree, before `--push` is even considered, and it runs on **staging** rather
+   * than at push time: staging is what a person inspects to decide whether to push, so a staged tree that
+   * still contained the private panels would be reviewed as safe and then pushed.
+   */
+  stripLocalOnlyTree(work);
+
   let pushed = false;
   if (push) {
     if (!slug) throw new Error('Cannot determine the GitHub repository. Set publish.pages.slug in the config.');
@@ -389,6 +405,18 @@ export function stagePages(root, cfg, { push = false } = {}) {
   }
 
   return { work, branch, slug, pushed, url: slug ? `https://${slug.split('/')[0]}.github.io/${slug.split('/')[1]}/` : null };
+}
+
+/** Apply `stripLocalOnly` to every HTML file in a staged tree, in place. */
+function stripLocalOnlyTree(dir) {
+  for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+    const p = path.join(dir, e.name);
+    if (e.isDirectory()) { stripLocalOnlyTree(p); continue; }
+    if (!/\.html?$/i.test(e.name)) continue;
+    const before = fs.readFileSync(p, 'utf8');
+    const after = stripLocalOnly(before);
+    if (after !== before) fs.writeFileSync(p, after, 'utf8');
+  }
 }
 
 function copyDir(from, to) {
@@ -452,6 +480,55 @@ function inlineScript(js) {
  * ids are prefixed per page, and that page's own script and CSS are rewritten to match. Anything appearing on
  * exactly one page keeps its name.
  */
+/**
+ * Remove panels that describe *this machine* before anything leaves it.
+ *
+ * **Found by trying to publish.** The dashboard gained a work-in-flight panel and a session task list on the
+ * same day someone asked for a public link to it, and the standalone export came out carrying the literal
+ * subject lines of a private task list — "Build the TUHI orchestrator in MCP-Server" — plus the paths of every
+ * uncommitted file in the working tree. Nobody had done anything wrong: each panel is correct, derived, and
+ * exactly right on a dashboard served to loopback. The mistake was assuming one built page suits both
+ * audiences.
+ *
+ * The distinction the rest of this project already draws is *corpus* versus *local state*. The journal never
+ * publishes and `assertUnpublished()` enforces it rather than trusting it; personal handoffs default to
+ * unpublished because a half-formed working note does not belong on a public wiki because somebody ran a
+ * publish. Work in flight is the same category — it is true, it is useful, and it is nobody else's business.
+ *
+ * Keyed on `data-local-only`, an explicit marker a panel opts into, rather than on an id or a class. Ids and
+ * classes change for layout reasons by people who are not thinking about publishing, and a stripper that
+ * silently stops matching is worse than no stripper: it fails open, quietly, on the one path where the cost
+ * of failing is that private state is already public.
+ */
+export function stripLocalOnly(html) {
+  // Matched by scanning for the marker and then walking to the element's own closing tag, counting nested
+  // opens of the same tag name. A regex cannot do this correctly — these panels contain nested <section> and
+  // <figure> elements, and a lazy `[\s\S]*?` would stop at the first inner close and leave a broken fragment
+  // that still carries half the private content.
+  let out = html;
+  for (;;) {
+    const at = out.indexOf('data-local-only');
+    if (at === -1) return out;
+    const open = out.lastIndexOf('<', at);
+    const tag = /^<([a-zA-Z][\w-]*)/.exec(out.slice(open))?.[1];
+    if (!tag) return out;                            // malformed; leave it rather than cut blind
+    const openRe = new RegExp(`<${tag}\\b`, 'g');
+    const closeTag = `</${tag}>`;
+    let depth = 0, i = open;
+    for (;;) {
+      openRe.lastIndex = i;
+      const nextOpen = openRe.exec(out);
+      const nextClose = out.indexOf(closeTag, i);
+      if (nextClose === -1) return out;              // unbalanced; refuse to guess where it ends
+      if (nextOpen && nextOpen.index < nextClose) { depth++; i = nextOpen.index + 1; continue; }
+      depth--;
+      i = nextClose + closeTag.length;
+      if (depth === 0) break;
+    }
+    out = out.slice(0, open) + out.slice(i);
+  }
+}
+
 export function exportBundle(root, cfg, pages = null, about = {}) {
   const outDir = path.resolve(root, cfg.output);
   const nav = pages || BUNDLE_PAGES.filter((p) => fs.existsSync(path.join(outDir, `${p.file}.html`)));
@@ -551,7 +628,8 @@ export function exportBundle(root, cfg, pages = null, about = {}) {
   const searchPath = path.join(outDir, 'search-index.js');
   const search = fs.existsSync(searchPath) ? inlineScript(fs.readFileSync(searchPath, 'utf8')) : '';
   const title = escapeHtml(cfg.siteTitle || 'project-atlas');
-  sections.push({ file: 'about', label: 'About', inner: aboutSection(about, title), js: '', first: false });
+  sections.push({ file: 'about', label: 'About',
+    inner: aboutSection(about, title, legalPages(all, outDir)), js: '', first: false });
 
   return `<!doctype html>
 <html lang="en">
@@ -681,8 +759,42 @@ function updateBar(about) {
 `;
 }
 
+/**
+ * The corpus's own legal documents, found among the pages the bundle is already carrying.
+ *
+ * **Discovered, never assumed.** The obvious implementation names `docs/legal/TERMS.md` and friends and links
+ * them — which produces four dead entries in every repository that is not this one, on a page whose whole
+ * purpose is to say what a reader can and cannot rely on. So the list is built from `all`, the pages that
+ * actually travel with the file: a link appears only when the section it points at is in the same document.
+ * A corpus with no legal documents gets a sentence saying so, which is the honest answer and is also true.
+ *
+ * The label comes from the page's `<title>` rather than its `<h1>`, because the `<h1>` carries an anchor link
+ * whose glyph is a literal `#` — stripping tags out of it yields "#Security". The title is already escaped by
+ * the renderer that wrote it, so it is interpolated as-is; escaping it again would render `&amp;` verbatim.
+ */
+function legalPages(all, outDir) {
+  const found = [];
+  for (const p of all) {
+    const stem = /^doc--(.+)$/.exec(p.file)?.[1];
+    // `__` is the flattener's separator for `/` (see render-shared.mjs::flatName), and it is reversible
+    // because a safe path segment may not contain an underscore. So this matches a `legal/` directory at any
+    // depth — and not a file merely named `legal-notes.md`, which is a document, not a policy.
+    if (!stem || !/(^|__)legal__/i.test(stem)) continue;
+    let label = stem.split('__').pop().replace(/[-_]+/g, ' ');
+    try {
+      const head = fs.readFileSync(path.join(outDir, p.from), 'utf8').slice(0, 4096);
+      const t = /<title>([\s\S]*?)<\/title>/.exec(head)?.[1];
+      // `Terms and conditions · project-atlas` — the site title is the suffix, and repeating it on every row
+      // of a four-row list is noise.
+      if (t) label = t.split(' · ')[0].replace(/<[^>]*>/g, '').trim() || label;
+    } catch { /* the page is listed in `all` because it was read once already; a failure here is not fatal */ }
+    found.push({ target: p.file, label });
+  }
+  return found.sort((a, b) => a.label.localeCompare(b.label));
+}
+
 /** The About page. Everything a reader needs to know about what made this, and what it refuses to claim. */
-function aboutSection(about, title) {
+function aboutSection(about, title, legal = []) {
   const rows = [
     ['Tool', `${escapeHtml(about.tool || 'project-atlas')} ${escapeHtml(about.version || 'unknown')}`],
     ['Generated', escapeHtml(about.generatedAt || 'unknown')],
@@ -700,6 +812,11 @@ function aboutSection(about, title) {
     `<li><a href="${escapeHtml(l.href)}" rel="noopener">${escapeHtml(l.label)}</a>${l.note ? ` <span class="cap">— ${escapeHtml(l.note)}</span>` : ''}</li>`).join('\n      ');
   const people = (about.people || []).map((p) =>
     `<li>${escapeHtml(p.name)} <span class="cap">${p.commits} commit(s)${p.ai ? ` · ${p.ai} AI-assisted` : ''}</span></li>`).join('\n      ');
+  // In-document targets, never file paths: nothing exists beside this file. `legalPages` only returns sections
+  // the bundle carries, so every one of these resolves — which is why there is no fallback branch producing a
+  // link to a page that is not here.
+  const legalItems = legal.map((l) =>
+    `<li><a href="#${escapeHtml(l.target)}" data-go="${escapeHtml(l.target)}">${l.label}</a></li>`).join('\n      ');
 
   return `
 <h1>About</h1>
@@ -727,6 +844,16 @@ function aboutSection(about, title) {
       ${people || '<li><span class="cap">No commit history available.</span></li>'}
     </ul>
   </section>
+
+  <section class="card">
+    <h2>Legal</h2>
+    <p class="cap">${legal.length
+      ? 'This corpus’s own legal documents, carried in this file. They state a position; they are not legal advice.'
+      : 'This corpus carries no documents under a <code>legal/</code> directory, so there is nothing to link here.'}</p>
+    <ul class="linklist">
+      ${legalItems || '<li><span class="cap">Nothing to show.</span></li>'}
+    </ul>
+  </section>
 </div>
 
 <section class="card muted">
@@ -737,7 +864,9 @@ function aboutSection(about, title) {
   <p>The figures come from the files and from <code>git log</code>. None of them is a measure of prompt
   quality or of difficulty: a repository cannot see a prompt, and a turn on a hard problem and a turn on a
   typo count the same.</p>
-  <p class="cap">Generated by ${title}. Licensed MIT.</p>
+  <p class="cap">Generated by ${title}. Licensed MIT${legal.length
+    ? ' — the documents under <strong>Legal</strong> above state the owner’s position alongside that licence, never over it'
+    : ''}.</p>
 </section>
 `;
 }
@@ -780,7 +909,8 @@ export function exportSingleFile(root, cfg, which = 'dashboard') {
   const src = path.join(outDir, `${which}.html`);
   if (!fs.existsSync(src)) throw new Error(`${which}.html not found in ${cfg.output}. Run \`atlas build\` first.`);
 
-  let html = fs.readFileSync(src, 'utf8');
+  // Before anything else: this file is made to be handed to someone. See `stripLocalOnly`.
+  let html = stripLocalOnly(fs.readFileSync(src, 'utf8'));
   const css = fs.readFileSync(path.join(outDir, 'atlas.css'), 'utf8');
   html = html.replace(/<link rel="stylesheet" href="[^"]*atlas\.css">/, `<style>\n${css}\n</style>`);
   html = html.replace(/<script src="[^"]*search-index\.js"><\/script>/, () => {

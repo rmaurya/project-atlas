@@ -23,6 +23,11 @@
 
 payload=$(cat 2>/dev/null)
 
+# Which build answers. Working on this tool itself, the installed plugin is an older feature set writing the
+# same output directory — see hooks/atlas-bin.sh. The inline fallback keeps the hook working if the helper is
+# missing, because a hook that cannot find a helper must still do its job rather than silently stop.
+. "${CLAUDE_PLUGIN_ROOT:-.}/hooks/atlas-bin.sh" 2>/dev/null || atlas_bin() { printf '%s' "${CLAUDE_PLUGIN_ROOT:-.}/bin/atlas"; }
+
 # Without jq the payload cannot be parsed, and guessing at it with sed would record malformed lines that the
 # reader then has to defend against. Recording nothing is the honest failure.
 command -v jq >/dev/null 2>&1 || exit 0
@@ -68,5 +73,5 @@ printf '%s\n' "$line" >> "$root/.atlas/tasks-live.jsonl" 2>/dev/null
 # data could have been on disk and the dashboard would still have looked frozen, because nothing regenerates
 # it on a task change — `on-write.sh` only fires for markdown. Detached, so marking a task done never blocks
 # on a build, and the open page picks it up through the stamp it already polls.
-("${CLAUDE_PLUGIN_ROOT:-.}/bin/atlas" build --auto --quiet >/dev/null 2>&1 &)
+("$(atlas_bin)" build --auto --quiet >/dev/null 2>&1 &)
 exit 0

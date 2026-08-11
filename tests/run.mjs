@@ -26,7 +26,7 @@ import { writeDay, contributorSlug } from '../scripts/lib/worklog.mjs';
 import { buildPrompt } from '../scripts/lib/prompt.mjs';
 import { readDeck } from '../scripts/lib/deck.mjs';
 import { RAMP, STATUS, INK, viewPage } from '../scripts/lib/dashboard.mjs';
-import { CAT, CAT_MAX, donut, lineChart } from '../scripts/lib/charts.mjs';
+import { CAT, CAT_MAX, donut, lineChart, sparkbars } from '../scripts/lib/charts.mjs';
 import { automationAllows } from '../scripts/lib/config.mjs';
 import { buildWikiPages, wikiPageName, isSafePageName, exportSingleFile, exportBundle, RESERVED, gitlabPagesJob, stageWiki } from '../scripts/lib/publish.mjs';
 import { readContrib, estimateHours, taskCoverage } from '../scripts/lib/contrib.mjs';
@@ -35,7 +35,7 @@ import { readChanges, fileDiff, formatChanges } from '../scripts/lib/changes.mjs
 import { readInflight, inflightSentence } from '../scripts/lib/inflight.mjs';
 import { branchStatus, createBranch, TYPES } from '../scripts/lib/branch.mjs';
 import { detectHost, gateTarget, formatCapabilities } from '../scripts/lib/host.mjs';
-import { resolveViews, navItems, PANELS } from '../scripts/lib/views.mjs';
+import { resolveViews, navItems, PANELS, DEFAULT_VIEWS } from '../scripts/lib/views.mjs';
 import { communityAssets } from '../scripts/lib/community.mjs';
 import { versionVerdict, isRuntimePath, parseVersion, compareVersions } from '../scripts/lib/release.mjs';
 import { disagreements, updateNotice, isPluginCache } from '../scripts/lib/version.mjs';
@@ -1315,6 +1315,45 @@ test('bundle · a page\'s own stylesheet travels with it', () => {
       ok(styles.includes(`.${rule}`), `the built page styles .${rule} and the bundle does not`);
     }
   }
+});
+
+test('bundle · About links the legal documents the bundle carries, and only those', () => {
+  // The About panel is the one surface that can point a reader at the terms, and it is also the surface that
+  // cannot afford a dead link: nothing exists beside a single file. Naming `docs/legal/TERMS.md` and linking
+  // it unconditionally would put four links to nowhere on the About page of every repository that is not this
+  // one — a broken promise on the page whose subject is what you can rely on. So the list is discovered from
+  // the sections the bundle actually carries.
+  const dir = fixture('bundle-legal', {
+    'README.md': '# Front\n\n[Terms](docs/legal/TERMS.md)\n',
+    'docs/legal/TERMS.md': '# Terms and conditions\n\nA hobby project, offered with no warranty.\n',
+  }, { remote: 'https://github.com/acme/widget.git' });
+  const cfg = resolveConfig(dir);
+  const index = buildIndex(dir, cfg);
+  renderSite(index, runHealth(index, cfg, dir), cfg, dir);
+  const html = exportBundle(dir, cfg);
+
+  includes(html, '<h2>Legal</h2>', 'the About panel must carry a Legal card');
+  includes(html, 'data-go="doc--docs__legal__TERMS"', 'and link the document the bundle carries');
+  // The label comes from the page <title>, not the <h1> — the <h1> holds an anchor whose glyph is a literal
+  // "#", so stripping its tags yields "#Terms and conditions".
+  ok(!/>#Terms and conditions</.test(html), 'the label must not carry the heading anchor glyph');
+  // The invariant that matters, asserted the way the sibling test asserts it: every target resolves.
+  for (const m of html.matchAll(/data-go="([\w.-]+)"/g)) {
+    ok(html.includes(`data-page="${m[1]}"`), `nothing in the bundle answers to #${m[1]}`);
+  }
+});
+
+test('bundle · a corpus with no legal documents gets a stated absence, not a dead link', () => {
+  // `pubRepo` has no docs/legal/. The failure this guards is the one the whole project guards against
+  // everywhere else: filling a gap plausibly instead of naming it.
+  const cfg = resolveConfig(pubRepo);
+  const index = buildIndex(pubRepo, cfg);
+  renderSite(index, runHealth(index, cfg, pubRepo), cfg, pubRepo);
+  const html = exportBundle(pubRepo, cfg);
+
+  includes(html, '<h2>Legal</h2>', 'the card is still rendered, so the absence is visible');
+  includes(html, 'carries no documents under a', 'and says why it is empty');
+  ok(!/data-go="doc--[^"]*legal[^"]*"/i.test(html), 'no link may be invented for a document that is not here');
 });
 
 test('bundle · About states unknowns instead of inventing plausible defaults', () => {
@@ -2959,6 +2998,220 @@ test('views · every full-width panel precedes the cards, or masonry leaves a ho
       ok(at < firstCard, `${f}: ${span} appears after the first card, which fragments the column flow`);
     }
   }
+});
+
+/* ================================================================== the executive page */
+
+console.log('\nexecutive page');
+
+/** A plan with two tracks: one averaged entirely from estimates, one from a mix. */
+const EXEC_PLAN = [
+  '| Item | % |', '|---|---|',
+  '| K-1 | 50* |', '| K-2 | 70* |', '| K-3 | 40 |', '| K-4 | 60* |', '',
+  '## Track 1 — Guessed', '',
+  '**K-1 · One** — **P1 · High**', '*First.*', '',
+  '**K-2 · Two** — **P1 · High**', '*Second.*', '',
+  '## Track 2 — Mixed', '',
+  '**K-3 · Three** — **P1 · High**', '*Third.*', '',
+  '**K-4 · Four** — **P2 · Medium**', '*Fourth.*',
+].join('\n');
+
+/** The pieces every test below renders a page from. */
+function execCtx(name, extra = {}) {
+  const dir = fixture(name, { 'docs/TASKS.md': EXEC_PLAN, 'docs/README.md': '# Docs\n', ...extra });
+  const cfg = { ...resolveConfig(dir), planning: { source: 'docs/TASKS.md' } };
+  const index = buildIndex(dir, cfg);
+  const health = runHealth(index, cfg, dir);
+  return { dir, cfg, index, health, plan: readPlanning(dir, cfg), contrib: null, nav: [] };
+}
+
+/** A commit at a chosen instant, so a week gap is a real gap in git rather than a fabricated series. */
+function commitAt(dir, iso, file, body) {
+  fs.writeFileSync(path.join(dir, file), body, 'utf8');
+  execFileSync('git', ['add', '-A'], { cwd: dir, stdio: 'ignore' });
+  execFileSync('git', ['-c', 'user.email=t@example.com', '-c', 'user.name=Test', 'commit', '-qm', `chore: ${file}`],
+    { cwd: dir, stdio: 'ignore', env: { ...process.env, GIT_AUTHOR_DATE: iso, GIT_COMMITTER_DATE: iso } });
+}
+
+test('views · a page with no more cards than masonry has columns takes the full width instead', () => {
+  // Measured on the Executive view at a 1500px viewport before this landed: three cards, three declared
+  // columns, and the third column 389px wide and entirely empty. `break-inside:avoid` makes each card an
+  // atom, the flow balances no shorter than its tallest atom — the chart wall, at 1375px — and then fills
+  // greedily, so the other two both fitted underneath it in column two. Columns cannot pack what they have
+  // not got, and the 1375px was itself caused by squeezing a wall of small multiples into 389px.
+  const ctx = execCtx('exec-flow');
+  const few = viewPage({ id: 'executive', title: 'Executive', panels: ['tiles', 'progress', 'status', 'caveats'] },
+    ctx, (o) => o.body);
+  includes(few, 'class="dash-flow"', 'three cards and three columns must not be laid out as columns');
+  eq(/class="dash-single"/.test(few), false, 'the column layout leaves one whole column empty here');
+
+  const many = viewPage({ id: 'wide', title: 'Wide', panels: ['tiles', 'progress', 'status', 'health', 'clusters', 'caveats'] },
+    ctx, (o) => o.body);
+  includes(many, 'class="dash-single"', 'more cards than columns is exactly what masonry is for');
+  eq(/class="dash-flow"/.test(many), false, 'five cards in one column would be a very long page');
+});
+
+test('views · a panel spans because of its own outermost element, not because of something nested in it', () => {
+  // `inflightPanel` renders a <section class="sect"> for the session task list INSIDE its card, and the old
+  // test searched the whole panel for that string — so the in-flight card was counted as a full-width span,
+  // hoisted above cards it never spanned, and left the page one card short of the count that decides the
+  // layout. Four cards here, so the page must stay in columns.
+  const ctx = execCtx('exec-spans', {
+    '.atlas/tasks-live.jsonl': JSON.stringify({ id: '1', subject: 'Something underway', status: 'in_progress' }) + '\n',
+  });
+  const html = viewPage({ id: 'x', title: 'X', panels: ['inflight', 'progress', 'status', 'caveats'] }, ctx, (o) => o.body);
+  includes(html, 'class="sect"', 'the fixture must actually produce the nested section, or this proves nothing');
+  includes(html, 'class="dash-single"', 'the in-flight card is a card, and four cards fill three columns');
+});
+
+test('dashboard · the chart wall takes the whole width rather than one masonry column', () => {
+  // .chart-wall sizes its cells with auto-fit minmax(260px, 1fr). In a 389px column that resolves to one
+  // chart per row, so five small multiples became a 1375px vertical stack — the panel whose entire job is to
+  // be taken in at a glance was the tallest thing on the page.
+  const ctx = execCtx('exec-wall');
+  const html = viewPage({ id: 'x', title: 'X', panels: ['charts', 'progress', 'status', 'health', 'clusters'] },
+    { ...ctx, contrib: readContrib(ctx.dir, ctx.cfg) }, (o) => o.extraHead + o.body);
+  includes(html, 'class="card wall" id="charts"', 'the wall declares itself full width');
+  includes(html, '.dash-single > .wall { column-span:all; }', 'and the masonry layout honours it');
+  includes(html, '.wall { grid-column:1 / -1; }', 'as does the full-width layout');
+});
+
+test('charts · a sparkline refuses one point, and speaks every value it draws', () => {
+  // A tooltip is not a way to read a value: a figure reachable only by hovering does not exist for anyone
+  // reading with a keyboard or a screen reader. And one bar is a rectangle, which is not a trend — the same
+  // rule donut() already holds to at two slices.
+  eq(sparkbars({ values: [4], labels: ['w1'] }), '', 'one point draws nothing at all');
+
+  const s = sparkbars({ values: [3, 0, 7], labels: ['a', 'b', 'c'], caption: 'per week', unit: ' commits' });
+  includes(s, 'aria-label="per week: a 3, b 0, c 7"', 'every value is readable without a pointer');
+  includes(s, '<title>a: 3 commits</title>', 'and each bar names itself on hover as well');
+  eq((s.match(/<rect/g) || []).length, 3, 'a measured zero keeps its slot');
+  includes(s, 'height="0.00"', 'and draws nothing in it');
+
+  const gap = sparkbars({ values: [3, null, 7], labels: ['a', 'b', 'c'], caption: 'per week' });
+  eq((gap.match(/<rect/g) || []).length, 2, 'an unknown is a gap, not a floor-height bar');
+  includes(gap, 'b unknown', 'and it is named as unknown rather than dropped');
+});
+
+test('dashboard · a fortnight with no commit in it is drawn as empty weeks, not closed up', () => {
+  // aggregateWeeks only creates an entry for a week that contains a commit, and every time chart here plots
+  // by index — so three weeks of silence rendered as a single step between two bars, and "which way is this
+  // going" is the only question these charts exist to answer. Filled with zero rather than unknown: git
+  // history is complete over its own range, so an empty week was looked at.
+  const ctx = execCtx('exec-weeks');
+  // The fixture's own initial commit is dated now, which would put months of real silence in the range and
+  // make this assert on the calendar. Moved onto the first week so the range is exactly the four below.
+  execFileSync('git', ['-c', 'user.email=t@example.com', '-c', 'user.name=Test',
+    'commit', '-q', '--amend', '--no-edit', '--date=2026-01-05T09:00:00Z'],
+    { cwd: ctx.dir, stdio: 'ignore', env: { ...process.env, GIT_COMMITTER_DATE: '2026-01-05T09:00:00Z' } });
+  commitAt(ctx.dir, '2026-01-05T10:00:00Z', 'a.txt', 'one');
+  commitAt(ctx.dir, '2026-01-26T10:00:00Z', 'b.txt', 'two');
+  const html = viewPage({ id: 'x', title: 'X', panels: ['deliveryTiles', 'charts'] },
+    { ...ctx, contrib: readContrib(ctx.dir, ctx.cfg) }, (o) => o.body);
+
+  includes(html, '2 week(s) in this range contain no commit and are drawn as zero',
+    'the filled weeks are counted and stated, never slipped in');
+  includes(html, 'per week · 4 week(s)', 'the sparkline spans the whole range, not just the busy weeks');
+  includes(html, 'class="spark"', 'and the commits tile carries it');
+});
+
+test('dashboard · one week of history says there is no shape to draw, instead of drawing one', () => {
+  // The fixture makes a single commit, so there is exactly one week. Two bars is the floor for a trend, and
+  // the tile has to say that rather than quietly showing nothing where a picture belongs.
+  const ctx = execCtx('exec-oneweek');
+  const html = viewPage({ id: 'x', title: 'X', panels: ['deliveryTiles'] },
+    { ...ctx, contrib: readContrib(ctx.dir, ctx.cfg) }, (o) => o.body);
+  includes(html, 'under two weeks of history, so there is no shape to draw yet');
+  eq(/class="spark"/.test(html), false, 'and nothing is drawn');
+});
+
+test('dashboard · a track mean built only from estimates is hatched, and a mixed one says so in words', () => {
+  // planning.mjs has always carried the estimated flag and the caveats panel has always promised those
+  // figures are "drawn hatched". This chart never hatched anything, so a track averaged from two guesses was
+  // drawn identically to one averaged from two measurements. A mean over a mix is neither, so it is not
+  // hatched — it gets the exact count instead, because hatching a bar that is half measured would swap one
+  // wrong claim for another.
+  const ctx = execCtx('exec-estimated');
+  const html = viewPage({ id: 'x', title: 'X', panels: ['progress'] }, ctx, (o) => o.body);
+
+  eq((html.match(/class="bf t-mid est"/g) || []).length, 1, 'only the all-estimated track is hatched');
+  eq((html.match(/class="bf t-mid"/g) || []).length, 1, 'and the mixed one is not');
+  includes(html, '2 of 2 items measured · 2 estimated', 'the all-estimated track states its count');
+  includes(html, '2 of 2 items measured · 1 estimated', 'and so does the mixed one');
+  includes(html, 'A <strong>hatched</strong> bar is a mean with no measurement under it at all',
+    'the caption explains the hatch, because a texture nobody can decode is decoration');
+});
+
+test('dashboard · the plan having no history is stated, rather than left to look like no movement', () => {
+  // Every delivery figure here has a past, because git keeps one. Completion does not: the planning document
+  // is read as it stands and nothing records what it said last month. Saying nothing about that reads as the
+  // much stronger claim that completion is not moving.
+  const ctx = execCtx('exec-history');
+  const html = viewPage({ id: 'x', title: 'X', panels: ['caveats'] }, ctx, (o) => o.body);
+  includes(html, 'no trend in completion can be drawn');
+  includes(html, 'docs/TASKS.md as it stands now', 'and it names the document it read');
+});
+
+test('dashboard · every custom property a generated page draws with is a property that page defines', () => {
+  // stroke:var(--rule) with --rule undefined is invalid at computed-value time, and for an inherited property
+  // that means `inherit` — whose value for `stroke` at the document root is `none`. Verified in a browser
+  // before the fix: getComputedStyle on .c-axis returned "none", so every axis line and every gridline this
+  // tool has ever drawn was invisible, on both themes. --warn did the same to the words "figure estimated in
+  // the source", which is the one marker separating an estimate from a measurement.
+  // Read off a real page rather than a panel, because the two stylesheets that have to agree only meet
+  // there: the shell's palette comes from render.mjs and the chart rules from here.
+  const ctx = execCtx('exec-tokens');
+  commitAt(ctx.dir, '2026-01-05T10:00:00Z', 'a.txt', 'one');
+  renderSite(ctx.index, ctx.health, ctx.cfg, ctx.dir);
+  const out = path.join(ctx.dir, ctx.cfg.output);
+  // The shell's palette lives in the linked stylesheet, so the page and its sheet are read as one.
+  const sheet = fs.readFileSync(path.join(out, 'atlas.css'), 'utf8');
+  for (const f of fs.readdirSync(out).filter((x) => x === 'dashboard.html' || x.startsWith('view-'))) {
+    const html = fs.readFileSync(path.join(out, f), 'utf8');
+    const declared = new Set([...`${sheet}\n${html}`.matchAll(/(--[a-z0-9-]+)\s*:/gi)].map((m) => m[1]));
+    // Only bare references matter — var(--x, fallback) has already answered the question.
+    const used = [...new Set([...html.matchAll(/var\((--[a-z0-9-]+)\s*\)/gi)].map((m) => m[1]))];
+    eq(used.filter((v) => !declared.has(v)), [], `${f}: a mark drawn with an undefined property is drawn in none`);
+  }
+});
+
+test('dashboard · every table on a generated view page sits in a scroll container that can be reached', () => {
+  // The wrapper was never the missing piece — an audit of the whole generated site found no unwrapped table.
+  // What was missing is that the wrapper said nothing: measured on the Quality view at 1500px, a 520px table
+  // inside a 347px masonry column with overlay scrollbars simply loses 173px of columns, and a box that
+  // scrolls without being focusable loses them to the keyboard outright.
+  const dir = fixture('table-reach', { 'docs/TASKS.md': EXEC_PLAN, 'docs/README.md': '# Docs\n' });
+  const cfg = { ...resolveConfig(dir), planning: { source: 'docs/TASKS.md' } };
+  const index = buildIndex(dir, cfg);
+  renderSite(index, runHealth(index, cfg, dir), cfg, dir);
+
+  const out = path.join(dir, cfg.output);
+  let seen = 0;
+  for (const f of fs.readdirSync(out).filter((x) => x === 'dashboard.html' || x.startsWith('view-'))) {
+    const html = fs.readFileSync(path.join(out, f), 'utf8');
+    for (const m of html.matchAll(/<table\b/g)) {
+      seen++;
+      const before = html.slice(Math.max(0, m.index - 300), m.index);
+      const at = before.lastIndexOf('<div class="table-wrap"');
+      ok(at !== -1, `${f}: a table renders outside a scroll container`);
+      includes(before.slice(at), 'tabindex="0"', `${f}: the scroll container cannot be focused`);
+    }
+  }
+  ok(seen > 0, 'the fixture must actually render some tables, or this test proves nothing');
+});
+
+test('views · the Executive page renders full width and answers spec-to-build, as shipped', () => {
+  // The two synthetic tests above prove the rule; this one proves the page that prompted it. Everything else
+  // on this view is the plan describing itself or git describing itself — coverage is the only figure that
+  // crosses the two and asks whether the items claiming progress are the ones commits actually name.
+  const exec = DEFAULT_VIEWS.find((v) => v.id === 'executive');
+  ok(exec.panels.includes('coverage'), 'the shipped view names the coverage panel');
+
+  const ctx = execCtx('exec-shipped');
+  commitAt(ctx.dir, '2026-01-05T10:00:00Z', 'a.txt', 'one');
+  const html = viewPage(exec, { ...ctx, contrib: readContrib(ctx.dir, ctx.cfg) }, (o) => o.body);
+  includes(html, 'class="dash-flow"', 'the shipped Executive view must not be laid out in columns');
+  includes(html, 'Spec to build', 'and it carries the coverage panel it names');
 });
 
 /* ================================================================== the drift path, actually run */
@@ -4643,6 +4896,38 @@ test('mcp · the status reports processes and parents, and never a connection co
   includes(formatConnection({ ...st, running: blind }, false), 'Not checked');
 });
 
+test('ask · a question reaches the document search, and a task reaches the structured answer', () => {
+  // **Two features were given one command name and the older one lost silently.** `/atlas:ask` shipped
+  // first — a person types a question, the skill runs `atlas ask $ARGUMENTS`, and the answer is which
+  // documents to read. M-2 then added `atlas ask <task>` for programs on the same name and returned
+  // unconditionally, so every question became `Unknown task` and the handler written for the skill became
+  // unreachable code. Nothing failed loudly; the skill just stopped working, and the feature that shadowed
+  // it looked healthy because its own form still worked.
+  const dir = fixture('ask-two-shapes', {
+    'project-atlas.config.json': '{}\n',
+    'docs/PUBLISHING.md': '# Publishing\n\nHow the wiki target stages before it pushes.\n',
+  });
+  const run = (...args) => spawnSync(process.execPath,
+    [path.join(REPO_ROOT, 'scripts', 'atlas.mjs'), 'ask', ...args],
+    { cwd: dir, encoding: 'utf8' });
+
+  // A known task id is the program's call: structured JSON.
+  const structured = run('atlas_health');
+  ok(structured.stdout.trim().startsWith('{'), 'a task id must still return the machine answer');
+  includes(structured.stdout, '"task"');
+
+  // Anything else is a person's question, and must reach the search rather than be rejected as a bad task.
+  const question = run('publishing');
+  ok(!/Unknown task/.test(question.stdout + question.stderr),
+     'a question was rejected as an unknown task — the two handlers are shadowed again');
+  includes(question.stdout, 'PUBLISHING.md');
+
+  // **No argument is "could not answer", not "answered and clean".** Printing usage and falling out left the
+  // exit code at 0, so a pipeline calling `atlas ask "$TASK"` with an empty variable was told the corpus was
+  // sound when nothing had been asked — the exact confusion the command's own help text warns about.
+  eq(run().status, 2, 'no argument must exit 2, not 0');
+});
+
 test('ask · exit 1 is a finding, exit 2 is "I could not answer", and they are never confused', () => {
   // A tool that exits non-zero for both tells a pipeline "documentation is broken" when the truth was
   // "atlas could not run" — one is a real finding, the other a pipeline bug.
@@ -5161,6 +5446,305 @@ test('serve · a server is recognised by what it serves, when every pid-keyed re
   const r = spawnSync(process.execPath, ['--input-type=module', '-e', probe], { encoding: 'utf8', timeout: 20_000 });
   eq(r.status, 0, `adoption probe failed: ${r.stdout || ''}${r.stderr || ''}`);
   includes(r.stdout, 'OK');
+});
+
+/* ================================================================== knowledge base */
+
+console.log('\nknowledge base');
+
+/*
+ * `scripts/lib/kb.mjs` — the derived markdown tree.
+ *
+ * **Every case here is synchronous, deliberately.** `pendingAsync` is drained at line 3762, long before this
+ * point, so an `async` case registered down here is never awaited and passes by never running. The same trap
+ * the serve-adoption case above documents.
+ */
+
+/** Every generated file in the knowledge base, as one string. The prose guard is asserted over all of it. */
+function kbText(outDir) {
+  let out = '';
+  const walk = (d) => {
+    for (const e of fs.readdirSync(d, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+      const full = path.join(d, e.name);
+      if (e.isDirectory()) walk(full);
+      else if (e.name.endsWith('.md')) out += fs.readFileSync(full, 'utf8') + '\n';
+    }
+  };
+  walk(path.join(outDir, 'kb'));
+  return out;
+}
+
+/** Every markdown link in the tree, as `{ from, target }` with fragments and external schemes dropped. */
+function kbLinks(outDir) {
+  const links = [];
+  const walk = (d) => {
+    for (const e of fs.readdirSync(d, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+      const full = path.join(d, e.name);
+      if (e.isDirectory()) { walk(full); continue; }
+      if (!e.name.endsWith('.md')) continue;
+      const body = fs.readFileSync(full, 'utf8');
+      for (const m of body.matchAll(/\]\((<[^>]*>|[^)\s]+)\)/g)) {
+        let t = m[1];
+        if (t.startsWith('<')) t = decodeURIComponent(t.slice(1, -1));
+        if (/^(https?:|mailto:|tel:|#)/i.test(t)) continue;
+        links.push({ from: full, target: t.split('#')[0] });
+      }
+    }
+  };
+  walk(path.join(outDir, 'kb'));
+  return links;
+}
+
+/**
+ * A corpus with sentences nothing else could produce.
+ *
+ * Every prose line is a phrase that cannot be confused with a heading, a path or anything the tool composes,
+ * so a leak is unambiguous. `docs/trap.md` carries the specific line that actually leaked on the first build
+ * of this tree — a bolded sentence beginning with the word `Date`, which `scan.mjs::fieldValue` matched as a
+ * date field and copied verbatim onto the node page.
+ */
+const KB_FIXTURE = {
+  'docs/README.md': '# Index\n\nThe quokka ledger reconciles nightly against the barnacle registry.\n\n' +
+    '[Alpha](A.md) · [Trap](trap.md) · [Missing](nope.md)\n',
+  'docs/A.md': '# Alpha\n\n**Status:** draft\n**Version:** 2.1\n**Date:** 2026-03-04\n\n' +
+    'Pelican throughput degrades whenever the marmalade cache is cold, which nobody expected.\n\n' +
+    '## How it works\n\nSee `src/thing.js:2` for the loop that does it.\n',
+  'docs/trap.md': '# Trap\n\n' +
+    '**Date every page, and re-stamp it.** An undated page is a page that will be trusted after it stops ' +
+    'being true, which is how the wombat incident happened.\n',
+  'src/thing.js': 'const a = 1;\nconst b = 2;\n',
+};
+
+test('kb · the derived tree reproduces no document prose', () => {
+  // The whole safety argument. A second set of markdown holding the same sentences is the forked-document
+  // failure the tool exists to detect, and it would not be excused by one of them being generated.
+  const dir = fixture('kb-noprose', KB_FIXTURE);
+  const { cfg, index, health } = analyse(dir);
+  const { outDir } = renderSite(index, health, cfg, dir);
+  const text = kbText(outDir);
+
+  for (const sentence of [
+    'The quokka ledger reconciles nightly against the barnacle registry.',
+    'Pelican throughput degrades whenever the marmalade cache is cold',
+    'which is how the wombat incident happened',
+  ]) {
+    ok(!text.includes(sentence), `document prose leaked into the derived markdown: "${sentence}"`);
+  }
+  // And the excerpt of every document, which is the single field most likely to be added here by someone
+  // doing the obvious thing.
+  for (const d of index.documents) {
+    if (!d.excerpt || d.excerpt.length < 30) continue;
+    ok(!text.includes(d.excerpt.slice(0, 60)), `the excerpt of ${d.path} leaked into the derived markdown`);
+  }
+  // Proof the tree is not simply empty: structure — titles and headings — must be there.
+  includes(text, 'Alpha', 'the tree must carry document titles');
+  includes(text, 'How it works', 'the tree must carry headings, which are structure rather than prose');
+});
+
+test('kb · a scraped field that ran into the document is refused, not quoted', () => {
+  // The concrete leak. `fieldValue` matches `^**Date…:** (.+)$` loosely, so a sentence beginning "Date every
+  // page" was read as a date and a hundred characters of that document's advice appeared on its node page.
+  const dir = fixture('kb-fieldshape', KB_FIXTURE);
+  const { cfg, index, health } = analyse(dir);
+  const { outDir } = renderSite(index, health, cfg, dir);
+  const trap = fs.readFileSync(path.join(outDir, 'kb', 'nodes', 'docs__trap.md'), 'utf8');
+
+  ok(!trap.includes('An undated page is a page'), 'a sentence must never be quoted as a date field');
+  includes(trap, 'present but not quoted', 'the field must be reported as unreadable, never silently dropped');
+
+  // A value that really is a date, a status and a version still comes through — the guard must not be a
+  // blanket refusal, or it would delete the three fields it exists to protect.
+  const alpha = fs.readFileSync(path.join(outDir, 'kb', 'nodes', 'docs__A.md'), 'utf8');
+  includes(alpha, '2026-03-04', 'a well-formed date must still be quoted');
+  includes(alpha, 'draft');
+  includes(alpha, '2.1');
+});
+
+test('kb · every link in the tree resolves from the repository root', () => {
+  // An agent follows these with `Read`, not with a browser, so they are resolved against the filesystem from
+  // the file that carries them. A root-relative path would be correct in a served site and useless here.
+  const dir = fixture('kb-links', KB_FIXTURE);
+  const { cfg, index, health } = analyse(dir);
+  const { outDir } = renderSite(index, health, cfg, dir);
+  const links = kbLinks(outDir);
+  ok(links.length > 20, `expected a linked graph, found ${links.length} links`);
+  const broken = links.filter((l) => !fs.existsSync(path.resolve(path.dirname(l.from), l.target)));
+  eq(broken.map((b) => `${path.basename(b.from)} → ${b.target}`), [], 'every link must resolve');
+
+  // And specifically the one that matters most, followed for real: the "Source of truth" link on a node page
+  // must land on the document itself. The relative depth is not a constant — it depends where `output` is
+  // configured, and here the output directory is itself under `docs/`, so the link climbs out of it.
+  const node = path.join(outDir, 'kb', 'nodes', 'docs__A.md');
+  const m = /Source of truth:\*\* \[[^\]]*\]\(([^)]+)\)/.exec(fs.readFileSync(node, 'utf8'));
+  ok(m, 'the node page must link to its source document');
+  ok(fs.readFileSync(path.resolve(path.dirname(node), m[1]), 'utf8').startsWith('# Alpha'),
+    `following ${m && m[1]} must land on the document itself`);
+});
+
+test('kb · rebuild is byte-identical, the knowledge base included', () => {
+  const dir = fixture('kb-determinism', KB_FIXTURE);
+  const run = () => {
+    const { cfg, index, health } = analyse(dir);
+    const { outDir } = renderSite(index, health, cfg, dir);
+    const snap = {};
+    const walk = (d, base = '') => {
+      for (const e of fs.readdirSync(d, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+        const full = path.join(d, e.name);
+        if (e.isDirectory()) walk(full, base + e.name + '/');
+        else snap[base + e.name] = fs.readFileSync(full, 'utf8');
+      }
+    };
+    walk(outDir);
+    return snap;
+  };
+  const first = run();
+  // Asserted rather than assumed: the site-wide determinism case walks whatever is there, so if this tree
+  // stopped being written it would keep passing while covering nothing.
+  ok(Object.keys(first).some((k) => k.startsWith('kb/nodes/')), 'the snapshot must actually include the kb tree');
+  eq(first, run(), 'two consecutive builds must produce an identical knowledge base');
+});
+
+test('kb · a node page states the relationships in both directions', () => {
+  const dir = fixture('kb-node', KB_FIXTURE);
+  const { cfg, index, health } = analyse(dir);
+  const { outDir } = renderSite(index, health, cfg, dir);
+  const alpha = fs.readFileSync(path.join(outDir, 'kb', 'nodes', 'docs__A.md'), 'utf8');
+  includes(alpha, 'Referenced by');
+  includes(alpha, 'docs/README.md', 'a backlink must name the document that links here');
+  includes(alpha, 'src/thing.js:2', 'a code citation must be carried');
+  includes(alpha, 'resolved', 'and whether it resolves');
+
+  const readme = fs.readFileSync(path.join(outDir, 'kb', 'nodes', 'docs__README.md'), 'utf8');
+  includes(readme, 'docs/nope.md', 'a dead link must be listed, not dropped');
+});
+
+test('kb · the entry point declares the tree derived and routes by intent', () => {
+  const dir = fixture('kb-entry', KB_FIXTURE);
+  const { cfg, index, health } = analyse(dir);
+  const { outDir } = renderSite(index, health, cfg, dir);
+  const entry = fs.readFileSync(path.join(outDir, 'kb', 'README.md'), 'utf8');
+  includes(entry, 'Derived');
+  includes(entry, 'source of truth');
+  for (const page of ['architecture.md', 'rules.md', 'routes.md', 'vocabulary.md', 'health.md', 'plan.md', 'resume.md']) {
+    includes(entry, page, `the entry point must route to ${page}`);
+    ok(fs.existsSync(path.join(outDir, 'kb', page)), `${page} must exist`);
+  }
+  // The output directory's own README is the file an agent lands on when it lists the directory, so it has
+  // to name the tree. Without that line the knowledge base is reachable only by someone who knows it exists.
+  includes(fs.readFileSync(path.join(outDir, 'README.md'), 'utf8'), 'kb/README.md');
+});
+
+test('kb · an absent design artifact is named rather than skipped', () => {
+  // A section quietly missing from a blueprint reads as a section nobody needs. The corpus here has no
+  // architecture document at all, and the page must say so and name what closes the gap.
+  const dir = fixture('kb-absent', KB_FIXTURE);
+  const { cfg, index, health } = analyse(dir);
+  const { outDir } = renderSite(index, health, cfg, dir);
+  const arch = fs.readFileSync(path.join(outDir, 'kb', 'architecture.md'), 'utf8');
+  includes(arch, 'Architecture overview');
+  includes(arch, 'Absent');
+  includes(arch, 'atlas design --scaffold', 'an absence must name the command that closes it');
+});
+
+test('kb · the journal reaches the tree as counts, never as text', () => {
+  // `.atlas/journal` is an operational log that is never published, and this tree is written into a
+  // publishable directory. A page here quoting a record would route around `assertUnpublished` rather than
+  // break it, which is worse — the guard would still pass while the record was published anyway.
+  const dir = fixture('kb-journal', KB_FIXTURE);
+  fs.mkdirSync(path.join(dir, '.atlas', 'journal'), { recursive: true });
+  fs.writeFileSync(path.join(dir, '.atlas', 'journal', 'alice.jsonl'),
+    JSON.stringify({ at: '2026-04-01T10:00:00.000Z', agent: 'main', kind: 'decision',
+      text: 'Chose the aardvark strategy over the pangolin one for throughput reasons.',
+      why: 'The pangolin approach re-reads the index on every call.',
+      refs: ['docs/A.md'] }) + '\n', 'utf8');
+
+  const { cfg, index, health } = analyse(dir);
+  const { outDir } = renderSite(index, health, cfg, dir);
+  const resume = fs.readFileSync(path.join(outDir, 'kb', 'resume.md'), 'utf8');
+  const all = kbText(outDir);
+
+  ok(!all.includes('aardvark strategy'), "a journal record's text must never reach the knowledge base");
+  ok(!all.includes('re-reads the index on every call'), "a record's reasoning must never reach it either");
+  includes(resume, '1 record(s)', 'the count is derived and may be published');
+  includes(resume, 'decision', 'so is the kind');
+  includes(resume, '2026-04-01', 'and the timespan');
+  includes(resume, 'docs/A.md', 'and the refs, which are what make the trail route anywhere');
+});
+
+test('kb · no handoff is authored, and an absent one is named', () => {
+  // `HANDOFF.md` is written by a person or proposed into a diff somebody reads. A machine can see that a
+  // commit happened; it cannot see that a decision was argued and settled.
+  const dir = fixture('kb-handoff-absent', KB_FIXTURE);
+  const { cfg, index, health } = analyse(dir);
+  const { outDir } = renderSite(index, health, cfg, dir);
+  const resume = fs.readFileSync(path.join(outDir, 'kb', 'resume.md'), 'utf8');
+  includes(resume, 'No handoffs', 'an absent handoff is stated, never rendered as an empty section');
+  includes(resume, 'atlas handoff', 'and the reader is told what would create one');
+  ok(!fs.existsSync(path.join(dir, 'docs', 'handoff')), 'the build must not create a handoff directory');
+
+  // With one present, its distance from HEAD is reported — and an unmeasurable distance is never reported
+  // as current, which is the reason `handoffAge` returns null rather than zero.
+  const dir2 = fixture('kb-handoff-present', {
+    ...KB_FIXTURE,
+    'docs/handoff/alice/HANDOFF.md': '# Handoff — alice\n\nWritten at commit 0000000.\n',
+  });
+  const a2 = analyse(dir2);
+  const out2 = renderSite(a2.index, a2.health, a2.cfg, dir2).outDir;
+  const resume2 = fs.readFileSync(path.join(out2, 'kb', 'resume.md'), 'utf8');
+  includes(resume2, 'alice');
+  includes(resume2, 'unknown', 'a distance that cannot be measured is never reported as current');
+});
+
+test('kb · the tree is written inside the confined output directory and nowhere else', () => {
+  // Everything the build writes must sit inside the directory `prepareOutputDir` clears. A file written
+  // beside it is never deleted, so a renamed document leaves a node page behind for ever and the stale page
+  // is indistinguishable from a live one — and it is outside the guard that has already saved a repository
+  // from `{"output":"."}` once.
+  const dir = fixture('kb-confined', KB_FIXTURE);
+  const { cfg, index, health } = analyse(dir);
+  const before = fs.readdirSync(dir).sort();
+  const { outDir } = renderSite(index, health, cfg, dir);
+  eq(fs.readdirSync(dir).sort(), before, 'the build must add nothing at the repository root');
+  ok(outDir.startsWith(dir + path.sep), 'the output directory must be inside the repository');
+  ok(fs.existsSync(path.join(outDir, 'kb', 'README.md')), 'the knowledge base must be inside it');
+
+  // And it is cleared with everything else: a node page for a document that no longer exists must not
+  // survive a rebuild.
+  ok(fs.existsSync(path.join(outDir, 'kb', 'nodes', 'docs__trap.md')));
+  fs.rmSync(path.join(dir, 'docs', 'trap.md'));
+  execFileSync('git', ['add', '-A'], { cwd: dir, stdio: 'ignore' });
+  execFileSync('git', ['-c', 'user.email=t@example.com', '-c', 'user.name=Test', 'commit', '-qm', 'drop'],
+    { cwd: dir, stdio: 'ignore' });
+  const a2 = analyse(dir);
+  renderSite(a2.index, a2.health, a2.cfg, dir);
+  ok(!fs.existsSync(path.join(outDir, 'kb', 'nodes', 'docs__trap.md')),
+    'a node page for a deleted document must not survive the rebuild');
+});
+
+test('kb · health is answerable from markdown, and every finding links to a real page', () => {
+  const dir = fixture('kb-health', KB_FIXTURE);
+  const { cfg, index, health } = analyse(dir);
+  const { outDir } = renderSite(index, health, cfg, dir);
+  const page = fs.readFileSync(path.join(outDir, 'kb', 'health.md'), 'utf8');
+  includes(page, 'H1 · Dead internal link');
+  includes(page, 'docs/nope.md', 'the dead link must be named in the report');
+  includes(page, 'Not checked', 'a check that could not run is never reported as passing');
+  // Findings whose subject is not a document — H15 names a missing artifact kind — must be rendered as text.
+  // The first version of this linked them to pages that were never written.
+  const links = kbLinks(outDir).filter((l) => l.from.endsWith('health.md'));
+  eq(links.filter((l) => !fs.existsSync(path.resolve(path.dirname(l.from), l.target))).map((l) => l.target), [],
+    'every link out of the health page must resolve');
+});
+
+test('kb · code is routed back to the documents that cite it', () => {
+  // The reverse citation index. Every other surface reads citations forwards; this is the direction an agent
+  // about to change a file actually needs, and nothing computed it before.
+  const dir = fixture('kb-routes', KB_FIXTURE);
+  const { cfg, index, health } = analyse(dir);
+  const { outDir } = renderSite(index, health, cfg, dir);
+  const routes = fs.readFileSync(path.join(outDir, 'kb', 'routes.md'), 'utf8');
+  includes(routes, 'src/thing.js', 'a cited file must appear in the reverse index');
+  includes(routes, 'Alpha', 'and the document that cites it');
 });
 
 console.log(`\n${pass} passed, ${fail} failed${skipped ? `, ${skipped} skipped on ${process.platform}` : ''}\n`);

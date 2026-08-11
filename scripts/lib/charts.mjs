@@ -59,11 +59,75 @@ export function catTokens() {
 .c-grid { stroke:var(--rule); stroke-width:1; opacity:.55; }
 .c-tick { font-size:10px; fill:var(--muted); }
 .c-lbl { font-size:11px; fill:var(--ink-soft, var(--muted)); }
+.spark { margin:10px 0 0; }
+/* A fixed height, and a viewBox drawn at its natural size inside it. The tile this sits in is between 190px
+ * and 300px wide depending on how many tiles share the row, and a sparkline that grew taller as its tile grew
+ * wider would leave one tile in a strip of five standing a centimetre proud of its neighbours. Aligned left
+ * (xMinYMid) so a short series starts under the number it belongs to rather than floating mid-tile. */
+.spark svg { display:block; width:100%; height:34px; }
+.spark-cap { margin:3px 0 0; font-size:11px; color:var(--muted); }
 `;
 }
 
 const sum = (xs) => xs.reduce((a, b) => a + b, 0);
 const nice = (n) => (n >= 1000 ? `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}k` : String(Math.round(n)));
+
+/**
+ * A sparkline for a stat tile: the tile states the total, this states the shape that produced it.
+ *
+ * There was no small form here, so a page could carry a headline number and no way to see which way it was
+ * moving without scrolling to a full chart a thousand pixels below — which on the Executive view, whose
+ * whole promise is a thirty-second read, meant direction was effectively absent.
+ *
+ * Four choices, each of which is a way this could otherwise mislead:
+ *
+ *  - **Columns, not a line.** These are counts in discrete buckets. A line drawn between two weekly samples
+ *    slopes through days nobody measured, and a young repository has two weeks of history — where a line is
+ *    one straight segment that says nothing a pair of bars does not.
+ *  - **One hue for every bar.** Shading each bar by its own value would double-encode height as colour and
+ *    spend the only free channel on information the bar already carries.
+ *  - **Every value is reachable without hovering.** The whole series is in the accessible label and each bar
+ *    carries its own title: a figure that exists only in a tooltip does not exist for most readers.
+ *  - **A missing value is a gap, not a zero.** `null` leaves the slot empty rather than drawing a floor-high
+ *    bar, so "no figure" and "measured none" cannot be confused. The caller decides which one it has.
+ *
+ * Refuses below two points, for the reason `donut` refuses below two slices: one bar is a rectangle, and a
+ * rectangle is not a trend.
+ */
+export function sparkbars({ values, labels = [], caption = '', unit = '', fill = 'var(--cat-0)', w = 176, h = 34 }) {
+  const known = values.filter((v) => Number.isFinite(v));
+  if (known.length < 2) return '';
+
+  const n = values.length;
+  const gap = 2;                                   // the surface gap, so adjacent bars never touch
+  // Capped, then the drawing is sized to what it actually needs. Two weeks of history spread across the full
+  // tile produced a pair of 117px slabs that read as a progress bar rather than a series; past sixteen pixels
+  // a bar stops looking like one mark among many.
+  const bw = Math.max(1, Math.min(16, (w - gap * (n - 1)) / n));
+  const drawn = n * bw + gap * (n - 1);
+  const max = Math.max(...known, 1);
+  const bars = values.map((v, i) => {
+    if (!Number.isFinite(v)) return '';
+    // A measured zero still occupies its slot and draws nothing; the baseline underneath is what says the
+    // slot exists. A 1.5px floor on everything above zero keeps a small non-zero week from vanishing, which
+    // would read as the same thing as a week with no work in it.
+    const bh = v === 0 ? 0 : Math.max(1.5, (v / max) * (h - 1));
+    const x = i * (bw + gap);
+    return `<rect x="${x.toFixed(2)}" y="${(h - 1 - bh).toFixed(2)}" width="${bw.toFixed(2)}" height="${bh.toFixed(2)}"
+      rx="${Math.min(1.5, bw / 2).toFixed(2)}" fill="${escapeAttr(fill)}"><title>${
+      escapeAttr(labels[i] ?? String(i + 1))}: ${nice(v)}${escapeAttr(unit)}</title></rect>`;
+  }).join('');
+
+  const spoken = values.map((v, i) => `${labels[i] ?? i + 1} ${Number.isFinite(v) ? nice(v) : 'unknown'}`).join(', ');
+  return `<div class="spark">
+  <svg viewBox="0 0 ${drawn.toFixed(2)} ${h}" preserveAspectRatio="xMinYMid meet" role="img"
+       aria-label="${escapeAttr(`${caption || 'Trend'}: ${spoken}`)}">
+    ${bars}
+    <line class="c-axis" x1="0" x2="${drawn.toFixed(2)}" y1="${h - 0.5}" y2="${h - 0.5}"/>
+  </svg>
+  ${caption ? `<p class="spark-cap">${escapeHtml(caption)}</p>` : ''}
+</div>`;
+}
 
 /**
  * A composition chart: what the whole is made of.

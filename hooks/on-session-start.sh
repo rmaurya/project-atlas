@@ -38,9 +38,10 @@ S="${CLAUDE_PLUGIN_ROOT:-.}/bin/atlas"
 # read as the dashboard for an entire session before anyone noticed.
 #
 # So it starts here. Three things keep that from becoming litter: the port is derived from the repository
-# (so several projects run at once without contending), the server exits after 30 idle minutes, and it is
+# (so several projects run at once without contending), the server exits after four idle hours, and it is
 # inert unless this repository has adopted the tool. It is backgrounded because a session must never wait
-# on a dashboard.
+# on a dashboard. *This comment said thirty minutes for four releases after A-21 widened the window — a
+# stale comment beside the code it describes, which no signal checks and only a reader catches.*
 #
 # Off with ATLAS_SERVE=0 in the environment.
 [ "${ATLAS_SERVE:-1}" = "0" ] && exit 0

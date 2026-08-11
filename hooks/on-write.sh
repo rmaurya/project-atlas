@@ -13,6 +13,11 @@
 
 payload=$(cat)
 
+# Which build answers. Working on this tool itself, the installed plugin is an older feature set writing the
+# same output directory — see hooks/atlas-bin.sh. The inline fallback keeps the hook working if the helper is
+# missing, because a hook that cannot find a helper must still do its job rather than silently stop.
+. "${CLAUDE_PLUGIN_ROOT:-.}/hooks/atlas-bin.sh" 2>/dev/null || atlas_bin() { printf '%s' "${CLAUDE_PLUGIN_ROOT:-.}/bin/atlas"; }
+
 # Without jq the file path cannot be read, and rebuilding on every write regardless would be worse than not
 # running: most writes are not markdown.
 command -v jq >/dev/null 2>&1 || exit 0
@@ -34,7 +39,7 @@ esac
 # pid and returns. Backgrounded regardless, because an edit must never wait on a dashboard.
 ("${CLAUDE_PLUGIN_ROOT:-.}/bin/atlas" serve --quiet --no-open >/dev/null 2>&1 &)
 
-out=$("${CLAUDE_PLUGIN_ROOT:-.}/bin/atlas" build --auto --quiet 2>&1)
+out=$("$(atlas_bin)" build --auto --quiet 2>&1)
 st=$?
 if [ $st -ne 0 ]; then
   echo "project-atlas: the site did not rebuild after $p (exit $st). It is now older than the markdown." >&2

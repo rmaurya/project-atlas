@@ -28,7 +28,7 @@ import { PANELS } from './views.mjs';
 import { readChanges } from './changes.mjs';
 import { readInflight, inflightSentence } from './inflight.mjs';
 import { flatName } from './render-shared.mjs';
-import { donut, lineChart, stackedArea, catTokens } from './charts.mjs';
+import { donut, lineChart, stackedArea, sparkbars, catTokens } from './charts.mjs';
 
 /**
  * Ordinal progress ramps — one per theme, each validated against the surface it actually sits on.
@@ -86,6 +86,38 @@ const TONES = new Set(['none', 'mid', 'high', 'done', 'unknown']);
 const toneClass = (t) => (TONES.has(t) ? t : 'unknown');
 
 /**
+ * How many columns the masonry layout declares.
+ *
+ * Read by the stylesheet below *and* by the layout decision in `viewPage`, from one place. The two holding
+ * different numbers is precisely the failure this constant prevents: a rule that says "do not use columns
+ * when there are too few cards to fill them" is worthless if it is guessing how many columns there are.
+ */
+const MASONRY_COLS = 3;
+
+/**
+ * Panels that take the whole width rather than a masonry column, recognised from their **leading element**.
+ *
+ * The previous predicate searched the panel's entire markup for `class="tiles"` or `class="sect"`, and
+ * `inflightPanel` renders a `<section class="sect">` for the session task list *inside* its card — so the
+ * whole in-flight card was classified as a full-width span and hoisted above cards it never spanned. A panel
+ * spans because of what it *is*, which is its outermost element, not because of something nested in it.
+ */
+const SPAN_CLASSES = ['tiles', 'sect', 'wall'];
+const LEADS_SPAN = new RegExp(`^<[a-z]+\\b[^>]*\\bclass="(?:[^"]*\\s)?(?:${SPAN_CLASSES.join('|')})(?:\\s|")`);
+const spans = (b) => LEADS_SPAN.test(b.html.trim());
+
+/**
+ * The opening tag of the scroll container every wide table sits in.
+ *
+ * Eight tables were each hand-writing `<div class="table-wrap">`, which is how a ninth ends up without one.
+ * More to the point, a scrollable box has to be focusable or its hidden columns exist only for a pointer —
+ * and that is an attribute nobody remembers to add eight times. One function, one place to change, and a
+ * name the region can be announced by.
+ */
+const openTableWrap = (label) =>
+  `<div class="table-wrap" tabindex="0" role="region" aria-label="${escapeAttr(label)}">`;
+
+/**
  * One page per view. The view supplies an ordered list of panel ids; every panel is written once and
  * rendered here. A panel that has nothing to show returns null and is **omitted with a note** rather than
  * rendered as an empty box — an empty box reads as "nothing to report", which is a different claim.
@@ -124,10 +156,31 @@ export function viewPage(view, ctx, shell) {
   //
   // Hoisting every spanning panel to the top leaves one contiguous run of cards to pack. It also reads
   // better: a summary strip belongs above the detail, which is the order the Overview page already used.
-  const spans = (b) => /class="(tiles|sect)/.test(b.html) || /^<p class="cap sect/.test(b.html.trim());
   const body0 = rendered.filter((b) => b.id !== 'items');
-  const main = [...body0.filter(spans), ...body0.filter((b) => !spans(b))].map((b) => b.html).join('\n');
   const side = rendered.filter((b) => b.id === 'items').map((b) => b.html).join('\n');
+
+  /*
+   * **Masonry needs more cards than it has columns, and the Executive view did not have them.**
+   *
+   * `.dash-single` declares three columns and marks every card `break-inside:avoid`, so each card is an atom.
+   * A multi-column flow balances by choosing a height no shorter than its tallest atom and then fills each
+   * column greedily to that height. Measured on the Executive view at a 1500px viewport: the chart wall came
+   * out 1375px tall, which set the balance height; progress (522px) and the caveats (614px) both fitted under
+   * it in column two; and column three rendered 389px wide and entirely empty. The wall was 1375px tall
+   * *because* it was 389px wide — a grid of small multiples squeezed to one chart per row — so the layout
+   * created the very atom that then broke it.
+   *
+   * With no more cards than columns there is nothing to pack. The best case is one card per column, which is
+   * the uniform row masonry was introduced to replace; the worst is the collapse above. Those views take the
+   * full width instead, and read top to bottom in the order the view declares.
+   */
+  const flowing = !showsItems && !isReading && body0.filter((b) => !spans(b)).length <= MASONRY_COLS;
+  // Hoisting exists only to stop `column-span:all` fragmenting a multi-column flow. Nothing else here is a
+  // multi-column flow, so nothing else has fragments to avoid — and reordering there would throw away the
+  // argument the view's panel order is making for no gain at all.
+  const masonry = !showsItems && !isReading && !flowing;
+  const main = (masonry ? [...body0.filter(spans), ...body0.filter((b) => !spans(b))] : body0)
+    .map((b) => b.html).join('\n');
 
   const body = `
 <h1><span class="h1-proj">${escapeHtml(index.siteTitle)}</span>${escapeHtml(view.title)}</h1>
@@ -136,6 +189,7 @@ export function viewPage(view, ctx, shell) {
   cfg.__stamp ? `· built ${escapeHtml(cfg.__stamp)}` : ''}</span></p>
 ${showsItems ? `<div class="dash"><div class="dash-main">${main}</div><aside class="dash-side">${side}</aside></div>`
              : isReading ? `<div class="dash-read">${main}</div>`
+             : flowing ? `<div class="dash-flow">${main}</div>`
              : `<div class="dash-single">${main}</div>`}
 ${omitted.length ? `<section class="card muted"><h2>Not shown on this page</h2>
   <p class="cap">Omitted because there is no data behind them, not because they were excluded.</p>
@@ -237,26 +291,47 @@ function tiles(index, health, plan, flight = null) {
   return `<section class="tiles">${t.join('')}</section>`;
 }
 
-function tile(value, label, sub, tone) {
+/** `extra` is generated markup — a sparkline — and is the one argument here that is not escaped. */
+function tile(value, label, sub, tone, extra = '') {
   const dot = tone ? `<span class="dot" style="background:${st(tone)}"></span>` : '';
-  return `<div class="tile"><p class="tv">${dot}${escapeHtml(value)}</p><p class="tl">${escapeHtml(label)}</p><p class="ts">${escapeHtml(sub)}</p></div>`;
+  return `<div class="tile"><p class="tv">${dot}${escapeHtml(value)}</p><p class="tl">${escapeHtml(label)}</p><p class="ts">${escapeHtml(sub)}</p>${extra}</div>`;
 }
 
 /* ------------------------------------------------------------------ charts */
 
+/**
+ * Mean completion by track — and, since this version, which of those means rest on an estimate.
+ *
+ * The plan marks an estimated figure with a trailing asterisk, `planning.mjs` carries the flag through to
+ * every item, and the caveats panel has always promised those figures are "drawn hatched". Nothing on this
+ * chart kept that promise: a track whose every figure is a guess was drawn identically to one whose every
+ * figure is measured, which is the quiet kind of lying this file's own header forbids.
+ *
+ * **The hatch goes on only when every measured item behind the mean is an estimate.** A mean over a mix is
+ * neither measured nor estimated, and hatching a bar that is three-quarters measured would swap one wrong
+ * claim for another — so a mix says so in words, in the hint, where the count is exact.
+ */
 function progressChart(plan) {
   const tracks = plan.tracks.filter((t) => t.mean !== null).sort((a, b) => b.mean - a.mean);
   if (!tracks.length) return null;
+  const estimatedIn = (name) =>
+    plan.items.filter((i) => i.track === name && i.percent !== null && i.estimated).length;
+  const anyEstimated = tracks.some((t) => estimatedIn(t.name));
   return `
 <figure class="card">
   <figcaption><h2>Mean completion by track</h2>
-    <p class="cap">Percent complete, averaged over the items in each track that carry a figure. Tracks with no measured item are omitted rather than shown as zero.</p></figcaption>
-  ${hbar(tracks.map((t) => ({
-    label: t.name.replace(/^Track \d+\s*[—–-]\s*/, ''),
-    value: t.mean, max: 100, suffix: '%',
-    tone: toneFor(t.mean),
-    hint: `${t.known} of ${t.count} items measured`,
-  })))}
+    <p class="cap">Percent complete, averaged over the items in each track that carry a figure. Tracks with no measured item are omitted rather than shown as zero.${
+      anyEstimated ? ' A <strong>hatched</strong> bar is a mean with no measurement under it at all — every figure behind it is marked estimated in the plan.' : ''}</p></figcaption>
+  ${hbar(tracks.map((t) => {
+    const est = estimatedIn(t.name);
+    return {
+      label: t.name.replace(/^Track \d+\s*[—–-]\s*/, ''),
+      value: t.mean, max: 100, suffix: '%',
+      tone: toneFor(t.mean),
+      estimated: est > 0 && est === t.known,
+      hint: `${t.known} of ${t.count} items measured` + (est ? ` · ${est} estimated` : ''),
+    };
+  }))}
 </figure>`;
 }
 
@@ -494,7 +569,7 @@ function signalCataloguePanel(health, cfg) {
     <strong>ok is a result, absence is not</strong>. A signal marked <em>blocks</em> has no legitimate cause,
     so a commit that introduces one is refused. <em>not checked</em> means the check could not run, and is
     never reported as clean.</p>
-  <div class="table-wrap"><table class="mini-table sig-table">
+  ${openTableWrap('Rot signals')}<table class="mini-table sig-table">
     <thead><tr><th>Id</th><th>Signal</th><th>Now</th></tr></thead>
     <tbody>${rows}</tbody>
   </table></div>
@@ -519,7 +594,7 @@ function signalCataloguePanel(health, cfg) {
  */
 function chartsPanel(contrib, plan, health) {
   if (!contrib?.available) {
-    return `<section class="card"><h2>Charts</h2>
+    return `<section class="card wall"><h2>Charts</h2>
       <p class="empty">No git history to chart — these are all derived from commits.</p></section>`;
   }
 
@@ -546,7 +621,11 @@ function chartsPanel(contrib, plan, health) {
   }
 
   // Change over time. Two series on one scale — never two scales, which can be drawn to say anything.
-  const weeks = contrib.weeks || [];
+  const weeks = weeklyAxis(contrib.weeks);
+  const quiet = weeks.filter((w) => w.silent).length;
+  const silence = quiet
+    ? ` ${quiet} week(s) in this range contain no commit and are drawn as zero, not as a gap — git history is complete over its own span, so an empty week was looked at.`
+    : '';
   if (weeks.length >= 2) {
     const labels = weeks.map((w) => w.week.slice(5));
     figs.push(lineChart({
@@ -555,7 +634,7 @@ function chartsPanel(contrib, plan, health) {
         { label: 'all commits', values: weeks.map((w) => w.commits) },
         { label: 'AI-assisted', values: weeks.map((w) => w.ai || 0) },
       ],
-      note: 'AI-assisted is read from Co-Authored-By trailers, so it counts what was recorded, not what happened.',
+      note: 'AI-assisted is read from Co-Authored-By trailers, so it counts what was recorded, not what happened.' + silence,
     }));
 
     figs.push(stackedArea({
@@ -564,7 +643,7 @@ function chartsPanel(contrib, plan, health) {
         { label: 'added', values: weeks.map((w) => w.added || 0) },
         { label: 'removed', values: weeks.map((w) => w.removed || 0) },
       ],
-      note: 'Shown because they are cheap to compute, not because they measure value. Deleting code is work.',
+      note: 'Shown because they are cheap to compute, not because they measure value. Deleting code is work.' + silence,
     }));
   }
 
@@ -582,13 +661,46 @@ function chartsPanel(contrib, plan, health) {
     }));
   }
 
-  return `<section class="card" id="charts">
+  // `wall`, so this takes the whole width rather than a masonry column. `.chart-wall` sizes its cells with
+  // `auto-fit minmax(260px, 1fr)`: in a 389px column that resolves to one chart per row, and the panel whose
+  // entire job is to be taken in at a glance became a 1375px vertical stack. Measured at 1200px of page it is
+  // four across.
+  return `<section class="card wall" id="charts">
   <h2>Charts</h2>
   <p class="cap">Derived from git history and the plan. <strong>Estimated figures say so</strong>, a
     breakdown that cannot divide says that instead of drawing one, and untagged work is shown as its own
     share rather than dropped.</p>
   <div class="chart-wall">${figs.join('')}</div>
 </section>`;
+}
+
+/**
+ * The produced weekly series, placed on a continuous week axis.
+ *
+ * `contrib.mjs::aggregateWeeks` creates an entry only for a week that contains a commit, so a fortnight of
+ * nothing vanishes from the array and the following week's bar sits flush against the one before it. Every
+ * time chart here plots by index, so two months of silence rendered as a single step — and which way the work
+ * is going is the one question these charts exist to answer.
+ *
+ * **The gaps are filled with zero, not with unknown**, and that distinction is the whole justification. Git
+ * history is complete over its own range: a week with no entry is a week that was examined and had no commits
+ * in it, which is a measurement rather than a missing figure. Nothing is invented — every non-zero value here
+ * is exactly the one `aggregateWeeks` produced — and the filled weeks are flagged so the charts can say how
+ * many they drew.
+ */
+function weeklyAxis(weeks) {
+  const src = weeks || [];
+  if (src.length < 2) return src;
+  const by = new Map(src.map((w) => [w.week, w]));
+  const last = src[src.length - 1].week;
+  const out = [];
+  // Every key comes from `isoWeekStart`, so both ends are a Monday and a 7-day step lands on Mondays.
+  for (const d = new Date(`${src[0].week}T00:00:00Z`); ; d.setUTCDate(d.getUTCDate() + 7)) {
+    const week = d.toISOString().slice(0, 10);
+    out.push(by.get(week) || { week, commits: 0, added: 0, removed: 0, ai: 0, authors: 0, silent: true });
+    if (week >= last) break;
+  }
+  return out;
 }
 
 function decisionsPanel(index, cfg, root, pageOf) {
@@ -814,7 +926,7 @@ function worklogPanel(cfg, repo) {
   different question. Showing the last ${Math.min(days.length, 14)} day(s).
   <strong>No prompt text and no prompt-quality score</strong>: a transcript records what happened after a
   prompt, not whether the prompt was well judged.</p>
-  <div class="table-wrap">
+  ${openTableWrap('Daily work log')}
     <table class="mini-table">
       <thead><tr><th>Day</th><th>Who</th><th class="num">Commits</th><th class="num">Lines</th><th class="num">Rework</th></tr></thead>
       <tbody>${rows.map((r) => `<tr>
@@ -840,7 +952,7 @@ function itemTable(plan) {
     <label class="tdone"><input type="checkbox" id="tdone" checked> Show completed
       <span class="count">${plan.items.filter((i) => (i.percent ?? 0) >= 100).length}</span></label>
   </div>
-  <div class="table-wrap">
+  ${openTableWrap('Plan items')}
     <table id="itbl">
       <!-- Progress and status lead, before the descriptive columns. In a side-by-side layout the table
            scrolls horizontally, and whatever sits last is what gets scrolled out of sight — so the two
@@ -888,11 +1000,21 @@ function noPlanning(cfg) {
 function caveats(plan, health, contrib) {
   const notes = [...(plan && !plan.missing ? plan.notes : []), ...health.notChecked,
                  ...(contrib?.available ? contrib.caveats.map((c) => c.replace(/\*\*/g, '')) : [])];
+  // **The plan has no past, and the omission has to be said rather than left to be noticed.**
+  //
+  // Every delivery figure on these pages carries a history, because git keeps one. Completion does not: the
+  // planning document is read as it stands, and nothing anywhere records what it said last month. Asked for
+  // "a sense of direction over time", the honest answer is that half of it exists and half of it cannot, and
+  // silence on the point reads as the far stronger claim that completion is not moving.
+  if (plan && !plan.missing) {
+    notes.push(`Completion is read from ${plan.source} as it stands now. Nothing records what that document ` +
+      `said before, so no trend in completion can be drawn — only the delivery figures, which come from git, have a past.`);
+  }
   if (!notes.length) return '';
   return `<section class="card muted">
     <h2>What this dashboard does not show</h2>
     <p class="cap">Stated explicitly, because a dashboard that silently omits reads as one that found nothing.</p>
-    <ul>${notes.map((n) => `<li>${escapeHtml(n)}</li>`).join('')}</ul>
+    <ul class="caveat-list">${notes.map((n) => `<li>${escapeHtml(n)}</li>`).join('')}</ul>
   </section>`;
 }
 
@@ -909,12 +1031,43 @@ function caveats(plan, health, contrib) {
  *  - **Active hours are an estimate**, computed from commit rhythm rather than time worked, and the label
  *    says so on the page rather than in a footnote nobody reaches.
  *  - **Nothing is silently capped.** Where a chart shows a window, the window is stated.
+ *
+ * ## A headline figure with no direction is half an answer
+ *
+ * "122 commits" says how much and nothing about which way, and on the Executive view — a page read for thirty
+ * seconds — the only shape of that number lived in a line chart a thousand pixels further down. So the number
+ * carries its own series: the weekly counts `contrib.mjs` already produces, on the continuous axis
+ * `weeklyAxis` puts them on, in the same hue the bars in this strip use.
+ *
+ * **Only the commits tile gets one, and the other three say nothing rather than something plausible.** The
+ * AI-assisted tile states a share while the weekly figure behind it is a count, and a count-shaped sparkline
+ * under a percentage invites the reader to take the picture as the history of that percentage, which it is
+ * not. Rework rate and conventional-subject rate have no weekly series at all — both are computed over the
+ * whole history in a single pass — so there is nothing to draw.
  */
+/** The window the sparkline shows, matching `velocityChart`. Anything trimmed is counted in the caption. */
+const SPARK_WEEKS = 12;
+
 function deliveryTiles(contrib) {
   const t = contrib.totals, q = contrib.quality;
+  const weeks = weeklyAxis(contrib.weeks);
+  const shown = weeks.slice(-SPARK_WEEKS);
+  const trimmed = weeks.length - shown.length;
+  const spark = sparkbars({
+    values: shown.map((w) => w.commits),
+    labels: shown.map((w) => `week of ${w.week}`),
+    unit: ' commits',
+    // The ordinal ramp's high step, which is what `hbar` paints magnitude with. This sits in the same strip
+    // as those bars and measures the same thing, so it is the same hue — not a categorical slot, which would
+    // claim it is one identity among several.
+    fill: 'var(--r-high)',
+    caption: `per week · ${shown.length} week(s)${trimmed ? `, the most recent of ${weeks.length}` : ''}`,
+  });
   return `
 <section class="tiles">
-  ${tile(String(t.commits), 'commits', `${t.first} → ${t.last}`)}
+  ${tile(String(t.commits), 'commits',
+    `${t.first} → ${t.last}${spark ? '' : ' · under two weeks of history, so there is no shape to draw yet'}`,
+    null, spark)}
   ${tile(`${Math.round((t.aiAssisted / t.commits) * 100)}%`, 'AI-assisted', `${t.aiAssisted} of ${t.commits}`)}
   ${tile(`${q.reworkRate}%`, 'rework rate', `a file re-touched within ${q.reworkWindowDays} days`)}
   ${tile(`${q.conventionalRate}%`, 'conventional subjects', `${q.reverts} revert(s)`)}
@@ -959,7 +1112,7 @@ function peopleTable(contrib) {
   <h2>People <span class="count">${contrib.people.length}</span></h2>
   <p class="cap">Side by side, deliberately. There is no combined contribution score and no ranking —
   collapsing these into one number would hide which one is moving.</p>
-  <div class="table-wrap">
+  ${openTableWrap('Per-author contribution figures')}
     <table class="mini-table">
       <thead><tr><th>Author</th><th class="num">Commits</th><th class="num">Files</th>
         <th class="num">+ / −</th><th class="num">Days</th><th class="num">Est. hours</th></tr></thead>
@@ -1086,7 +1239,7 @@ function changesPanel(cfg, index, nameFor) {
 function inflightPanel(flight, index) {
   if (!flight) return null;
   if (flight.failed) {
-    return `<figure class="card muted" id="inflight"><figcaption><h2>Work in flight</h2></figcaption>
+    return `<figure class="card muted" id="inflight" data-local-only="1"><figcaption><h2>Work in flight</h2></figcaption>
       <p class="empty"><span class="dot" style="background:${st('warning')}"></span>
       The working tree could not be read — <code>${escapeHtml(String(flight.reason))}</code>.
       That is not the same as "nothing is in flight": no comparison was made, so nothing below is being
@@ -1101,7 +1254,7 @@ function inflightPanel(flight, index) {
     denominator, and a figure invented for one would read as measured.</p>`;
 
   if (flight.quiet) {
-    return `<figure class="card muted" id="inflight"><figcaption><h2>Work in flight</h2>${provenance}</figcaption>
+    return `<figure class="card muted" id="inflight" data-local-only="1"><figcaption><h2>Work in flight</h2>${provenance}</figcaption>
       <p class="empty"><span class="dot" style="background:${st('good')}"></span> ${lead}</p></figure>`;
   }
 
@@ -1133,7 +1286,7 @@ function inflightPanel(flight, index) {
       <p class="cap">What the session driving this change set out to do, recorded to
         <code>.atlas/tasks-live.jsonl</code> as each item was opened or closed and replayed here. Statuses are
         shown as they were recorded — a task nobody marked done is open, however finished its files look.</p>
-      <div class="table-wrap"><table class="mini-table tasks-live">
+      ${openTableWrap('Session tasks')}<table class="mini-table tasks-live">
         <thead><tr><th class="num">#</th><th>Status</th><th>Task</th></tr></thead>
         <tbody>${rows}</tbody></table></div>
     </section>`;
@@ -1161,7 +1314,7 @@ function inflightPanel(flight, index) {
   ].filter(Boolean);
 
   return `
-<section class="card" id="inflight">
+<section class="card" id="inflight" data-local-only="1">
   <h2>Work in flight <span class="count">${total}</span></h2>
   ${provenance}
   <p class="rsub">${lead}</p>
@@ -1175,7 +1328,7 @@ function inflightPanel(flight, index) {
   ${taskBlock}
 
   ${flight.tracked.length ? `
-  <div class="table-wrap">
+  ${openTableWrap('Changed files')}
     <table class="mini-table">
       <thead><tr><th>File</th><th>State</th><th class="num">Lines</th></tr></thead>
       <tbody>${rows}</tbody>
@@ -1427,18 +1580,51 @@ figcaption { display:block; }
  * strip and the section blurb full width. */
 .dash-single { display:grid; gap:16px; }
 @media (min-width:1180px) {
-  .dash-single { display:block; columns:360px 3; column-gap:16px; }
+  .dash-single { display:block; columns:360px ${MASONRY_COLS}; column-gap:16px; }
   .dash-single > * { break-inside:avoid; page-break-inside:avoid; margin:0 0 16px; width:100%; }
-  .dash-single > .tiles, .dash-single > .sect { column-span:all; }
+  .dash-single > .tiles, .dash-single > .sect, .dash-single > .wall { column-span:all; }
 }
+/* One full-width column, at every width.
+ *
+ * The layout a view gets when it has no more cards than masonry has columns — see viewPage. There is nothing
+ * to pack, so packing only costs width: on the Executive view three cards in three 389px columns left the
+ * third empty and squeezed the chart wall into a 1375px vertical stack. Full width instead, in the order the
+ * view declares, which is also the order that page's argument is written in. */
+.dash-flow { display:grid; gap:16px; }
+/* A wall of small multiples is a strip, like the tile strips above it, and it is sized by auto-fit — so in
+ * a 389px masonry column it can only ever render one chart per row. Full width is what makes it scannable:
+ * the same five charts go from a 1375px stack to two rows of four. */
+.wall { grid-column:1 / -1; }
 .mini-table { border-collapse:collapse; width:100%; font-size:13.5px; min-width:520px; }
 /* Belt and braces: every min-width table is inside a .table-wrap that scrolls, and the page body must never
  * scroll sideways regardless. A wide table that escapes its wrapper takes the whole layout with it. */
 .card, .tile, figure { min-width:0; max-width:100%; }
-.table-wrap { max-width:100%; overflow-x:auto; -webkit-overflow-scrolling:touch; }
+/* A wrapper that scrolls without saying so is a table with its columns hidden.
+ *
+ * Every table in the generated site was already inside one — the audit found no unwrapped table anywhere. So
+ * "the columns get clipped" was never a missing wrapper: it is what a 520px table looks like inside a 347px
+ * masonry column on a machine with overlay scrollbars. Measured on the Quality view at a 1500px viewport:
+ * wrapper 347px, content 520px, and no scrollbar visible until you already know to drag for it. 173px of
+ * data the page gives no sign exists.
+ *
+ * Two fixes, no script. A shadow appears at whichever edge still has content past it — the cover gradients
+ * are attached local so they slide away with the content and uncover the scroll-attached shadow beneath —
+ * and the wrapper is focusable, so those columns are reachable by keyboard and not only by trackpad. */
+.table-wrap {
+  max-width:100%; overflow-x:auto; -webkit-overflow-scrolling:touch; overscroll-behavior-x:contain;
+  background:
+    linear-gradient(to right, var(--panel), transparent) 0 0 / 22px 100% no-repeat local,
+    linear-gradient(to left, var(--panel), transparent) 100% 0 / 22px 100% no-repeat local,
+    radial-gradient(farthest-side at 0 50%, var(--line), transparent) 0 0 / 11px 100% no-repeat scroll,
+    radial-gradient(farthest-side at 100% 50%, var(--line), transparent) 100% 0 / 11px 100% no-repeat scroll;
+}
+.table-wrap:focus-visible { outline:2px solid var(--link); outline-offset:2px; }
 .mini-table th,.mini-table td { border-bottom:1px solid var(--line); padding:7px 10px; text-align:left; }
 .mini-table th.num,.mini-table td.num { text-align:right; white-space:nowrap; font-variant-numeric:tabular-nums; }
 .mini-table tbody tr:hover { background:var(--code-bg); }
+/* A caveat is a sentence, and a sentence set 150 characters wide is one nobody finishes. The cap only bites
+ * in the full-width layout — inside a 389px masonry column the column is already the measure. */
+.caveat-list li { max-width:84ch; }
 .doclist { list-style:none; margin:10px 0 0; padding:0; display:grid; gap:8px; }
 .doclist li { padding:9px 12px; background:var(--bg); border:1px solid var(--line); border-radius:8px; font-size:14px; }
 .doclist a { font-weight:600; }
@@ -1527,6 +1713,21 @@ ${catTokens()}
 .bl-clear:hover { color:var(--link); border-color:var(--link); }
 #bq { width:100%; max-width:420px; padding:9px 12px; font-size:14px; color:var(--ink);
   background:var(--bg); border:1px solid var(--line); border-radius:8px; }
+/* Three tokens these stylesheets have always referred to and no page has ever defined.
+ *
+ * --rule is the one that mattered: .c-axis and .c-grid set stroke:var(--rule), and an undefined
+ * custom property makes a declaration invalid at computed-value time — which for an inherited property means
+ * inherit, and the inherited value of stroke from the HTML root is none. So every axis line and every
+ * gridline in every chart this tool has ever drawn was invisible, on both themes, and the charts read as
+ * floating tick labels. Verified in the browser before the fix: getComputedStyle(.c-axis).stroke was "none".
+ *
+ * --warn cost less and was the same bug: .bl-est — the words "figure estimated in the source" — fell
+ * back to the surrounding ink, so the one marker that separates an estimate from a measurement lost the only
+ * thing distinguishing it. --ink-soft merely rendered as body ink.
+ *
+ * Aliased to tokens the page stylesheet already defines for all three theme states rather than given values
+ * of their own, so there is nothing here to keep in step with a palette change. */
+:root { --rule:var(--line); --ink-soft:var(--fg-soft); --warn:var(--warm); }
 :root { --r-none-ink:${INK.light.none}; --r-mid-ink:${INK.light.mid}; --r-high-ink:${INK.light.high};
         --r-done-ink:${INK.light.done}; --r-unknown-ink:${INK.light.unknown};
         --st-good:${STATUS.light.good}; --st-warning:${STATUS.light.warning};
@@ -2014,7 +2215,7 @@ function designRecordPanel(index, pageOf) {
   <strong>stub</strong> means the file was scaffolded and the substance is still owed; it is not counted as
   written, because a record that called a scaffold a design record would be measured against by every other
   check on this page.</p>
-  <div class="table-wrap"><table class="mini-table">
+  ${openTableWrap('Design record')}<table class="mini-table">
     <thead><tr><th>Artifact</th><th>State</th><th>Document(s)</th></tr></thead>
     <tbody>${record.map((r) => {
       // Three states, because two would let a scaffold read as a design record. `stub` is deliberately its
@@ -2173,7 +2374,7 @@ function citationsPanel(index, pageOf) {
   <p class="cap">A design document earns its place by citing code. One that cites nothing cannot go stale
   against anything; one whose citations no longer resolve is describing a program that has moved on.
   <strong>Not checked</strong> is kept apart from <strong>broken</strong> — they are different claims.</p>
-  <div class="table-wrap"><table class="mini-table">
+  ${openTableWrap('Design documents against the code')}<table class="mini-table">
     <thead><tr><th>Document</th><th class="num">Citations</th><th class="num">Resolve</th><th class="num">Broken</th><th class="num">Not checked</th><th>Last touched</th></tr></thead>
     <tbody>${rows.map((r) => `
       <tr><td><a href="pages/${escapeAttr(pageOf(r.path))}">${escapeHtml(r.title)}</a></td>

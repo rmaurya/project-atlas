@@ -8,30 +8,58 @@
 
 [github.com/rmaurya/project-atlas](https://github.com/rmaurya/project-atlas)
 
-A derived, auditable knowledgebase over your repository's own documentation. Indexes the markdown you already
-have, detects rot mechanically, and generates a searchable site, a project dashboard and a browser slide deck.
+**project-atlas is a documentation knowledgebase generator for software repositories.** It indexes the
+markdown files you already have, detects documentation drift mechanically — dead links, forked documents,
+stale code citations, orphan pages, SOPs past their review date — and generates a searchable static site, a
+project dashboard, a health report and a browser slide deck.
+
 Your markdown stays the source of truth; everything generated regenerates byte-identically, so it cannot fork
-from your docs. Adapts to what your host actually offers — Wiki, Pages, Issues and Discussions are each
-detected, never assumed. Ships as a Claude Code skill, a portable `AGENTS.md` for any LLM agent, and a
-standalone CLI. Zero dependencies, Node ≥ 18, and network access from **one** optional command (`atlas caps`).
+from your docs. It adapts to what your host actually offers — Wiki, Pages, Issues and Discussions are each
+detected, never assumed. It ships as a Claude Code skill, a portable `AGENTS.md` for any LLM agent, an MCP
+server, and a standalone CLI. Zero dependencies, Node ≥ 18, and network access from **one** optional command
+(`atlas caps`).
+
+### See it running on its own documentation
+
+**[rmaurya.github.io/project-atlas](https://rmaurya.github.io/project-atlas/)** — this repository's own
+markdown, indexed and measured by this tool, published by `atlas publish --target pages`. It is the same
+output any repository gets. Three pages make the argument on their own:
+
+- **[The health report](https://rmaurya.github.io/project-atlas/health.html)** — every rot signal against this
+  corpus, split into blocking and advisory, with a *Not checked* section naming what could not be verified.
+- **[The dashboard](https://rmaurya.github.io/project-atlas/dashboard.html)** — plan progress, contribution
+  history and corpus health on one page, all of it derived from the repository.
+- **[The wiki index](https://rmaurya.github.io/project-atlas/wiki.html)** — every document, grouped by
+  cluster, with client-side search.
+
+The published site deliberately omits the work-in-flight and session-task panels. Those describe the machine
+that ran the build — the subject lines of a private task list and the paths of uncommitted files — so they are
+stripped when a site is staged for publishing, before anyone reviews it, rather than at push time. Install the
+tool and `atlas serve` gives you those panels on a loopback-only dashboard that never leaves your machine.
 
 ---
 
+[Live site](https://rmaurya.github.io/project-atlas/) ·
 [Install](#install) ·
 [Quick start](#quick-start) ·
 [Why](#why) ·
+[What project-atlas does](#what-project-atlas-does) ·
+[Capabilities](docs/CAPABILITIES.md) ·
+[Features](docs/FEATURES.md) ·
+[FAQ](docs/FAQ.md) ·
 [What it produces](#what-it-produces) ·
-[Rot signals](#rot-signals) ·
+[Health check](#how-the-documentation-health-check-works) ·
 [Contributions](#contribution-analytics) ·
 [Publishing](#publishing) ·
 [Host capabilities](#host-capabilities) ·
 [Honesty rules](#honesty-rules-enforced-in-the-output) ·
 [Configuration](#configuration) ·
 [Reference guides](#reference-guides) ·
+[Questions](#frequently-asked-questions) ·
 [Contributing](#contributing) ·
 [Changelog](CHANGELOG.md) ·
 [Roadmap](docs/ROADMAP.md) ·
-[Licence](#licence)
+[Licence and legal](#licence-and-legal)
 
 ---
 
@@ -61,6 +89,26 @@ first run found:
 
 None of that needed judgment to find. All of it needed someone to look.
 
+## What project-atlas does
+
+project-atlas reads the markdown in a repository and produces four things from it: an **index** with a cluster
+taxonomy and backlinks, a **health report** of sixteen mechanical rot signals, a **static site** with
+client-side search and nine role-specific views, and a **structured API** — an MCP server and a JSON command
+with CI-shaped exit codes — so an agent or a build can ask the same questions without a terminal.
+
+It does not write your documentation, move it, or keep a copy of it. Everything it generates lands in one
+directory that is cleared and rewritten on every build, which is what makes it unable to drift from the
+documents it describes.
+
+Three pages cover this in full, and they are kept honest by the same rule the tool enforces on everything
+else — every claim in them cites the code, `path:line`:
+
+| Page | Answers |
+|---|---|
+| [**What project-atlas can do**](docs/CAPABILITIES.md) | Organised by the job you came to do: audit a corpus, make it navigable, keep it current, publish it, query it from software, see how work is going. Each section says where the capability stops. |
+| [**The feature inventory**](docs/FEATURES.md) | Every command, rot signal, slash command, hook, MCP tool and generated file, each with the line of code that implements it and a status — including what is partial, what is not built, and what a document claims that the code does not do. |
+| [**Frequently asked questions**](docs/FAQ.md) | The questions that come up before installing and in the first hour after. |
+
 ## Install
 
 **One line, any runtime:**
@@ -83,7 +131,9 @@ claude plugin marketplace add rmaurya/project-atlas && claude plugin install atl
 ```
 
 Skills arrive namespaced: `/atlas:help` `/atlas:status` `/atlas:health` `/atlas:changes` `/atlas:diff`
-`/atlas:ask` `/atlas:review` `/atlas:config` `/atlas:publish`.
+`/atlas:ask` `/atlas:review` `/atlas:config` `/atlas:publish` `/atlas:dashboard` `/atlas:mcp` `/atlas:plan`.
+`/atlas:ask` is currently broken and is documented as such in
+[`docs/FEATURES.md`](docs/FEATURES.md#atlasask-is-currently-broken--defect).
 
 **OpenAI Codex:**
 
@@ -157,7 +207,11 @@ at any time.
 | `atlas version` | Which build is answering, where it lives, and whether it is behind the installed one. |
 | `atlas init` | Write `project-atlas.config.json` by detecting this repo's layout — nothing existing is modified. |
 | `atlas scan` | Build the index and summarise it: documents, clusters, links, citations. |
-| `atlas ask <question>` | Answer a question from the project's own documentation, with citations. |
+| `atlas ask <task>` | One structured JSON answer for a program — `atlas_health`, `atlas_plan`, `atlas_search`, `atlas_changes`, `atlas_contrib`, `atlas_design`, `atlas_state`. Exit 0 clean, 1 on a blocking finding, 2 if it could not run. |
+| `atlas mcp` | Serve the corpus over MCP on stdio — the same seven tools, read-only. `--status` says what a client would connect to. |
+| `atlas note` / `atlas state` / `atlas handoff` | The continuity journal: record what was decided, read back what a resuming session needs, print the derived half of a handoff. |
+| `atlas design [--scaffold]` | Which design artifacts exist; `--scaffold` writes the questions a missing one owes an answer to, never the answers. |
+| `atlas serve` | The live dashboard on loopback — build, start, open, and print the URL. `--list` shows every one running on this machine. |
 | `atlas changes` | Uncommitted work, what this branch does, and which documents cite the files you touched. |
 | `atlas diff <file>` | One file's diff — uncommitted, else across the branch. |
 | `atlas health` | Documentation rot report: dead links, forked documents, stale citations, orphans. Exit 1 if a blocking signal fires. |
@@ -194,7 +248,11 @@ same as `./bin/atlas <command>` or `node scripts/atlas.mjs <command>`.
 | **Deck** | A browser slide deck from a markdown source — keyboard nav, overview, print to PDF |
 | **Health** | Every rot signal, split into blocking and advisory |
 
-## Rot signals
+## How the documentation health check works
+
+`atlas health` runs sixteen mechanical checks over the indexed corpus and exits 1 if any **blocking** signal
+fires. Every signal is a fact about the repository — "this link points at a file that does not exist" — never
+a judgement about writing quality, because a tool that mixes the two teaches people to distrust both.
 
 | | Signal | Default |
 |---|---|---|
@@ -207,6 +265,13 @@ same as `./bin/atlas <command>` or `node scripts/atlas.mjs <command>`.
 | H7 | Forbidden term (retired names, old branding) | advisory |
 | **H8** | No `#` title | **blocking** |
 | H9 | Cross-reference asymmetry between paired documents | advisory |
+| **H10** | SOP past its own declared review date | **blocking** |
+| H11 | SOP names no owner, or one with no commits here | advisory |
+| **H12** | A step in an SOP cites something that cannot be resolved | **blocking** |
+| H13 | Handoff written far behind HEAD | advisory |
+| H14 | Design document cites code that has moved — stricter than H6, with no grace period | advisory |
+| H15 | An expected design artifact is absent, or is still a scaffold | advisory |
+| H16 | A code area no design document cites | advisory |
 
 **Blocking versus advisory is the design's load-bearing compromise.** Blocking signals have no legitimate
 cause. Advisory ones do — an archived record *should* cite code that has since moved, and a historical spec
@@ -311,18 +376,31 @@ therefore carries a do-not-edit banner, and each publish records a content hash 
 longer matches, publish **refuses** — `--import` copies the hand-edited pages out for review rather than
 destroying them.
 
-## The one hook
+## What the hooks do, and which one can stop you
 
-Everything else this tool asks of an assistant is prose — advisory, and any session can drift from it. The
-plugin ships **one hook**, executed by the harness rather than by the model:
+Everything else this tool asks of an assistant is prose — advisory, and any session can drift from it. Hooks
+are executed by the harness rather than by the model, so they cannot be reasoned around. The plugin declares
+eight of them across six events, and **exactly one can block**:
 
-**Before any `git commit`, the branch guard runs** and refuses when the working branch is protected, showing
-the fix before the commit rather than after review. It exists because this project's own first five commits
-went straight to `main` while its contributing guide preached discipline.
+| When | What runs | Blocks? |
+|---|---|---|
+| Before any `git commit` | Branch guard, then the health gate, then the plan gate | **yes** — exit 2 |
+| At session start | Update notice; starts the live dashboard and prints its URL | never |
+| After a markdown write | Rebuilds the site | never |
+| After a task-list change | Records the task state, then rebuilds | never |
+| After any tool call | Keeps the dashboard alive; announces its URL once per session | never |
+| At `Stop`, `SubagentStop` and `PreCompact` | Flushes continuity state to the journal | never |
 
-Every other Bash call exits immediately, so the cost is one `jq` and one `grep`. There is deliberately no
-second hook — a `PostToolUse` running health after every markdown edit was written and removed, because a
-check that makes every edit slower is a check people disable. See [`hooks/README.md`](hooks/README.md).
+**The commit guard is the one that matters.** It refuses when the working branch is protected, when a blocking
+documentation signal would land, or when the message names no plan item — showing the fix before the commit
+rather than after review. It exists because this project's own first five commits went straight to `main`
+while its contributing guide preached discipline. Every Bash call that is not a `git commit` exits
+immediately, so the cost is one `jq` and one `grep`.
+
+**Health still does not run on every markdown edit.** That was written and removed, because a check that makes
+every edit slower is a check people disable. The write hook only regenerates derived output — a rebuild, not
+a check. Every hook is inert in a repository with no `project-atlas.config.json`, and
+each is switchable under `automation` in the config. See [`hooks/README.md`](hooks/README.md).
 
 ## Host capabilities
 
@@ -390,19 +468,49 @@ Loaded on demand, one topic each.
 | [branching](docs/references/branching.md) | How work reaches `main`, and what an assistant must check first |
 | [maintenance](docs/references/maintenance.md) | The loop, the trigger, and the abandonment criterion |
 | [configuration](docs/references/configuration.md) | Every config key |
+| [autonomy](docs/references/autonomy.md) | What may run unattended, what may never, and the line between them |
+| [agent-control](docs/references/agent-control.md) | Why an external orchestrator is not part of this tool — **design, not built** |
+
+## Frequently asked questions
+
+[**docs/FAQ.md**](docs/FAQ.md) answers the questions that come up before installing and in the first hour
+after — what it writes and where, what happens on a repository that already has a docs tree, whether it can
+be run without an agent, and what it refuses to do.
+
+Two more pages sit beside it: [what project-atlas can do](docs/CAPABILITIES.md), organised by the job you came
+to do, and [the feature inventory](docs/FEATURES.md), which lists every command and signal with the line of
+code that implements it.
 
 ## Contributing
 
 ```bash
-node tests/run.mjs               # 76 integration tests against throwaway git repositories
+node tests/run.mjs               # integration tests against throwaway git repositories
 node tests/run.mjs --filter H6   # or a subset
 ```
+
+341 tests passed on 2026-08-11. The suite builds real git repositories and runs the real pipeline.
 
 No mocks — the tests build real git repos and run the real pipeline, because every bug this tool has shipped
 lived in the seam between the code and git. Several tests exist because a bug shipped once and must not
 return; those carry a comment saying what went wrong. Please keep that habit, and read
 [`CONTRIBUTING.md`](CONTRIBUTING.md) for the non-negotiables before proposing a change that removes one.
 
-## Licence
+## Licence and legal
 
-MIT. See [`LICENSE`](LICENSE).
+**MIT. See [`LICENSE`](LICENSE).**
+
+**This is a hobby project, non-commercial, and nobody carries liability for what it does on your machine.**
+Four pages state that position and the facts behind it. They sit *alongside* the MIT grant, not over it — where
+the two appear to conflict, `LICENSE` governs.
+
+| Page | What it says |
+|---|---|
+| [Terms and conditions](docs/legal/TERMS.md) | Hobby project, no warranty, no liability for the owner, related companies or any contributor — and installing it is acceptance. Ends with the questions a lawyer would still have to answer, unanswered on purpose. |
+| [Privacy and data handling](docs/legal/PRIVACY.md) | What is read, what is written and where, and exactly what leaves the machine. Every claim cites `path:line`. |
+| [Disclaimer](docs/legal/DISCLAIMER.md) | Why a clean health report is not a statement that your documentation is correct, and why advisory signals fire on documents that are fine. |
+| [Third-party code](docs/legal/THIRD-PARTY.md) | There is none — no manifest, no lockfile, no vendored assets — and how that was checked. |
+
+**No compliance with any jurisdiction is asserted anywhere in them.** No GDPR statement, no CCPA statement, no
+export-control claim, no legal advice. Liability disclaimers are not enforceable to the same extent everywhere,
+so the terms state the owner's intent rather than guaranteeing an outcome — and the open questions are written
+down instead of answered, in the same spirit as `atlas design --scaffold`.

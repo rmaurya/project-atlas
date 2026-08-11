@@ -119,7 +119,13 @@ Flags: `--config <path>` · `--root <dir>` · `--quiet` · `--json` · `--no-git
 degrades to unknown rather than failing).
 
 Zero dependencies, Node ≥ 18. Installed as a plugin, `atlas` is on your PATH; otherwise it is
-`./bin/atlas` or `node scripts/atlas.mjs`. Only `atlas caps` touches the network, and it says so. Safe to run anywhere.
+`./bin/atlas` or `node scripts/atlas.mjs`. **Network use, corrected:** `atlas caps` probes the host and says
+so, a once-a-day update check runs at session start (`ATLAS_UPDATE_CHECK=0` disables it), and `git` is asked
+to reach a remote twice — `ls-remote` to detect a wiki, and `clone --depth 1` during `publish --target wiki`
+staging, because the drift guard cannot detect an edit it has not read. Everything else — `scan`, `health`,
+`build`, `tasks`, `changes`, `diff`, `branch` — is local. This line previously said only `atlas caps` touched
+the network; git subprocesses are not this codebase's own HTTP, which is exactly how the claim survived being
+false. Full detail with `path:line` in `SECURITY.md`.
 
 ## Publishing
 
@@ -172,8 +178,10 @@ Full rules: `docs/references/branching.md`.
 
 ## Rot signals
 
-Nine, all mechanical. Full catalogue with detection details and legitimate exceptions in
-`docs/references/health-signals.md`.
+**Sixteen, all mechanical**, five of them blocking. Full catalogue with detection details and legitimate
+exceptions in `docs/references/health-signals.md`. *This section said "nine, three blocking" for seven
+releases after H10–H16 shipped — the tool's own instruction file drifting from the tool, which is the failure
+it detects for a living.*
 
 | | Signal | Default |
 |---|---|---|
@@ -186,6 +194,16 @@ Nine, all mechanical. Full catalogue with detection details and legitimate excep
 | H7 | Forbidden term (retired names, old branding) | advisory |
 | **H8** | No `# ` title | **blocking** |
 | H9 | Cross-reference asymmetry between paired documents | advisory |
+| **H10** | SOP past its review date | **blocking** |
+| H11 | SOP has no live owner | advisory |
+| **H12** | Dead citation in an SOP | **blocking** |
+| H13 | Handoff far behind `HEAD` | advisory |
+| H14 | Design document cites code that moved | advisory |
+| H15 | Expected design artifact absent | advisory |
+| H16 | Undesigned area | advisory |
+
+**H10 and H12 are blocking for a reason worth stating.** An SOP that has drifted is not out of date — it is
+*incorrect*, and someone may follow it today.
 
 **Blocking versus advisory is the design's load-bearing compromise.** Blocking signals have no legitimate
 cause. Advisory ones do — an archived record *should* cite code that has since moved; a historical spec *should*

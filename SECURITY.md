@@ -8,7 +8,8 @@ markdown is parsed, never executed.
 
 Three things are worth knowing precisely, because they are where a surprise could come from:
 
-**1 · There are exactly two network requests, and both are named here.**
+**1 · Every network request this tool can make is named here — the two it makes itself, and the two it asks
+`git` to make.**
 
 *The capability probe, which you ask for.* `atlas caps` (and the probe that `atlas publish` and
 `atlas community` run before touching a target) makes a single unauthenticated `GET` to the host's repository
@@ -27,9 +28,23 @@ written to `${XDG_CACHE_HOME:-~/.cache}/project-atlas/update-check.json`, delibe
 Set `ATLAS_UPDATE_CHECK=0` to disable it, or `atlas version --offline` to inspect your build without it. It
 lives in one file, `scripts/lib/update.mjs`.
 
-**Every other command — `scan`, `health`, `build`, `tasks`, `changes`, `diff`, `branch`, and all publish
-staging — makes no network request at all.** Both paragraphs above name a single file each, precisely so this
-can be checked rather than believed.
+*Git also reaches the network on your behalf, and this section used to omit it.* The two paragraphs above
+count the requests **this tool makes itself**, and for nineteen releases the sentence that followed them said
+publish staging made none — which was wrong, and wrong in a document that invites you to check it rather than
+believe it. `git` is a subprocess, so its traffic did not appear in any audit of this codebase's own HTTP:
+
+- **`git ls-remote`** (`scripts/lib/host.mjs:179`) — asks whether a wiki exists. Part of the capability probe
+  above, so it is covered by `--offline`, and it authenticates with nothing: `GIT_TERMINAL_PROMPT=0` and
+  `GIT_ASKPASS=echo` mean it fails rather than prompting for a credential.
+- **`git clone --depth 1`** (`scripts/lib/publish.mjs:241`) — runs during `atlas publish --target wiki`
+  **without `--push`**. This one is worth understanding rather than just noting: the drift guard exists to
+  stop a force-overwrite of a colleague's edit in the web UI, and it cannot detect an edit it has not read.
+  Staging a wiki publish therefore *reads* the remote. It still writes nothing without `--push`.
+
+**Every other command — `scan`, `health`, `build`, `tasks`, `changes`, `diff`, `branch`, and publish staging
+for the `pages` and `export` targets — makes no network request at all.** Each item above names a file and a
+line, precisely so this can be checked rather than believed. The previous, tidier claim is the reason the
+citations are here: a round number that nobody could verify held for nineteen releases while being false.
 
 **2 · `trackedOnly` is a real safety boundary.** With the default `trackedOnly: true`, documents are discovered
 via `git ls-files`, so a file must be committed before it can be indexed or published. A half-written draft in
