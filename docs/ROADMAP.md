@@ -1,6 +1,6 @@
 # Roadmap — project-atlas
 
-**Last updated:** 2026-08-10 · **Version:** 0.1.62 · **Status:** pre-release, dogfooding
+**Last updated:** 2026-08-10 · **Version:** 0.1.63 · **Status:** pre-release, dogfooding
 
 Open work, with an honest completion figure against each item. A figure marked `*` is estimated rather than
 measured against the code — the same distinction the tool preserves everywhere else, applied to itself.
@@ -33,7 +33,7 @@ measured against the code — the same distinction the tool preserves everywhere
 | A-13 | 100 | A-14 | 100 | A-15 | 100 |
 | A-16 | 100 | A-17 | 100 | A-18 | 100 |
 | A-19 | 100 | P-7 | 100 | P-8 | 100 |
-| A-20 | 0 | | | | | | | | |
+| A-20 | 0 | A-21 | 100 | A-22 | 0 | | | | |
 
 ---
 
@@ -589,6 +589,26 @@ checked.*
 fired, so the fix needs to establish which event occurs when — guessing would replace a wrong record with a
 differently wrong one. Until then the record stays as written, because deleting it would hide the evidence
 the fix depends on.*
+
+**A-21 · The dashboard stays up for as long as the session does** — **P1 · High**
+*Shipped in 0.1.63.* *The server exited after thirty idle minutes, and "idle" was measured correctly — an
+open tab polls its build stamp, so no requests really does mean no reader. What it does not mean is that the
+work stopped. A session spent talking, writing code or running tests never fetches the dashboard, so the
+link printed at session start went dead partway through **with nothing saying so** — the silent failure this
+whole feature exists to remove, reintroduced by its own safety valve.*
+*Two changes. `on-activity.sh` revives it on any tool use, not only a markdown write, guarded by a pidfile
+check that costs ~22ms when the server is already up — without that guard it would fork after every tool
+call, which is worse than the bug. And the idle window is four hours rather than thirty minutes: long enough
+to outlast a working session, short enough that a machine left overnight is not still serving.*
+
+**A-22 · Two builds of different versions must not share an output directory** — **P2 · Medium**
+*A-14's lock serialises builds, which is the right fix for two copies of the same build. It cannot tell two
+**different** builds apart: the installed plugin's watcher and a working-copy build both hold the lock
+legitimately, take turns, and overwrite each other's output. A branding fix appeared not to work three times
+in a row because the 0.1.62 watcher was rebuilding over it seconds later.*
+*The lock should record which build holds it and say so when the answer changes — "your working copy is
+building into a directory an installed 0.1.62 watcher is also writing" is a sentence that would have saved
+the whole detour. Stopping one of them is the user's call, not the tool's.*
 
 **A-7 · The boundary holds** — **P0 · Critical**
 *Shipped in 0.1.55.*

@@ -13,6 +13,31 @@ versions follow [Semantic Versioning](https://semver.org/).
 - `atlas plan` — propose the git route for the working tree and wait for approval, rather than only refusing a
   commit once it is attempted.
 
+## [0.1.63] — 2026-08-11
+
+### Fixed
+- **The dashboard server exited mid-session** (A-21). It stopped after thirty idle minutes, and idle was
+  measured correctly — an open tab polls its build stamp, so no requests really does mean no reader. What it
+  does not mean is that the work stopped. A session spent talking, writing code or running tests never
+  fetches the dashboard, so the link printed at session start went dead partway through **with nothing
+  saying so**. `on-activity.sh` now revives it on any tool use rather than only a markdown write, guarded by
+  a pidfile check costing ~22ms when the server is already up, and the idle window is four hours.
+- **The brand mark never reached the topbar.** P-4 shipped it to the footer and stopped, leaving the one
+  place a reader looks for identity as a plain text span. The topbar now carries the mark and the split
+  wordmark.
+- **The mark's viewBox was mostly empty.** The artwork spans y 13.5→108 inside a 0→128 box, so about a
+  quarter of every rendered pixel was padding and the mark drew far smaller than the box it was given —
+  which reads as a sizing bug and is not one. Cropped to the art, so raising the size raises the mark
+  rather than the emptiness. Now 1.8em, tied to the wordmark rather than to a fixed pixel count.
+
+### Note
+- **A-22 filed**: A-14's lock serialises builds but cannot tell two *different builds* apart. An installed
+  watcher and a working-copy build both hold it legitimately and overwrite each other's output — this fix
+  appeared not to work three times before that was spotted.
+- Narrow-viewport behaviour of the larger mark is **unverified**: the browser resize did not take and the
+  fallback measurement was an artifact. The existing CSS wraps the nav below 760px, which puts the brand on
+  its own row, but that is reasoning rather than a test.
+
 ## [0.1.62] — 2026-08-11
 
 ### Added

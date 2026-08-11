@@ -30,6 +30,14 @@
             "command": "S=\"${CLAUDE_PLUGIN_ROOT}/hooks/on-write.sh\"; [ -r \"$S\" ] && sh \"$S\"; exit 0"
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "S=\"${CLAUDE_PLUGIN_ROOT}/hooks/on-activity.sh\"; [ -r \"$S\" ] && sh \"$S\"; exit 0"
+          }
+        ]
       }
     ],
     "Stop": [

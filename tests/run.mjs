@@ -4302,6 +4302,28 @@ test('charts · a gap in a series breaks the line rather than being drawn throug
   includes(flat, 'Not enough history', 'one point is not a trend');
 });
 
+test('render · the brand carries the mark, and the mark fills the box it is given', () => {
+  // P-4 put the mark in the footer and stopped, so the one place a reader looks for identity — the
+  // top-left of every page — stayed a plain text span while the credit line at the bottom was branded.
+  const dir = fixture('brand-topbar', { 'docs/A.md': '# A\n' });
+  const cfg = resolveConfig(dir);
+  const index = buildIndex(dir, cfg);
+  const health = runHealth(index, cfg, dir);
+  const site = renderSite(index, health, cfg, dir);
+  const html = fs.readFileSync(path.join(site.outDir, 'index.html'), 'utf8');
+
+  const topbar = /<header class="topbar">([\s\S]*?)<\/header>/.exec(html)[1];
+  includes(topbar, 'atlas-mark', 'the topbar carries the mark, not only the footer');
+  includes(topbar, 'class="brand"');
+
+  // The viewBox is cropped to the artwork. It was 0 0 128 128 while the art spanned y 13.5→108, so about a
+  // quarter of every rendered pixel was empty padding and the mark came out far smaller than the box it was
+  // given — which reads as a sizing bug and is not one. Raising the width only scales up the emptiness.
+  const vb = /class="atlas-mark" viewBox="([^"]+)"/.exec(html)[1].split(/\s+/).map(Number);
+  ok(vb[0] > 0 && vb[1] > 0, 'the viewBox is cropped to the art, not left at the origin');
+  ok(vb[2] <= 110 && vb[3] <= 110, 'and the crop is tight enough that the mark fills its box');
+});
+
 console.log(`\n${pass} passed, ${fail} failed${skipped ? `, ${skipped} skipped on ${process.platform}` : ''}\n`);
 if (fail) {
   console.log('Failures:');

@@ -359,7 +359,7 @@ const THEME_WIRE = `(function(){
  * reader's own `siteTitle`, and stamping this tool's logo on someone else's documentation is not branding,
  * it is trespass.
  */
-export const MARK = `<svg class="atlas-mark" viewBox="0 0 128 128" width="18" height="18" aria-hidden="true" focusable="false">
+export const MARK = `<svg class="atlas-mark" viewBox="14 10 100 101" width="18" height="18" aria-hidden="true" focusable="false">
   <path d="M88 108 L26 108 C19.5 108 17.5 102 20 96.5 L56.5 19.5 C58.5 15.5 61 13.5 64 13.5 C67 13.5 69.5 15.5 71.5 19.5 L106.5 93 C108.8 98 106 103 100 103.5" fill="none" stroke="var(--atlas-contour)" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/>
   <path d="M64 28 C61.8 28 60 29.5 58.5 32.5 L33 87.5 C31 92 32.5 96.5 38 96.5 L90 96.5 C95.5 96.5 97 92 95 87.5 L69.5 32.5 C68 29.5 66.2 28 64 28 Z" fill="none" stroke="var(--atlas-contour)" stroke-width="4.2" stroke-linejoin="round"/>
   <path d="M64 44 C62.5 44 61.4 45 60.4 47 L44.5 81 C43 84.2 44.2 87 48 87 L80 87 C83.8 87 85 84.2 83.5 81 L67.6 47 C66.6 45 65.5 44 64 44 Z" fill="var(--atlas-summit)" stroke="var(--atlas-summit)" stroke-width="4" stroke-linejoin="round"/>
@@ -393,7 +393,14 @@ ${extraHead}
 </head>
 <body>
 <header class="topbar">
-  <a class="brand" href="${base}index.html">${escapeHtml(siteTitle)}</a>
+  <a class="brand" href="${base}index.html">${MARK}<span class="brand-text">${
+    // The wordmark is split so the generic half recedes and the name carries: the same treatment the
+    // footer already used, which is why the two disagreed until now. P-4 put the mark in the footer and
+    // stopped, so the one place a reader looks for identity — the top-left of every page — stayed a plain
+    // text span while the credit line at the bottom was branded.
+    siteTitle === 'project-atlas'
+      ? '<span class="wordmark"><span>project-</span>atlas</span>'
+      : escapeHtml(siteTitle)}</span></a>
   <nav>
     ${(nav || []).map((n) => `<a href="${escapeAttr(base + n.href)}"${n.current ? ' aria-current="page"' : ''}>${escapeHtml(n.label)}</a>`).join('\n    ')}
     <button type="button" class="theme-toggle" id="themeToggle" aria-label="Theme: system">◐</button>
@@ -791,6 +798,19 @@ footer { border-top:1px solid var(--line); padding:20px 5%; color:var(--muted); 
 .genby { display:flex; align-items:center; gap:9px; margin:0; }
 .atlas-mark { flex:0 0 auto; }
 .wordmark span { color:var(--atlas-ink-soft); font-weight:500; }
+/* The mark sits with the wordmark rather than floating beside it: baseline-aligned, and it never shrinks
+   when the nav wraps on a narrow viewport — a logo that squashes at 390px is worse than no logo. */
+/* The mark is sized to the wordmark, not to a number picked once and left. 18px beside ~17px text read as
+   an afterthought — a logo smaller than the letters next to it looks dropped in rather than designed.
+   1.8em ties it to the text, so it stays proportional if the topbar type ever changes.
+   **The viewBox was the real problem.** The artwork spans y 13.5→108 inside a 0→128 box, so about a
+   quarter of every rendered pixel was empty padding and the triangle came out far smaller than the box it
+   was given. Cropping the viewBox to the art makes the drawn mark fill its space, which is why this reads
+   as bigger without the layout moving. The footer keeps a smaller mark deliberately: there it is a credit,
+   and a credit competing with its own sentence is the opposite mistake. */
+.brand { display:inline-flex; align-items:center; gap:9px; text-decoration:none; }
+.brand .atlas-mark { flex:0 0 auto; width:1.8em; height:1.8em; }
+.brand-text { line-height:1; }
 .wordmark { color:var(--atlas-summit); }
 
 h1 { font-size:30px; line-height:1.25; margin:8px 0 12px; letter-spacing:-.01em; }

@@ -104,8 +104,24 @@ export function deregisterServer(root) {
   try { fs.writeFileSync(registryPath(), JSON.stringify(live, null, 2), 'utf8'); } catch {}
 }
 
-/** Thirty minutes of nobody asking for anything. Long enough to read, short enough not to be litter. */
-export const DEFAULT_IDLE_MS = 30 * 60 * 1000;
+/**
+ * How long the server tolerates having no reader.
+ *
+ * **The timer measures the right thing only because an open page polls.** A dashboard tab fetches its build
+ * stamp every few seconds, so requests keep arriving as long as somebody has it open — "no requests" really
+ * does mean "no reader", not "the developer is thinking".
+ *
+ * It was thirty minutes, which was wrong for the case that actually happens: a session where nobody opens
+ * the dashboard for half an hour, the server exits, and the link that was printed at session start is dead
+ * for the rest of the session with nothing saying so. That is the *silent* failure this whole feature
+ * exists to remove, reintroduced by its own safety valve.
+ *
+ * Four hours instead. Long enough to outlast a working session; short enough that a machine left overnight
+ * is not still serving in the morning. The value is a compromise rather than a discovery, so it is
+ * configurable — and the more important half of the fix is that the server is now revived on any session
+ * activity rather than only on a markdown write.
+ */
+export const DEFAULT_IDLE_MS = 4 * 60 * 60 * 1000;
 
 const TYPES = {
   '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8',
