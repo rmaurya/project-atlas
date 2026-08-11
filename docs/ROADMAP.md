@@ -34,7 +34,7 @@ measured against the code — the same distinction the tool preserves everywhere
 | A-16 | 100 | A-17 | 100 | A-18 | 100 |
 | A-19 | 100 | P-7 | 100 | P-8 | 100 |
 | A-20 | 100 | A-21 | 100 | A-22 | 100 |
-| A-23 | 100 | A-24 | 100 | | | | |
+| A-23 | 100 | A-24 | 100 | M-3 | 40 |
 
 ---
 
@@ -807,3 +807,23 @@ a session driver is a different product that would happen to live in the same pa
 version is narrow — a thin wrapper that runs an atlas-shaped task headlessly and returns structured output,
 so CI or a local tool can ask for a health report or a publish dry-run without a terminal. Anything wider
 than that is a general-purpose agent runner wearing this project's name.*
+
+**M-3 · The control plane belongs outside this tool** — **P2 · Medium**
+*Designed, not built here. [`agent-control.md`](references/agent-control.md).*
+*The request that produced this item was to give the MCP server full control so an external orchestrator
+could drive development through it. **That cannot be built**, and the reason is the same one M-1 and M-2 both
+recorded: MCP runs client → server, so a server publishes tools a client chooses to call and has no channel
+to start work, steer a run, or answer a question. Built literally, the request yields a corpus server with
+its read-only guarantee deleted and none of the control anyone asked for — which is the failure `mcp.mjs`
+names in its own header.*
+*The capability is real and lives on the Agent SDK, so the two planes are drawn apart rather than merged:
+the orchestrator drives sessions, and those sessions call this tool's read-only server through
+`options.mcpServers`. The corpus stays queryable from inside a driven run without the server gaining any
+ability to drive one, and the test asserting no handler reaches a writing module keeps passing.*
+***The one detail that decides whether the safety story survives automation:*** *`canUseTool` is not invoked
+for auto-approved tools, so a refusal implemented only there has a hole precisely where it matters — the
+configuration that makes a run autonomous is the configuration that skips the check. The push and publish
+refusals must be a `PreToolUse` hook, which runs first and fires on every call, with a deny rule behind it
+and a test that fails when the hook is removed. An untested refusal is a claim.*
+*The runner itself is not built here, for the reason M-2 already gave. What this project owes an external
+driver is the contract, and that is what the reference document is.*

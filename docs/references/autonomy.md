@@ -252,3 +252,11 @@ Stated explicitly, in the same spirit as the dashboard's own "what this does not
 - Rewrite prose. It maintains metadata, indexes and derived pages; the words stay yours.
 - Force past a guard. Every refusal that exists today still refuses.
 - Act on a repository that has no `project-atlas.config.json`. Adoption is a decision, not a default.
+
+**The line does not move when a machine takes the last seat.** Everything above was written for a session a
+person is present for, and the obvious next question is whether it relaxes once an external orchestrator is
+driving Claude Code with nobody watching. It does not — and the refusal has to be re-implemented in the
+driver, because none of this project's guards run inside somebody else's harness.
+[`agent-control.md`](agent-control.md) carries that contract, including the detail that decides whether it
+holds: the permission callback is skipped for auto-approved tools, so the refusal belongs in a `PreToolUse`
+hook rather than the callback everyone reaches for first.

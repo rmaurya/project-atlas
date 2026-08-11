@@ -208,6 +208,9 @@ Load on demand — do not read these unless the task calls for them.
 - `docs/references/maintenance.md` — the ongoing loop, triggers, and the abandonment criterion
 - `docs/references/configuration.md` — every config key
 - `docs/references/branching.md` — how work reaches `main`, and the trailers `atlas contrib` reads
+- `docs/references/agent-control.md` — **read before anyone asks the MCP server to drive a session.** It
+  cannot: MCP runs client → server. The Agent SDK is the surface that can, and the safety contract a driver
+  owes this project is written there.
 
 The page skeletons — an index, a cluster overview, a developer manual, an architecture document — are section
 3 of `docs/references/authoring.md`. There is no separate templates directory.

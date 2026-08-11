@@ -6,8 +6,8 @@ _Written by `atlas worklog`. Measured from git and the corpus; no prompt text, a
 
 | | |
 |---|---|
-| Commits | 19 |
-| Lines | +5,571 / −218 |
+| Commits | 20 |
+| Lines | +7,717 / −244 |
 | Desks | rajneesh-maurya |
 | Rework rate | 81.9% — a file re-touched within 3 days |
 | Reverts | 0 |
@@ -65,6 +65,7 @@ _Written by `atlas worklog`. Measured from git and the corpus; no prompt text, a
 - `4b13d4a` feat(mcp,blueprint,continuity): the last five items, and three defects they exposed (M-1, M-2, S-3, A-20, A-22)
 - `1741597` chore(record): the session's journal and worklog
 - `91c3de7` fix(serve,dashboard): the link was only ever printed by the one hook a first run cannot reach (A-23, A-24)
+- `92ee74a` feat(mcp,statusline,dashboard): three surfaces that each answered a question nobody could get an answer to (A-23, A-24)
 
 ---
 
