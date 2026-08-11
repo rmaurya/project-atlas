@@ -32,6 +32,22 @@ jobs:
       # every three seconds all night.
       - name: Build the site
         run: node scripts/atlas.mjs build --stamp
+
+      # **The one publish path that does not go through `atlas publish`.** `stagePages` strips the panels that
+      # describe the machine that built the site — work in flight, the session's task list — and this workflow
+      # uploads the built directory straight to Pages instead, so it never saw that strip. On a CI runner the
+      # tree is clean and there is no task log, so the panels render empty rather than leaking; the point is
+      # that "renders empty" is a property of the runner, not a guarantee of the pipeline. A self-hosted
+      # runner, a cached workspace, or a future panel that reads something else would publish it. So the same
+      # function runs here, on the same directory, before the upload.
+      - name: Strip local-only panels before publishing
+        run: |
+          node --input-type=module -e "
+            import { stripLocalOnlyTree } from './scripts/lib/publish.mjs';
+            stripLocalOnlyTree('docs/_wiki');
+            console.log('local-only panels stripped from docs/_wiki');
+          "
+
       - uses: actions/upload-pages-artifact@v3
         with: { path: docs/_wiki }
 

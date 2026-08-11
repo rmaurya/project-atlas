@@ -408,7 +408,7 @@ export function stagePages(root, cfg, { push = false } = {}) {
 }
 
 /** Apply `stripLocalOnly` to every HTML file in a staged tree, in place. */
-function stripLocalOnlyTree(dir) {
+export function stripLocalOnlyTree(dir) {
   for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
     const p = path.join(dir, e.name);
     if (e.isDirectory()) { stripLocalOnlyTree(p); continue; }
