@@ -25,3 +25,6 @@
 {"at":"2026-08-11T11:10:47.697Z","agent":"subagent","kind":"progress","text":"a subagent finished on main at fc98d77","refs":["main@fc98d77"]}
 {"at":"2026-08-11T11:10:56.871Z","agent":"main","kind":"trap","text":"A-22's warning cannot fire against a build that predates it","refs":["scripts/lib/lock.mjs"],"why":"The older build never writes the owner record, so the newer one sees itself as last holder and stays silent. Inherent: an old build cannot announce what it does not know about. Works between any two builds carrying the code."}
 {"at":"2026-08-11T11:10:56.964Z","agent":"main","kind":"trap","text":"a subagent ran git stash on the shared working tree and discarded a journal record","refs":[".atlas/journal"],"why":"Parallel agents share one tree. Stash/pop is not safe there — the pop collided with files the test run had rewritten, and checkout -- discarded a record written seconds earlier. Agents must be told not to stash."}
+{"at":"2026-08-11T11:39:59.421Z","agent":"main","kind":"progress","text":"work landed on main — now at 4b13d4a","refs":["main@4b13d4a"]}
+{"at":"2026-08-11T11:40:04.591Z","agent":"subagent","kind":"progress","text":"a subagent finished on main at 4b13d4a","refs":["main@4b13d4a"]}
+{"at":"2026-08-11T11:43:09.768Z","agent":"subagent","kind":"progress","text":"a subagent finished on main at 4b13d4a","refs":["main@4b13d4a"]}
