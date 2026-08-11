@@ -36,6 +36,7 @@ export const PANELS = {
   signals: 'Every rot signal this tool checks for, including the ones that found nothing',
   charts: 'Contribution, effort and plan composition, derived from git and the plan',
   designRecord: 'Which design artifacts exist: HLD, LLD, data flow, decision records, specifications',
+  blueprint: 'The design record assembled into one reading, in dependency order, out of the documents themselves',
   undesigned: 'Code areas no design document cites',
   citations: 'Per design document: how many code citations, and how many still resolve',
   backlog: 'Every task in full: description, the documents that specify it, and who worked on it',
@@ -84,6 +85,17 @@ export const DEFAULT_VIEWS = [
     blurb: 'The design record — HLD, LLD, specifications — and where it has drifted from the code it cites.',
     clusters: ['engineering', 'specs'],
     panels: ['designRecord', 'decisions', 'undesigned', 'citations', 'documents', 'health', 'clusters', 'caveats'],
+  },
+  {
+    // Its own page, and one panel on it. The Architecture view is a set of measurements *about* the design
+    // record — how many artifacts exist, which citations still resolve, what is undesigned. This is the
+    // record itself, read end to end in the order the documents depend on each other. Neither is a filter of
+    // the other, and folding this in as a ninth panel over there would put a reading order inside a masonry
+    // of peers.
+    id: 'blueprint', title: 'Blueprint', nav: true,
+    blurb: 'What the system is, how it hangs together, and what was decided — assembled from the design documents, never written here.',
+    clusters: ['engineering', 'specs'],
+    panels: ['blueprint', 'caveats'],
   },
   {
     id: 'developer', title: 'Developer', nav: true,

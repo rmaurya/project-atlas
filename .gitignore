@@ -17,3 +17,7 @@ docs/_wiki/
 .atlas/dashboards.html
 # Held for the length of a build, released after — churn, not record.
 .atlas/build.lock
+
+# Which build last built here, so a second one can say it disagrees. It names an absolute path on one
+# machine, so committing it would put someone else's checkout location in everybody's diff.
+.atlas/build.owner.json

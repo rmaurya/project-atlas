@@ -13,6 +13,34 @@ versions follow [Semantic Versioning](https://semver.org/).
 - `atlas plan` — propose the git route for the working tree and wait for approval, rather than only refusing a
   commit once it is attempted.
 
+## [0.1.64] — 2026-08-11
+
+### Added
+- **`atlas mcp`** (M-1) — the corpus over MCP on stdio: seven read-only tools returning structure rather
+  than terminal output. **The dependency was declined deliberately**: the surface needed is `initialize`,
+  `tools/list`, `tools/call` and one notification over newline-delimited JSON-RPC — about one file, against
+  a first runtime dependency for a tool whose distribution story is "clone it and run it with Node". The
+  cost is named: when the protocol revises, that file is ours.
+- **`atlas ask <task>`** (M-2) — one structured answer for a program. Exit **0** clean, **1** findings,
+  **2** could not answer. The 1/2 split is the point: a tool that fails both ways tells a pipeline the docs
+  are broken when the truth was that atlas could not run.
+- **The blueprint** (S-3) — one page assembling the design record in dependency order. Every field is read
+  off a document; the assembler contributes only the order. A scaffold is never laid out in the shape a
+  written document gets, and the page says what it owes.
+
+### Fixed
+- **A journal record named a subagent that never ran** (A-20). The hook recorded the event it was *told*
+  about rather than the one it observed. It now reads `hook_event_name` off the payload — that field only —
+  and when none can be read it records the boundary with no actor at all. An unattributed true statement
+  beats an attributed false one.
+- **Two builds of different versions silently overwrote each other's output** (A-22). They never overlap in
+  time, so the lock is always gone by the time the other looks — only a record that outlives it can see the
+  disagreement. The holder's version and path are now recorded and reported, and the build proceeds: whose
+  build wins is the user's call. **It cannot fire against a build that predates it**, including the
+  collision that motivated it — an old build cannot announce what it does not know about.
+- **`atlas ask` pointed at an unadopted directory reported 1,389 findings** as though it were a corpus — a
+  number CI would have failed on, about files that were never documentation. It refuses with exit 2.
+
 ## [0.1.63] — 2026-08-11
 
 ### Fixed

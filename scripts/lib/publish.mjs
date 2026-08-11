@@ -753,6 +753,7 @@ export const BUNDLE_PAGES = [
   { file: 'view-product', label: 'Product' },
   { file: 'view-delivery', label: 'Delivery' },
   { file: 'view-architecture', label: 'Architecture' },
+  { file: 'view-blueprint', label: 'Blueprint' },
   { file: 'view-developer', label: 'Developer' },
   { file: 'view-executive', label: 'Executive' },
   { file: 'wiki', label: 'Wiki' },

@@ -18,7 +18,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { designRecord, undesigned, citationHealth, isDesignDoc } from './design.mjs';
+import { designRecord, blueprint, undesigned, citationHealth, isDesignDoc } from './design.mjs';
 import { escapeHtml, escapeAttr, renderMarkdown } from './markdown.mjs';
 import { SIGNALS } from './health.mjs';
 import { taskCoverage } from './contrib.mjs';
@@ -103,7 +103,11 @@ export function viewPage(view, ctx, shell) {
   // between them and wrong here: it puts Track 6 beside Track 1 and breaks the sequence the plan encodes.
   // The stylesheet already says masonry is "only applied where the panels are peers with no narrative order";
   // this is the case that rule was describing.
-  const isReading = rendered.some((b) => b.id === 'backlog');
+  //
+  // The blueprint is the same case for a stronger reason: its sections are in dependency order, so column
+  // packing would set the low-level design beside the requirements it was derived from and hand a reader the
+  // detail before the thing it is detail of — the exact defect the page was built to remove.
+  const isReading = rendered.some((b) => b.id === 'backlog' || b.id === 'blueprint');
   // **Full-width panels lead.**
   //
   // `column-span:all` splits a multi-column flow into fragments: everything before the spanning element is
@@ -172,6 +176,7 @@ function panel(id, { index, health, plan, cfg, contrib, view, nameFor, repo }) {
     case 'recent': return hasContrib ? recentPanel(contrib, plan) : null;
     case 'testcases': return testcasesPanel(repo);
     case 'designRecord': return designRecordPanel(index, pageOf);
+    case 'blueprint': return blueprintPanel(index, pageOf);
     case 'undesigned': return undesignedPanel(repo, index);
     case 'citations': return citationsPanel(index, pageOf);
     case 'caveats': return caveats(plan, health, contrib);
@@ -1274,6 +1279,18 @@ abbr { text-decoration:none; cursor:help; color:var(--muted); }
  * above the first task, so the page opened on nothing but filters. A flex-basis small enough for two to
  * share a row halves that, and the selects still grow to fill whatever width is going. */
 .bl-f { display:flex; flex-direction:column; gap:3px; flex:1 1 132px; min-width:0; }
+
+/* Blueprint — a reading order, so one column of sections rather than a masonry of peers.
+ * The state pill sits in the heading and always carries a word; the section that owes its substance is set
+ * apart from the one that has it, so the two can never be told apart by colour alone or missed at a glance. */
+.bp-sec { margin:0 0 12px; }
+.bp-sec h2 { display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; margin-bottom:8px; }
+.bp-meta { margin:0 0 8px; }
+.bp-meta code { font-size:12px; }
+.bp-quote { margin:0 0 12px; padding:2px 0 2px 14px; border-left:3px solid var(--line);
+  color:var(--ink-soft); font-size:14px; max-width:68ch; }
+.bp-toc, .bp-owed { margin:6px 0 0; }
+.bp-owed li { color:var(--muted); }
 ${catTokens()}
 .chart-wall { display:grid; grid-template-columns:repeat(auto-fit, minmax(260px, 1fr)); gap:22px 26px; margin-top:14px; }
 .chart { margin:0; min-width:0; }
@@ -1808,6 +1825,108 @@ function designRecordPanel(index, pageOf) {
     </tbody>
   </table></div>
 </section>`;
+}
+
+/**
+ * One page that assembles the design record — and assembling is the whole of what it does.
+ *
+ * HLD, LLD, SRS, PRD and the manual of style are written separately and read separately, so nobody holds the
+ * shape of the system in one view. The obvious implementation of this page is the one thing it must not do:
+ * generating the prose that ties the documents together would put design claims nobody reviewed into the
+ * corpus every other check on this site measures drift against, and a blueprint that reads as prose the tool
+ * wrote is precisely the defect this project exists to detect.
+ *
+ * So every line below is a link, a heading, a date, a count, or a paragraph quoted verbatim. The three states
+ * are labelled per section and never collapsed, because the interesting case is the one this repository is
+ * in: eight scaffolds and nothing written. A section backed by a scaffold has to say the substance is owed.
+ * Laying that scaffold's headings out in the same shape a written document gets would produce a page that
+ * looks like a design record and contains none — worse than the gap it papered over, since an absence is
+ * visible and a false presence is trusted.
+ */
+function blueprintPanel(index, pageOf) {
+  const sections = blueprint(index.documents);
+  const tally = (s) => sections.filter((x) => x.state === s).length;
+  const written = tally('written'), scaffolded = tally('stub'), absent = tally('absent');
+
+  // `pages/` prefix: views are written at the root of the output directory and document pages live one level
+  // down. Linking to the bare page name produced a dead link the site verifier caught — the same mistake the
+  // decisions panel carries a note about, and the reason that verifier runs on every build.
+  const href = (p, slug) => `pages/${escapeAttr(pageOf(p))}${slug ? `#${escapeAttr(slug)}` : ''}`;
+  const list = (d, cls) => (d.sections.length
+    ? `<ul class="linklist ${cls}">${d.sections.map((h) =>
+        `<li><a href="${href(d.path, h.slug)}">${escapeHtml(h.text)}</a></li>`).join('')}</ul>`
+    : '');
+
+  const body = sections.map((s) => {
+    // Three tones and three words. The pill carries the state as text as well as colour, because a reader
+    // who cannot separate the two hues would otherwise be told nothing at all about what is owed.
+    const tone = s.state === 'written' ? 'done' : s.state === 'stub' ? 'mid' : 'none';
+    const badge = s.state === 'written' ? 'written' : s.state === 'stub' ? 'scaffold · substance owed' : 'absent';
+    const head = `<h2>${escapeHtml(s.label)} <span class="pill t-${tone}">${badge}</span></h2>`;
+
+    if (s.state === 'absent') {
+      // Kept to one line. A section rendered empty here would read as a decision that was taken and merely
+      // not typed up, and the reasoning for saying so belongs at the top of the page rather than seven times
+      // down it.
+      return `<section class="card bp-sec" id="bp-${escapeAttr(s.id)}">${head}
+  <p class="empty">Nothing in the corpus is this artifact, so this part of the blueprint does not exist.
+  <code>atlas design --scaffold --only=${escapeHtml(s.id)}</code> writes the questions it owes, never the
+  answers.</p>
+</section>`;
+    }
+
+    const docs = s.documents.map((d) => {
+      // Citation health beside the section, not on a separate page. A design document that cites no code
+      // cannot go stale against anything, which is a different claim from one whose citations are sound, and
+      // both are different from one whose citations no longer resolve.
+      const cites = d.citations.total
+        ? `${d.citations.total} citation(s), ${d.citations.resolved} resolving` +
+          (d.citations.broken ? ` · <span class="bad">${d.citations.broken} broken</span>` : '') +
+          (d.citations.unchecked ? ` · ${d.citations.unchecked} not checked` : '')
+        : 'cites no code, so nothing here can go stale against the source';
+      // The document's own title is dropped when it only repeats the artifact's name, which it usually does
+      // for a scaffold — eight sections each announcing their own heading twice is noise a reader learns to
+      // skip, and the path is the part that identifies the file.
+      const name = d.title && d.title !== s.label
+        ? `${escapeHtml(d.title)} <code>${escapeHtml(d.path)}</code>` : `<code>${escapeHtml(d.path)}</code>`;
+      const meta = `<p class="det bp-meta"><a href="${href(d.path)}">${name}</a> · last touched ${
+        escapeHtml(d.date || 'unknown')} · ${cites}</p>`;
+
+      if (d.stub) {
+        // Short, because it appears once per scaffolded artifact and the reason a scaffold is not a design
+        // record is stated once at the top. Long enough that a section skimmed on its own still says it.
+        return `${meta}
+  <p class="empty"><strong>The substance is owed.</strong> The questions below are written down; the answers
+  are not, and nothing on this page stands in for them.</p>
+  ${d.sections.length ? `<p class="bl-sub">Questions still unanswered</p>${list(d, 'bp-owed')}` : ''}`;
+      }
+      return `${meta}
+  ${d.excerpt ? `<blockquote class="bp-quote">${escapeHtml(d.excerpt)}</blockquote>` : ''}
+  ${d.sections.length ? `<p class="bl-sub">What it covers</p>${list(d, 'bp-toc')}`
+    : '<p class="empty">The document carries no section headings, so there is nothing to assemble beyond its title.</p>'}`;
+    }).join('\n');
+
+    return `<section class="card bp-sec" id="bp-${escapeAttr(s.id)}">${head}${docs}</section>`;
+  }).join('\n');
+
+  return `
+<section class="card" id="blueprint">
+  <h2>Blueprint</h2>
+  <p class="cap">The design record read as one document, in the order the documents depend on each other:
+  what the system is for, what it must do, how it hangs together, and what was decided.
+  <strong>Every line below is quoted from or links to a document in this corpus.</strong> None of it is
+  written here — a generated blueprint would be a design claim nobody reviewed, sitting in the very corpus
+  every other check on this site measures drift against. A section marked <strong>scaffold</strong> has a
+  file behind it and no substance in it, and is never laid out as though it had; one marked
+  <strong>absent</strong> is named rather than skipped, because a section quietly missing from a blueprint
+  reads as a decision that was taken and merely not typed up.</p>
+  <p class="det">Of ${sections.length} expected artifacts: <strong>${written}</strong> written,
+  <strong>${scaffolded}</strong> scaffolded with the substance still owed, <strong>${absent}</strong> absent.
+  ${written ? '' : `<strong>No section below has a written document behind it</strong>, so this page is an
+  inventory of what the design record owes rather than a design record. That is the honest reading of a
+  corpus of scaffolds, and it is the one thing a page like this must not disguise.`}</p>
+</section>
+${body}`;
 }
 
 /** The inversion: what is built and undescribed. The only panel here that finds an unknown unknown. */

@@ -47,13 +47,15 @@ import { ownership, areaOf, summariseOwnership } from '../scripts/lib/ownership.
 import { survivingLines } from '../scripts/lib/surviving.mjs';
 import { setItemPercent, itemFromBranch, contradictsPlan, STARTED_PERCENT } from '../scripts/lib/progress.mjs';
 import { handoffAge, handoffsIn, formatHandoffPrompt } from '../scripts/lib/handoff.mjs';
-import { acquire as acquireLock, STALE_AFTER_MS } from '../scripts/lib/lock.mjs';
+import { acquire as acquireLock, foreignBuildWarning, STALE_AFTER_MS } from '../scripts/lib/lock.mjs';
 import { readObligations, evaluate as evaluateSop, parseInterval, DEFAULT_SOP_MATCH } from '../scripts/lib/sop.mjs';
 import { note as journalNote, read as journalRead, MAX_TEXT, slugCollisions } from '../scripts/lib/journal.mjs';
 import { testInventory, casesInFile } from '../scripts/lib/testcases.mjs';
 import { designRecord, undesigned, citationHealth, EXPECTED } from '../scripts/lib/design.mjs';
 import { scaffold as scaffoldDesign, TEMPLATES } from '../scripts/lib/scaffold.mjs';
 import { renderLauncher, launcherProjects } from '../scripts/lib/launcher.mjs';
+import { handle as mcpHandle, TOOLS as MCP_TOOLS, PROTOCOL_VERSION as MCP_VERSION } from '../scripts/lib/mcp.mjs';
+import { runTask, TASKS } from '../scripts/lib/task.mjs';
 import { manifestUrl, checkForUpdate, fetchLatest, readCache, writeCache, isFresh } from '../scripts/lib/update.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -73,13 +75,18 @@ const POSIX_SHELL = process.platform !== 'win32';
 // escaping it guards is platform-independent and stays covered on Linux and macOS; what Windows cannot do is
 // hold the fixture. Skipped by name and counted, never quietly passed.
 const POSIX_FILENAMES = process.platform !== 'win32';
+// The continuity hook reads `hook_event_name` out of the payload with `jq`, so the test proving it believes
+// what it observed over what it was told cannot run where there is no `jq`. The hook itself degrades to an
+// unattributed record there, and that half stays covered everywhere; what needs a `jq` is the half that
+// checks the attribution is right. Skipped by name and counted, for the same reason as the two above.
+const HAS_JQ = spawnSync('sh', ['-c', 'command -v jq'], { encoding: 'utf8' }).status === 0;
 let skipped = 0;
 
 let pass = 0, fail = 0;
 const failures = [];
 
 const pendingAsync = [];
-function test(name, fn, { needsPosixShell = false, needsPosixFilenames = false } = {}) {
+function test(name, fn, { needsPosixShell = false, needsPosixFilenames = false, needsJq = false } = {}) {
   if (filter && !name.toLowerCase().includes(filter.toLowerCase())) return;
   if (needsPosixShell && !POSIX_SHELL) {
     skipped++;
@@ -89,6 +96,11 @@ function test(name, fn, { needsPosixShell = false, needsPosixFilenames = false }
   if (needsPosixFilenames && !POSIX_FILENAMES) {
     skipped++;
     process.stdout.write(`  \x1b[33m-\x1b[0m ${name}  (skipped: ${process.platform} forbids " < > in filenames)\n`);
+    return;
+  }
+  if (needsJq && !HAS_JQ) {
+    skipped++;
+    process.stdout.write(`  \x1b[33m-\x1b[0m ${name}  (skipped: no jq on this machine)\n`);
     return;
   }
   try {
@@ -4322,6 +4334,272 @@ test('render · the brand carries the mark, and the mark fills the box it is giv
   const vb = /class="atlas-mark" viewBox="([^"]+)"/.exec(html)[1].split(/\s+/).map(Number);
   ok(vb[0] > 0 && vb[1] > 0, 'the viewBox is cropped to the art, not left at the origin');
   ok(vb[2] <= 110 && vb[3] <= 110, 'and the crop is tight enough that the mark fills its box');
+});
+
+test('lock · two different builds sharing one output directory are named, never refused', () => {
+  // Serialising builds is the right fix for two copies of the same build and no fix at all for two different
+  // ones: an installed plugin's watcher and a developer's working copy both take the lock legitimately, take
+  // turns politely, and overwrite each other's output. A fix appeared not to work three times in a row
+  // because the older installed build rebuilt over it seconds later.
+  const dir = fixture('build-lock-identity', { 'docs/A.md': '# A\n' });
+  const installed = { version: '0.1.62', path: '/Users/x/.claude/plugins/cache/project-atlas/atlas/0.1.62' };
+  const working = { version: '0.1.63', path: '/Users/x/Working/project-atlas' };
+
+  const a = acquireLock(dir, { build: installed });
+  eq(a.ok, true);
+  eq(a.foreign, null, 'the first build here has nobody to disagree with');
+  a.release();
+
+  // The lock is released and gone before the second build starts — which is the whole point. The two never
+  // overlap in time, so serialising them catches nothing; the record of who built here has to outlive the
+  // lock or the disagreement is invisible.
+  const b = acquireLock(dir, { build: working });
+  eq(b.ok, true, 'the build proceeds — which build should win is the user\'s call, not the tool\'s');
+  eq(b.foreign.version, '0.1.62');
+  eq(b.foreign.path, installed.path);
+  b.release();
+
+  const out = path.join(dir, 'site');
+  const msg = foreignBuildWarning(b.foreign, working, out);
+  for (const part of ['0.1.62', '0.1.63', installed.path, working.path, out]) {
+    includes(msg, part, 'the warning has to name both builds and the directory they are fighting over');
+  }
+
+  // The same build rebuilding is the normal case — a watcher does it every few seconds — and must never
+  // warn. A warning that fires constantly is one nobody reads on the day it is true.
+  const c = acquireLock(dir, { build: { ...working } });
+  eq(c.foreign, null, 'the same build twice is not a disagreement');
+  c.release();
+
+  // And none of this may touch the reason the lock exists: a lock left by a dead process is still stolen,
+  // because a wedged tool is worse than an overwritten directory of regenerable output.
+  fs.writeFileSync(path.join(dir, '.atlas', 'build.lock'), JSON.stringify({ pid: 999999999, at: Date.now() }));
+  const d = acquireLock(dir, { waitMs: 30, build: working });
+  eq(d.ok, true, 'a lock held by a dead process is still stolen');
+  eq(d.stole, true);
+  d.release();
+});
+
+console.log('\nthe continuity hook');
+
+/*
+ * A-20. The hook is shell, so it is tested the way it runs: a real payload on stdin, a real repository under
+ * the cwd, and the assertion made against the line that ended up in the journal.
+ */
+
+/** A repository the continuity hook will act on, with the marker seeded so the Stop path is not a no-op. */
+function continuityRepo(name) {
+  const dir = fixture(name, { 'project-atlas.config.json': '{}\n', 'docs/A.md': '# A\n' });
+  execFileSync('git', ['branch', '-M', 'main'], { cwd: dir, stdio: 'ignore' });
+  return dir;
+}
+
+/**
+ * Fire the hook as `hooks.json` fires it — event name as an argument, payload on stdin — and hand back the
+ * record it wrote. The marker is reset before each call because the Stop path deliberately records nothing
+ * when HEAD has not moved since the last boundary, and a test that measured silence would pass on anything.
+ */
+function fireContinuity(dir, told, payload) {
+  fs.mkdirSync(path.join(dir, '.atlas'), { recursive: true });
+  fs.writeFileSync(path.join(dir, '.atlas', 'last-stop'), 'deadbee', 'utf8');
+  const before = journalRead(dir).records.length;
+  const r = spawnSync('sh', [path.join(REPO_ROOT, 'hooks', 'on-continuity.sh'), told], {
+    cwd: dir,
+    input: typeof payload === 'string' ? payload : JSON.stringify(payload),
+    encoding: 'utf8',
+    env: { ...process.env, CLAUDE_PLUGIN_ROOT: REPO_ROOT },
+  });
+  eq(r.status, 0, 'a continuity hook fires while a session is torn down and must never fail');
+  const after = journalRead(dir).records;
+  eq(after.length, before + 1, `the hook recorded ${after.length - before} records, expected exactly 1`);
+  return after[after.length - 1];
+}
+
+/** A payload shaped like the harness's, including the field this must never read. */
+const TRANSCRIPT = '/Users/x/.claude/projects/p/9f2c.jsonl';
+const payloadFor = (event) => ({ session_id: 's1', transcript_path: TRANSCRIPT, hook_event_name: event, cwd: '/x' });
+
+test('continuity · the record names the event that fired, not the one the argument claimed', () => {
+  // `a subagent finished on main at b23b05f` was journalled in a session where no subagent ever ran. The
+  // hook is handed the event name by hooks.json, so it recorded what it was told and never what happened —
+  // an attribution nobody checked, in the one file whose entire value is that nobody has to check it.
+  const dir = continuityRepo('continuity-observed');
+  const head = execFileSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: dir, encoding: 'utf8' }).trim();
+
+  // Told `subagent`, but a Stop is what fired. This is the defect, in the direction it actually shipped.
+  const stop = fireContinuity(dir, 'subagent', payloadFor('Stop'));
+  eq(stop.agent, 'main', 'a Stop must not be tagged as a subagent because the argument said so');
+  includes(stop.text, 'work landed on main', 'the observed event decides which record gets written');
+  ok(!/subagent/.test(stop.text), `the record must not mention a subagent: ${stop.text}`);
+  includes(stop.refs.join(','), `main@${head}`);
+
+  // And the reverse, so this is not a rule that simply never writes the subagent record any more.
+  const sub = fireContinuity(dir, 'stop', payloadFor('SubagentStop'));
+  eq(sub.agent, 'subagent', 'an observed SubagentStop is exactly what the tag exists for');
+  includes(sub.text, 'a subagent finished on main');
+
+  const compact = fireContinuity(dir, 'stop', payloadFor('PreCompact'));
+  eq(compact.agent, 'compaction');
+  includes(compact.text, 'context compacted on main');
+}, { needsPosixShell: true, needsJq: true });
+
+test('continuity · a payload that names no event records the boundary and no actor', () => {
+  // Where the event cannot be read — no jq, malformed JSON, a field the harness stopped sending — the
+  // boundary is still real and the actor is not known. So the record says only the part that was observed.
+  // Falling back to the argument here is the whole defect: an unattributed true statement beats an
+  // attributed false one. This runs everywhere, because without jq it is the only path there is.
+  const dir = continuityRepo('continuity-unattributed');
+
+  for (const [what, payload] of [
+    ['the field is absent', { session_id: 's1', transcript_path: TRANSCRIPT }],
+    ['the payload is not JSON', 'not json at all'],
+    ['the payload is empty', ''],
+    ['the event is one this build does not know', payloadFor('SessionResumed')],
+  ]) {
+    const rec = fireContinuity(dir, 'subagent', payload);
+    includes(rec.text, 'a session boundary was crossed on main', `${what}: the boundary is still recorded`);
+    ok(!/subagent/.test(rec.text), `${what}: the record must name no actor, got: ${rec.text}`);
+    eq(rec.agent, 'main', `${what}: an unobserved event cannot be tagged with an agent`);
+  }
+
+  // Rule 3 of the journal, checked against the bytes on disk rather than the parsed record: the hook is now
+  // given a payload it reads, and the field next to the one it reads is the transcript.
+  const dirent = path.join(dir, '.atlas', 'journal');
+  for (const f of fs.readdirSync(dirent)) {
+    const raw = fs.readFileSync(path.join(dirent, f), 'utf8');
+    ok(!raw.includes(TRANSCRIPT), `${f} carries a transcript path — the journal never records what was said`);
+    ok(!raw.includes('9f2c.jsonl'), `${f} carries the transcript filename`);
+  }
+}, { needsPosixShell: true });
+
+console.log('\nMCP and batch answers');
+
+test('mcp · the handshake echoes the protocol version and declares only tools', () => {
+  // A client negotiating a version this file does not implement must be told plainly rather than have its
+  // messages silently mishandled.
+  const dir = fixture('mcp-init', { 'docs/A.md': '# A\n' });
+  const r = mcpHandle({ jsonrpc: '2.0', id: 1, method: 'initialize',
+    params: { protocolVersion: MCP_VERSION, capabilities: {}, clientInfo: { name: 't', version: '1' } } },
+    { root: dir, version: '9.9.9' });
+  eq(r.result.protocolVersion, MCP_VERSION);
+  eq(r.result.serverInfo.version, '9.9.9');
+  ok(r.result.capabilities.tools, 'tools are declared');
+  ok(!r.result.capabilities.resources, 'nothing is declared that is not implemented');
+
+  // A notification takes no response. Replying to one is a violation clients handle by ignoring it, which
+  // makes the mistake invisible until something stricter arrives.
+  eq(mcpHandle({ jsonrpc: '2.0', method: 'notifications/initialized' }, { root: dir }), null);
+});
+
+test('mcp · an unknown tool is a protocol error, a failing tool is a result', () => {
+  // Collapsing the two would tell a caller its request was malformed when the request was fine and the
+  // repository was the problem.
+  const dir = fixture('mcp-errors', { 'docs/A.md': '# A\n' });
+  const unknown = mcpHandle({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'nope' } }, { root: dir });
+  eq(unknown.error.code, -32602);
+  includes(unknown.error.message, 'Unknown tool');
+  ok(!unknown.result, 'a protocol error carries no result');
+
+  const bad = mcpHandle({ jsonrpc: '2.0', id: 2, method: 'nonsense' }, { root: dir });
+  eq(bad.error.code, -32601);
+});
+
+test('mcp · every exposed tool reads and none of them writes', () => {
+  // The read-only boundary is the reason this surface is safe to expose to an agent at all, so it is
+  // asserted rather than promised in a comment.
+  const src = fs.readFileSync(path.join(REPO_ROOT, 'scripts', 'lib', 'mcp.mjs'), 'utf8');
+  for (const forbidden of ['writeFileSync', 'appendFileSync', 'stagePages', 'stageWiki', 'setItemPercent', '--push']) {
+    ok(!src.includes(forbidden), `mcp.mjs must never reach ${forbidden}`);
+  }
+  ok(Object.keys(MCP_TOOLS).length >= 5, 'the tool set is not empty');
+  for (const [name, t] of Object.entries(MCP_TOOLS)) {
+    ok(typeof t.description === 'string' && t.description.length > 60,
+      `${name} needs a description that says when to call it, not just what it does`);
+    eq(t.schema.type, 'object');
+  }
+});
+
+test('ask · exit 1 is a finding, exit 2 is "I could not answer", and they are never confused', () => {
+  // A tool that exits non-zero for both tells a pipeline "documentation is broken" when the truth was
+  // "atlas could not run" — one is a real finding, the other a pipeline bug.
+  const dir = fixture('ask-codes', {
+    'project-atlas.config.json': JSON.stringify({ blocking: ['H1'] }),
+    'docs/A.md': '# A\n\n[gone](nope.md)\n',
+  });
+  const bad = runTask(dir, 'atlas_health');
+  eq(bad.ok, true, 'a finding is still a successful answer');
+  eq(bad.exitCode, 1);
+  ok(bad.blocking > 0);
+
+  eq(runTask(dir, 'nonsense').exitCode, 2, 'an unknown task could not be answered');
+
+  // **A directory that never adopted the tool is not a corpus.** Pointed at one, this scanned everything
+  // beneath it and reported 1,389 findings — a number CI would have failed on, about files that were never
+  // documentation. False and actionable are the two properties that make a wrong answer expensive.
+  const bare = fixture('ask-unadopted', { 'docs/A.md': '# A\n' });
+  fs.rmSync(path.join(bare, 'project-atlas.config.json'), { force: true });
+  const none = runTask(bare, 'atlas_health');
+  eq(none.ok, false);
+  eq(none.exitCode, 2);
+  includes(none.error, 'adopted the tool');
+});
+
+test('ask · the batch surface and the MCP surface answer from the same handlers', () => {
+  // Two surfaces answering the same question differently is a drift generator, and this project exists to
+  // detect those. They share TOOLS rather than reimplementing it.
+  eq(TASKS.join(','), Object.keys(MCP_TOOLS).join(','));
+});
+
+test('blueprint · a page assembled over scaffolds says the substance is owed, never that it exists', () => {
+  // The failure this page could commit is the one the whole project exists to detect: a blueprint that reads
+  // as prose the tool wrote. The dangerous shape is not an invented paragraph — nobody would add one — it is
+  // a scaffold's empty headings laid out in the same form a written document gets, which reads as a design
+  // record and contains none. This repository is entirely scaffolds today, so that is the case under test.
+  const dir = fixture('blueprint-stubs', { 'docs/A.md': '# A\n' });
+  const cfg = resolveConfig(dir);
+  // Seven scaffolded and the manual of style left alone, so all three states meet on one page.
+  scaffoldDesign(dir, designRecord(buildIndex(dir, cfg).documents),
+    { kinds: ['hld', 'lld', 'architecture', 'dataflow', 'specs', 'prd', 'decisions'] });
+  // Discovery is tracked-only, so a scaffold nobody committed is a scaffold no page can see.
+  execFileSync('git', ['-c', 'user.email=t@example.com', '-c', 'user.name=Test', 'add', '-A'], { cwd: dir, stdio: 'ignore' });
+  execFileSync('git', ['-c', 'user.email=t@example.com', '-c', 'user.name=Test', 'commit', '-qm', 'scaffold'], { cwd: dir, stdio: 'ignore' });
+  cfg.views = [{ id: 'blueprint', title: 'Blueprint', panels: ['blueprint'] }];
+
+  const build = () => {
+    const index = buildIndex(dir, cfg);
+    const site = renderSite(index, runHealth(index, cfg, dir), cfg, dir);
+    return { html: fs.readFileSync(path.join(site.outDir, 'view-blueprint.html'), 'utf8'), site };
+  };
+
+  const { html, site } = build();
+  includes(html, 'No section below has a written document behind it',
+    'a blueprint over nothing but scaffolds must say so at the top, not open with a summary of the design');
+  includes(html, 'The substance is owed', 'and each scaffolded section must say it again where it is read');
+  includes(html, 'Questions still unanswered');
+  // The scaffold's own headings, quoted. Nothing else on a stub section may be prose.
+  includes(html, 'What was considered and rejected');
+  ok(!/<blockquote/.test(html), 'a scaffold\'s boilerplate is never quoted as though it described the system');
+
+  // Absence is reported, and reported as a finding rather than as an empty section that looks finished.
+  includes(html, 'Manual of style');
+  includes(html, 'Nothing in the corpus is this artifact');
+  includes(html, 'atlas design --scaffold --only=style');
+
+  // Views live at the output root and document pages one level down, so every link here needs the `pages/`
+  // prefix. Getting it wrong is a dead link, which is what the verifier is for.
+  ok(/href="pages\/[^"]*#/.test(html), 'a question links to the heading in the document that owes it');
+  eq(verifySite(site.outDir).filter((f) => f.rule === 'dead-link').length, 0);
+
+  // Now write one of them for real. The written section gains the document's own opening paragraph — quoted,
+  // not composed — and the page stops describing itself as an inventory of what is owed. The other six say
+  // exactly what they said before, because nothing about them changed.
+  fs.writeFileSync(path.join(dir, 'docs', 'design', 'ARCHITECTURE.md'),
+    '# Architecture overview\n\nA CLI over a markdown corpus, and nothing else.\n\n## What loads first\n\nThe scanner.\n');
+  const after = build().html;
+  includes(after, 'A CLI over a markdown corpus, and nothing else.');
+  includes(after, 'What it covers');
+  ok(!after.includes('No section below has a written document behind it'), 'one written artifact and the claim retires');
+  includes(after, 'The substance is owed', 'the six that are still scaffolds still owe their substance');
 });
 
 console.log(`\n${pass} passed, ${fail} failed${skipped ? `, ${skipped} skipped on ${process.platform}` : ''}\n`);

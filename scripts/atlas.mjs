@@ -54,9 +54,11 @@ import { survivingLines, formatSurviving } from './lib/surviving.mjs';
 import { note, read as readJournal, formatState, KINDS } from './lib/journal.mjs';
 import { setItemPercent, itemFromBranch, contradictsPlan, STARTED_PERCENT } from './lib/progress.mjs';
 import { handoffPath, handoffAge, formatHandoffPrompt, DEFAULT_STALE_AFTER } from './lib/handoff.mjs';
+import { serve as serveMcp } from './lib/mcp.mjs';
+import { runTask, formatTask, TASKS } from './lib/task.mjs';
 import { designRecord } from './lib/design.mjs';
 import { scaffold as scaffoldDesign } from './lib/scaffold.mjs';
-import { acquire as acquireBuildLock } from './lib/lock.mjs';
+import { acquire as acquireBuildLock, foreignBuildWarning } from './lib/lock.mjs';
 import { renderLauncher, launcherProjects } from './lib/launcher.mjs';
 import { startServer, spawnDetached, serverStatus, stopServer, writePid, clearPid, openInBrowser, portInUse, unmanagedServer,
          portForRoot, readRegistry, registerServer, deregisterServer, DEFAULT_PORT, DEFAULT_IDLE_MS } from './lib/serve.mjs';
@@ -68,7 +70,7 @@ const argv = process.argv.slice(2);
  * boolean, so a positional after a boolean flag stays positional — `atlas tasks --json safety` keeps `safety`
  * as the filter rather than swallowing it as `--json`'s value.
  */
-const VALUE_FLAGS = new Set(['target', 'page', 'out', 'root', 'config', 'interval', 'refs', 'agent', 'since', 'day', 'why', 'port', 'idle-ms', 'item', 'only']);
+const VALUE_FLAGS = new Set(['target', 'page', 'out', 'root', 'config', 'interval', 'refs', 'agent', 'since', 'day', 'why', 'port', 'idle-ms', 'item', 'only', 'query']);
 
 const { cmd, positionals, flags } = parseArgs(argv);
 
@@ -543,6 +545,46 @@ async function main() {
     say('  reports them as stubs rather than as documents. Delete the marker line when the substance is');
     say('  there — nothing removes it for you, because nothing else can know that it is.');
     say('');
+    return;
+  }
+
+  /*
+   * `atlas mcp` — the same derived data, as structure rather than terminal output.
+   *
+   * Read-only by construction: see mcp.mjs. Nothing is printed to stdout but protocol messages, so the
+   * usual `say()` is deliberately absent from this branch.
+   */
+  /*
+   * `atlas ask <task>` — one structured answer with a meaningful exit code, for a caller that is a program.
+   *
+   * This is M-2's honest scope: CI, a hook or an editor plugin wants "is the documentation sound, and what
+   * is wrong" without a terminal and without parsing output written for a person. It does not drive a
+   * session — see task.mjs for why that belongs to the Agent SDK rather than here.
+   */
+  if (cmd === 'ask') {
+    const task = positionals[0];
+    if (!task) {
+      say('');
+      say('  atlas ask <task> [--json]        one structured answer, for software rather than a terminal');
+      say('');
+      for (const t of TASKS) say(`    ${t}`);
+      say('');
+      say('  Exit 0 answered and clean · 1 answered and something blocking · 2 could not answer.');
+      say('  The 1/2 split is the point: a build should fail on findings, not on a tool that could not run.');
+      say('');
+      return;
+    }
+    const args = {};
+    if (flag('open')) args.open = true;
+    if (typeof flag('query') === 'string') args.query = flag('query');
+    const r = runTask(root, task, args);
+    console.log(formatTask(r));
+    process.exitCode = r.exitCode;
+    return;
+  }
+
+  if (cmd === 'mcp') {
+    serveMcp({ root, version: runningBuild().version });
     return;
   }
 
@@ -1196,12 +1238,20 @@ function doBuild(root, cfg, withGit, withReport, { stamp = false, autoDerived = 
   // One build at a time. A watcher now always runs, so an overlapping build is the normal case — and the
   // overlap is not benign: the output directory is cleared and repopulated, and whichever build reads it
   // mid-clear sees content with none of its markers and refuses. See lock.mjs.
-  const lock = acquireBuildLock(root);
+  const running = runningBuild();
+  const lock = acquireBuildLock(root, { build: { version: running.version, path: running.pluginRoot } });
   if (!lock.ok) {
     say(`  Another build is running (pid ${lock.heldBy}); skipped after waiting ${Math.round(lock.waited / 1000)}s.`);
     return { pages: 0, outDir: path.resolve(root, cfg.output), health: { blockingCount: 0 }, skipped: true };
   }
   if (lock.stole) say('  Took over a stale build lock — a previous build did not finish.');
+  // Two different builds taking turns over one output directory is silent and it lies about the code: the
+  // fix you just made appears not to work because the other build rebuilt over it. It goes to stderr and
+  // ignores --quiet, because a quiet build is still a build whose output is about to be overwritten.
+  if (lock.foreign) {
+    console.error(foreignBuildWarning(lock.foreign, { version: running.version, path: running.pluginRoot },
+                                      path.resolve(root, cfg.output)));
+  }
   try {
   const index = buildIndex(root, cfg, { withGit });
   const health = runHealth(index, cfg, root);
@@ -1372,6 +1422,8 @@ function usage() {
   atlas tokens [--out FILE]  token accounting from local session transcripts — opt-in, never published
   atlas sessions [--out F]   how sessions went — turns, interruptions, friction, rework
   atlas prompt [--out FILE]  a system prompt assembled from this repository's own rules and state
+  atlas mcp                  serve the corpus over MCP on stdio — read-only, no dependency
+  atlas ask <task>           one structured answer for a program; exit 1 on findings, 2 if it could not run
   atlas design [--scaffold]  the design record's state; --scaffold writes questions, never answers
   atlas handoff              the derived half of a handoff, as a prompt — writes nothing
   atlas note <kind> "<text>"  append one record to the journal — survives a killed session

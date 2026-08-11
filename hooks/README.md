@@ -106,8 +106,14 @@ is advisory, and a terminated agent reads nothing — so the harness fires these
 agent cooperated.
 
 They append to `.atlas/journal/<contributor>.jsonl`, one line per record, and record **what was decided and
-touched, never what was said**. The payload is drained and discarded: it carries `transcript_path`, and
-these never open it.
+touched, never what was said**. Exactly one field is read out of the payload — `hook_event_name`, with `jq`,
+straight off the pipe. The payload also carries `transcript_path`, and these never open it.
+
+**The record names the event that fired, not the entry that invoked the script.** `hooks.json` passes the
+event as an argument, and for a while that argument was what got written down — so a session in which no
+subagent ever ran still carries `a subagent finished on main at b23b05f`. An attribution nobody checked has
+no business in the one file whose value is that nobody has to check it. When the payload and the argument
+disagree, the payload wins; when the payload does not say, no actor is named at all.
 
 - **`PreCompact`** always records. Context is about to be discarded, and whatever is not on disk when it is
   will not survive. It is rare, so it cannot flood anything.
@@ -118,6 +124,10 @@ these never open it.
   turn that moved HEAD is a boundary; a turn that did not is a heartbeat, and heartbeats do not belong in an
   append-only file. The comparison uses `.atlas/last-stop`, which is deliberately *not* part of the journal —
   it is overwritten every time, and the journal is never rewritten.
+- **An event that cannot be read** — no `jq`, a malformed payload, a name this build does not know — records
+  `a session boundary was crossed on <branch> — now at <sha>`, with no agent tag, and only when HEAD moved.
+  The boundary is not in doubt; the actor is. An unattributed true statement beats an attributed false one,
+  and the HEAD guard is what stops a machine without `jq` from writing one of these after every turn.
 
 All three are inert unless the repository has a `project-atlas.config.json`, and all three exit 0 always:
 they fire while a session is being torn down, and failing there would turn a missing record into a visible

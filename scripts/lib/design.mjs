@@ -84,6 +84,68 @@ export function designRecord(documents) {
 }
 
 /**
+ * The order the blueprint reads the record in.
+ *
+ * Dependency order, not the order `EXPECTED` happens to list. Each artifact below is written against the one
+ * above it: intent, then the requirements drawn from it, then the orientation a newcomer needs, then the
+ * shape, then what moves through the shape, then the detail inside the parts. Reasoning and house style come
+ * last because both are read against everything already stated.
+ *
+ * `EXPECTED` order — HLD, LLD, architecture, data flow — hands a reader the low-level detail before the thing
+ * it is detail *of*, which is exactly why nobody assembles these documents by hand and why five separate
+ * documents never became one view.
+ */
+export const BLUEPRINT_ORDER = ['prd', 'specs', 'architecture', 'hld', 'dataflow', 'lld', 'decisions', 'style'];
+
+/**
+ * The design record assembled into one ordered reading, entirely out of the documents themselves.
+ *
+ * Nothing here is composed. Every string this returns is a path, a title, a heading, a date or a count read
+ * off a document in the corpus; the only thing the function contributes is the order. A version that
+ * summarised, joined or paraphrased would be authoring design claims nobody reviewed, into the one corpus
+ * every other check on this site measures drift against — the failure this project exists to detect,
+ * committed by the page that reports it.
+ *
+ * The three states reach the renderer intact, because they are the whole point. A section backed by a
+ * scaffold carries `stub` and no excerpt, so the page can say the substance is owed rather than laying out a
+ * scaffold's empty headings in the same shape it uses for a written document. A repository where every
+ * artifact is a scaffold must produce a blueprint that reads as a list of what is owed.
+ */
+export function blueprint(documents) {
+  const record = new Map(designRecord(documents).map((r) => [r.id, r]));
+  const health = new Map(citationHealth(documents).map((h) => [h.path, h]));
+  const byPath = new Map(documents.map((d) => [d.path, d]));
+
+  return BLUEPRINT_ORDER.map((id) => {
+    const r = record.get(id);
+    const stubs = new Set(r.stubs);
+    return {
+      id, label: r.label, state: r.state,
+      documents: r.documents.map((p) => {
+        const d = byPath.get(p) || {};
+        const c = health.get(p) || { total: 0, resolved: 0, broken: 0, unchecked: 0 };
+        const stub = stubs.has(p);
+        return {
+          path: p, stub,
+          title: d.title || p,
+          // The document's own second-level headings, and no gloss on them. In a written document these are
+          // what it covers; in a scaffold they are literally the questions it has not answered, because
+          // `scaffold.mjs` writes one heading per question. The same field carries both, which is honest —
+          // the difference is the state beside it, not a different kind of data.
+          sections: (d.headings || []).filter((h) => h.depth === 2).map((h) => ({ text: h.text, slug: h.slug })),
+          // Quoted verbatim, and only from a written document. A scaffold's opening paragraph is the
+          // template's warning about itself; reprinting it under a heading would put boilerplate where a
+          // reader expects the document's own account of the system.
+          excerpt: stub ? null : (d.excerpt || null),
+          date: d.git?.date || null,
+          citations: { total: c.total, resolved: c.resolved, broken: c.broken, unchecked: c.unchecked },
+        };
+      }),
+    };
+  });
+}
+
+/**
  * Citation health per design document.
  *
  * `resolved` is `null` when the citation was never checked — an unreadable target, or a scan run with

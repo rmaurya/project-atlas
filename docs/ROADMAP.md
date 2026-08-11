@@ -1,6 +1,6 @@
 # Roadmap — project-atlas
 
-**Last updated:** 2026-08-10 · **Version:** 0.1.63 · **Status:** pre-release, dogfooding
+**Last updated:** 2026-08-10 · **Version:** 0.1.64 · **Status:** pre-release, dogfooding
 
 Open work, with an honest completion figure against each item. A figure marked `*` is estimated rather than
 measured against the code — the same distinction the tool preserves everywhere else, applied to itself.
@@ -27,13 +27,13 @@ measured against the code — the same distinction the tool preserves everywhere
 | A-4 | 100 | A-5 | 100 | A-6 | 100 |
 | A-7 | 100 | A-8 | 100 | A-9 | 100 |
 | A-10 | 100 | A-11 | 100 | A-12 | 100 |
-| S-1 | 100 | S-2 | 100 | S-3 | 0 |
+| S-1 | 100 | S-2 | 100 | S-3 | 100 |
 | S-4 | 100 | S-5 | 100 | S-6 | 100 |
-| S-7 | 100 | M-1 | 0 | M-2 | 0 |
+| S-7 | 100 | M-1 | 100 | M-2 | 100 |
 | A-13 | 100 | A-14 | 100 | A-15 | 100 |
 | A-16 | 100 | A-17 | 100 | A-18 | 100 |
 | A-19 | 100 | P-7 | 100 | P-8 | 100 |
-| A-20 | 0 | A-21 | 100 | A-22 | 0 | | | | |
+| A-20 | 100 | A-21 | 100 | A-22 | 100 | | | | |
 
 ---
 
@@ -581,6 +581,13 @@ when the session ends. A project with both should have them agree — which is a
 already H9's job.*
 
 **A-20 · A journal record must not name an agent that never ran** — **P2 · Medium**
+*Shipped in 0.1.64.* *The hook now reads `hook_event_name` off the payload — that one field, piped
+straight into the record so a transcript path is never even held in a variable — and believes what it
+observed rather than the argument it was passed. When no event name can be read it records the boundary
+with **no actor at all**: "a session boundary was crossed", which is true, rather than naming a subagent,
+which was not. An unattributed true statement beats an attributed false one. Why the original session saw a
+`SubagentStop` without a subagent was never established, and no longer needs to be — the hook believes the
+payload either way.*
 *The continuity hooks recorded `a subagent finished on main at b23b05f` in a session where no subagent ran.
 The boundary event is real — something fired `SubagentStop` — but the sentence attributes it to an actor
 that does not exist, and a record whose whole value is being trustworthy cannot carry an attribution nobody
@@ -602,6 +609,16 @@ call, which is worse than the bug. And the idle window is four hours rather than
 to outlast a working session, short enough that a machine left overnight is not still serving.*
 
 **A-22 · Two builds of different versions must not share an output directory** — **P2 · Medium**
+*Shipped in 0.1.64.* *The crux turned out to be that the two builds never overlap in time — they take
+the lock politely, in turn — so the lock file is always gone by the time the other looks. Only a record that
+**outlives** the lock can see the disagreement, so the holder's version and path are written to
+`.atlas/build.owner.json` and deliberately not deleted on release. It reports and proceeds: whose build
+should win is the user's call, and refusing would break the exact case where someone is testing a working
+copy.*
+***It cannot fire against a build that predates it.*** *The older build never writes the owner record, so
+the newer one sees itself as last holder and stays silent — including for the 0.1.62-versus-working-copy
+collision that motivated the item, which cost an hour of this session. Inherent rather than a gap: an old
+build cannot announce what it does not know about.*
 *A-14's lock serialises builds, which is the right fix for two copies of the same build. It cannot tell two
 **different** builds apart: the installed plugin's watcher and a working-copy build both hold the lock
 legitimately, take turns, and overwrite each other's output. A branding fix appeared not to work three times
@@ -658,6 +675,15 @@ because a small repository legitimately has no LLD); **H16** a shipped area no d
 (advisory — `undesigned` already computes it and nothing acts on it).*
 
 **S-3 · The blueprint — one page that assembles the design record** — **P2 · Medium**
+*Shipped in 0.1.64.* *One page, in dependency order — requirements before the design that satisfies
+them, not the `EXPECTED` order that hands a reader the LLD before the thing it is detail of. **Every field
+is read off a document**: its path, its own headings, its opening paragraph verbatim, its git date, its
+citation health. The only thing the assembler contributes is the order.*
+*A scaffold is never laid out in the shape a written document gets: no quote, no contents list, and the
+section says the substance is owed. A stub's opening paragraph is the template warning about itself, and
+reprinting it under a heading would put boilerplate where a reader expects the system's own account. This
+repository's real page says so today — 0 written, 8 scaffolded — which is the honest state rather than a
+page pretending to be a design record.*
 *HLD, LLD, SRS, PRD and the style manual exist as separate documents and are read as separate documents, so
 nobody holds the shape of the system in one view. A generated blueprint page assembles them in dependency
 order with each section's freshness and citation health beside it. Generated, never authored: the words stay
@@ -706,6 +732,14 @@ two items rather than one. Specifying the wrong one is the expensive mistake her
 let anything drive a session, and no amount of implementing it would deliver what M-2 describes.*
 
 **M-1 · atlas as an MCP server** — **P2 · Medium**
+*Shipped in 0.1.64.* *Seven read-only tools over stdio — health, plan, search, changes, contrib,
+design, state — returning the derived data as structure rather than terminal output formatted for a person.*
+***The dependency was declined deliberately, as this item required.*** *The protocol surface actually needed
+is `initialize`, `tools/list`, `tools/call` and one notification over newline-delimited JSON-RPC: about one
+file. `@modelcontextprotocol/sdk` would have been this project's first runtime dependency, bringing a
+version to track and an install step to a tool whose distribution story is "clone it and run it with Node".
+The cost is named rather than hidden: when the protocol revises, that file is ours. The version is pinned
+and echoed back, so a client negotiating something else is told plainly.*
 *Direction: an agent asks atlas. MCP servers expose tools that a client — Claude Code, Claude Desktop, any
 MCP-speaking editor — decides to call. So this makes the corpus queryable in-session without shelling out:
 `atlas_health`, `atlas_plan`, `atlas_search`, `atlas_changes`, `atlas_contrib`, each returning the same
@@ -721,6 +755,16 @@ write by hand. Decide that deliberately and record the decision, rather than add
 package existed.*
 
 **M-2 · Driving a session from local software** — **P3 · Low**
+*Shipped in 0.1.64, at the narrow scope this item argued for.* *`atlas ask <task>` answers one question
+as JSON with a meaningful exit code: **0** answered and clean, **1** answered and something blocking, **2**
+could not answer. That 1/2 split is the whole value — a tool that exits non-zero for both tells a pipeline
+"the documentation is broken" when the truth was "atlas could not run", and only one of those is a real
+finding.*
+*It does not drive a session, and the file says so: that is the Agent SDK, and a general-purpose agent
+runner inside a documentation tool would be two products sharing a package. Building it revealed a defect
+worth the exercise — pointed at a directory that never adopted the tool, it scanned everything beneath and
+reported **1,389 findings** as though that were a corpus. A number CI would have failed on, about files
+that were never documentation. It refuses with exit 2 now.*
 *Direction: software drives Claude Code. This is what the original request described — send instructions,
 take an update, send input, get output — and **it is not MCP**. MCP has no channel for an outside process to
 start work, steer it mid-run, or read its output; the client always initiates. The mechanisms that do this
