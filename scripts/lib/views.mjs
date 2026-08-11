@@ -16,7 +16,8 @@
  */
 
 export const PANELS = {
-  tiles: 'Headline numbers — items, completion, blocking findings, corpus size',
+  tiles: 'Headline numbers — items, completion, files in flight, blocking findings, corpus size',
+  inflight: 'Work that has not landed yet — the branch, what is uncommitted, and which plan items it names',
   progress: 'Mean completion by track',
   status: 'Items by status',
   items: 'The full item table, sortable and filterable per column',
@@ -47,12 +48,23 @@ export const PANELS = {
 /**
  * The shipped views. Each is a first screen, not a filter — the order of panels is the argument the page
  * makes to that reader.
+ *
+ * **`inflight` sits directly under `tiles` on every view that carries a plan figure.** Those five pages are
+ * the ones that read as finished: a plan panel can only show what somebody wrote down and marked, so a
+ * repository mid-change rendered as "62 items · Done (62) · In progress (0)" on a dirty branch. The panel is
+ * placed adjacent to the numbers it qualifies rather than further down, because the failure was never that
+ * the figure was unavailable — it was that the figure looked like the whole answer.
+ *
+ * It is deliberately **not** on `developer`, which already carries `changes`. The two read the same git
+ * state and answer different questions — `changes` asks which documents the edit has just put at risk, this
+ * asks whether anything is underway and whether the plan knows — and showing both on one page would print
+ * the same file counts twice for no answer the page did not already have.
  */
 export const DEFAULT_VIEWS = [
   {
     id: 'dashboard', title: 'Overview', nav: true,
     blurb: 'Everything, in the order a maintainer reads it.',
-    panels: ['tiles', 'progress', 'charts', 'status', 'health', 'signals', 'clusters', 'deliveryTiles', 'velocity', 'models', 'people', 'desks', 'coverage', 'items', 'caveats'],
+    panels: ['tiles', 'inflight', 'progress', 'charts', 'status', 'health', 'signals', 'clusters', 'deliveryTiles', 'velocity', 'models', 'people', 'desks', 'coverage', 'items', 'caveats'],
   },
   {
     // Its own page, not a panel on someone else's. The item table elsewhere is a scanning tool — an id, a
@@ -60,7 +72,7 @@ export const DEFAULT_VIEWS = [
     // description, where the work is specified, and who has touched it.
     id: 'backlog', title: 'Backlog', nav: true,
     blurb: 'Every task in full — what it says, what specifies it, and who has worked on it.',
-    panels: ['backlog', 'caveats'],
+    panels: ['inflight', 'backlog', 'caveats'],
   },
   {
     id: 'qc', title: 'Quality', nav: true,
@@ -72,13 +84,13 @@ export const DEFAULT_VIEWS = [
     id: 'product', title: 'Product', nav: true,
     blurb: 'What is in scope, how far along it is, and how much of that figure is measured rather than estimated.',
     clusters: ['product', 'planning'],
-    panels: ['tiles', 'progress', 'status', 'documents', 'items', 'caveats'],
+    panels: ['tiles', 'inflight', 'progress', 'status', 'documents', 'items', 'caveats'],
   },
   {
     id: 'delivery', title: 'Delivery', nav: true,
     blurb: 'Throughput and where it is concentrated. Rhythm, not value — a commit count measures neither difficulty nor worth.',
     clusters: ['planning', 'operations'],
-    panels: ['deliveryTiles', 'charts', 'velocity', 'worklog', 'recent', 'people', 'desks', 'status', 'documents', 'caveats'],
+    panels: ['deliveryTiles', 'inflight', 'charts', 'velocity', 'worklog', 'recent', 'people', 'desks', 'status', 'documents', 'caveats'],
   },
   {
     id: 'architecture', title: 'Architecture', nav: true,
@@ -106,7 +118,7 @@ export const DEFAULT_VIEWS = [
   {
     id: 'executive', title: 'Executive', nav: true,
     blurb: 'The few numbers that survive summarising. Everything here is a link to the page that explains it.',
-    panels: ['tiles', 'deliveryTiles', 'progress', 'caveats'],
+    panels: ['tiles', 'inflight', 'deliveryTiles', 'progress', 'caveats'],
   },
 ];
 

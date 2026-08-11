@@ -26,6 +26,7 @@ import { DEFAULT_PLANNING } from './planning.mjs';
 import { read as readJournalFor } from './journal.mjs';
 import { PANELS } from './views.mjs';
 import { readChanges } from './changes.mjs';
+import { readInflight, inflightSentence } from './inflight.mjs';
 import { flatName } from './render-shared.mjs';
 import { donut, lineChart, stackedArea, catTokens } from './charts.mjs';
 
@@ -92,7 +93,13 @@ const toneClass = (t) => (TONES.has(t) ? t : 'unknown');
 export function viewPage(view, ctx, shell) {
   const { index, health, plan, cfg, contrib, nav } = ctx;
 
-  const built = view.panels.map((id) => ({ id, html: panel(id, { ...ctx, view }) }));
+  // Read once per page, not once per panel. Two panels want the same answer — the tile strip and the
+  // in-flight card — and assembling it shells out to git five or six times. Nine views times two panels was
+  // a measurable slice of the build spent asking git the same question it had already answered.
+  const wantsFlight = view.panels.some((id) => id === 'tiles' || id === 'inflight');
+  const flight = wantsFlight ? readInflight(cfg.__root || process.cwd(), cfg, { index, plan }) : null;
+
+  const built = view.panels.map((id) => ({ id, html: panel(id, { ...ctx, view, flight }) }));
   const rendered = built.filter((b) => b.html);
   const omitted = built.filter((b) => !b.html).map((b) => b.id);
 
@@ -146,7 +153,7 @@ ${omitted.length ? `<section class="card muted"><h2>Not shown on this page</h2>
 }
 
 /** Returns the panel's HTML, or null when it has nothing to say. */
-function panel(id, { index, health, plan, cfg, contrib, view, nameFor, repo }) {
+function panel(id, { index, health, plan, cfg, contrib, view, nameFor, repo, flight }) {
   const hasPlan = plan && !plan.missing;
   if (id === 'decisions') return decisionsPanel(index, cfg, cfg.__root, nameFor);
   const hasContrib = contrib && contrib.available;
@@ -155,7 +162,8 @@ function panel(id, { index, health, plan, cfg, contrib, view, nameFor, repo }) {
   const pageOf = nameFor || flatName;
 
   switch (id) {
-    case 'tiles': return tiles(index, health, plan);
+    case 'tiles': return tiles(index, health, plan, flight);
+    case 'inflight': return inflightPanel(flight, index);
     case 'progress': return hasPlan ? progressChart(plan) : null;
     case 'status': return hasPlan ? statusChart(plan) : null;
     case 'items': return hasPlan ? itemTable(plan) : null;
@@ -186,12 +194,41 @@ function panel(id, { index, health, plan, cfg, contrib, view, nameFor, repo }) {
 
 /* ------------------------------------------------------------------ tiles */
 
-function tiles(index, health, plan) {
+/**
+ * The four numbers a reader takes away, and the one that used to be missing.
+ *
+ * "62 open items · 100% mean completion" was read as the state of the project. It is the state of the
+ * *plan* — a document recording what somebody wrote down and marked — and on a dirty branch mid-change the
+ * pair rendered a project in motion as a finished one. That is what made the page look done.
+ *
+ * **Neither figure is adjusted, and that is deliberate.** Folding uncommitted work into a completion
+ * percentage would require a denominator for work nobody has written down; there is none, and inventing one
+ * would be the exact class of confident fabrication the rest of this file refuses. So the two figures keep
+ * their values and get the provenance they always needed, and the thing they cannot see is added beside them
+ * as its own measurement: a **count of files**, which is observed, next to a **percentage of a plan**, which
+ * is recorded. A reader who sees both cannot mistake one for the other.
+ */
+function tiles(index, health, plan, flight = null) {
   const t = [];
+  // `null` and "could not be read" are not zero — the tile says so rather than rendering a clean `0` for a
+  // check that never ran. `flight` is absent only when a caller built the tile strip without it.
+  const readable = flight?.available === true;
+  const inFlight = readable ? flight.tracked.length + (flight.untracked || 0) : null;
+
   if (plan && !plan.missing) {
     t.push(tile(String(plan.stats.total), 'open items', plan.stats.unknown ? `${plan.stats.unknown} without a figure` : 'all carry a figure'));
     t.push(tile(plan.stats.mean === null ? '—' : `${plan.stats.mean}%`, 'mean completion',
-      `across ${plan.stats.total - plan.stats.unknown} measured`));
+      `across ${plan.stats.total - plan.stats.unknown} measured` +
+      (inFlight ? `, and ${inFlight} file(s) in flight it cannot see` : ', as recorded in the plan')));
+  }
+  if (flight) {
+    t.push(flight.failed
+      ? tile('—', 'files in flight', 'the working tree could not be read', 'warning')
+      : !readable
+        ? tile('—', 'files in flight', 'no git history to read', 'warning')
+        : tile(String(inFlight), 'files in flight',
+            inFlight ? `uncommitted or unmerged on ${flight.branch}` : `working tree clean on ${flight.branch}`,
+            inFlight ? 'warning' : 'good'));
   }
   t.push(tile(String(health.blockingCount), 'blocking findings',
     health.blockingCount ? 'defects with no legitimate cause' : 'none — corpus is clean',
@@ -1017,6 +1054,142 @@ function changesPanel(cfg, index, nameFor) {
       <span class="dm">${d.date || 'undated'} · cites ${escapeHtml(d.cites.slice(0, 3).join(', '))}${d.cites.length > 3 ? ` and ${d.cites.length - 3} more` : ''}</span>
     </li>`).join('')}
   </ul>` : '<p class="cap">No document cites any of the changed files.</p>'}
+</section>`;
+}
+
+/**
+ * Work that is happening now, which no other panel on this site can see.
+ *
+ * The complaint that produced this was one sentence: the Backlog view read
+ * "Backlog 62 · Done (62) · In progress (0) · Not started (0)" while the reader was mid-change, on a branch,
+ * with uncommitted files. Every plan panel reads `planning.source`, and a roadmap records what somebody has
+ * written down — so the page could only ever describe finished, recorded things, and rendered a project in
+ * motion as a completed one.
+ *
+ * `inflight.mjs` holds the derivation and the four rules it keeps. What this function is responsible for is
+ * the honesty of the *presentation*, which fails differently:
+ *
+ *  - **The lead sentence is allowed to be small.** "3 uncommitted file(s) on `fix/x`. No plan item is named
+ *    by any of it." is the whole finding on most days, and it is worth more than a figure that looks like
+ *    progress. Nothing here is dressed up into one.
+ *  - **The journal appears as a count and never as a line of its own text.** `.atlas/` is outside the docs
+ *    root, so no scan reaches it and no publish target carries it — and this panel renders into
+ *    `docs/_wiki`, which publishes. The decisions panel already draws this line for the same reason; this is
+ *    the second place a reader would not think to look for the breach.
+ *  - **Untracked files are a number, not a list.** Their paths are not repository state yet.
+ *  - **A truncated list says how much it truncated.** Nothing is silently dropped.
+ *
+ * It renders on a clean tree too, as "nothing in flight". That is a measurement, not an absence — the same
+ * reasoning `statusChart` uses for the empty status band, and the reason a reader can tell this panel from a
+ * broken one. It is omitted only when there is no git history to read at all.
+ */
+function inflightPanel(flight, index) {
+  if (!flight) return null;
+  if (flight.failed) {
+    return `<figure class="card muted" id="inflight"><figcaption><h2>Work in flight</h2></figcaption>
+      <p class="empty"><span class="dot" style="background:${st('warning')}"></span>
+      The working tree could not be read — <code>${escapeHtml(String(flight.reason))}</code>.
+      That is not the same as "nothing is in flight": no comparison was made, so nothing below is being
+      reported as quiet.</p></figure>`;
+  }
+  if (!flight.available) return null;              // no git history — omitted, never faked
+
+  const lead = escapeHtml(inflightSentence(flight) || '').replace(/`([^`]+)`/g, '<code>$1</code>');
+  const provenance = `<p class="cap">Read from git and the working tree of the machine that built this page,
+    <strong>not from the plan</strong> — a change that has not been committed yet cannot appear in any figure
+    above it. There is no completion percentage here on purpose: work nobody has written down has no
+    denominator, and a figure invented for one would read as measured.</p>`;
+
+  if (flight.quiet) {
+    return `<figure class="card muted" id="inflight"><figcaption><h2>Work in flight</h2>${provenance}</figcaption>
+      <p class="empty"><span class="dot" style="background:${st('good')}"></span> ${lead}</p></figure>`;
+  }
+
+  const total = flight.tracked.length + (flight.untracked || 0);
+  const rows = flight.tracked.slice(0, 12).map((f) => {
+    // A file can be staged and modified again at once, so the states are listed rather than picked between.
+    const where = [
+      flight.staged.some((x) => x.path === f.path) ? 'staged' : null,
+      flight.unstaged.some((x) => x.path === f.path) ? 'uncommitted' : null,
+      flight.committed.some((x) => x.path === f.path) ? 'committed here' : null,
+    ].filter(Boolean).join(' · ');
+    return `<tr>
+      <td class="mono">${escapeHtml(f.path)}</td>
+      <td>${escapeHtml(where)}</td>
+      <td class="num mono">${f.binary ? 'bin' : `+${f.added} / −${f.removed}`}</td>
+    </tr>`;
+  }).join('');
+
+  const clusterNames = new Map((index?.clusters || []).map((c) => [c.id, c.title]));
+  const spread = [
+    ...flight.clusters.map((c) => `${escapeHtml(clusterNames.get(c.id) || c.id)} ${c.count}`),
+    flight.outsideCorpus ? `Not in the corpus ${flight.outsideCorpus}` : null,
+  ].filter(Boolean);
+
+  return `
+<section class="card" id="inflight">
+  <h2>Work in flight <span class="count">${total}</span></h2>
+  ${provenance}
+  <p class="rsub">${lead}</p>
+  <p class="det">On <code>${escapeHtml(flight.branch)}</code>${flight.onProtected
+    ? ` — which is <strong>protected</strong>, so this work belongs on a branch before it is committed`
+    : ''}${flight.diverged
+      ? `, diverged from <code>${escapeHtml(flight.main)}</code> at <code>${escapeHtml(flight.base || '—')}</code>`
+      : `, which has not diverged from <code>${escapeHtml(flight.main)}</code> — so nothing is counted here as committed-but-unmerged`}${
+    flight.ahead ? ` · ${flight.ahead} unpushed commit(s)` : ''}.</p>
+
+  ${flight.tracked.length ? `
+  <div class="table-wrap">
+    <table class="mini-table">
+      <thead><tr><th>File</th><th>State</th><th class="num">Lines</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+  </div>
+  ${flight.tracked.length > 12 ? `<p class="hint">${flight.tracked.length - 12} more changed file(s) not listed.</p>` : ''}`
+    : '<p class="det">No tracked file has changed.</p>'}
+
+  ${flight.untracked === null
+    ? `<p class="hint"><span class="dot" style="background:${st('warning')}"></span> The untracked-file count could not be read, so it is unknown rather than zero.</p>`
+    : flight.untracked
+      ? `<p class="hint">${flight.untracked} untracked file(s), counted but not named — git has not been told about them, so their paths are not repository state.</p>`
+      : ''}
+
+  ${spread.length ? `<p class="det">Where it lands: ${spread.join(' · ')}.</p>` : ''}
+
+  ${flight.commits.length ? `
+  <h3>Committed on this branch</h3>
+  <ul class="doclist">
+    ${flight.commits.slice(0, 10).map((c) => `<li>
+      <span class="rsub">${escapeHtml(c.subject)}</span>
+      <span class="dm"><code>${escapeHtml(c.hash)}</code></span>
+    </li>`).join('')}
+  </ul>
+  ${flight.commits.length > 10 ? `<p class="hint">${flight.commits.length - 10} more commit(s) not listed.</p>` : ''}` : ''}
+
+  ${flight.hasPlan ? (flight.namedItems.length ? `
+  <h3>Plan items these commits name</h3>
+  <p class="cap">What the plan records for each, beside the fact that a commit here claims to be doing it. A
+  <strong>0%</strong> or <strong>—</strong> against a named item is the contradiction, not a gap: the work is
+  demonstrably underway and the plan has not been told.</p>
+  <ul class="doclist">
+    ${flight.namedItems.map((i) => `<li>
+      <span class="rsub">${escapeHtml(i.id)} · ${escapeHtml(i.title)}</span>
+      <span class="dm">plan records ${i.percent === null ? '—' : `${i.percent}%`}${i.estimated ? ' (estimated)' : ''}
+        · <span class="pill t-${toneClass(i.status?.tone)}">${escapeHtml(i.status?.label || 'Unknown')}</span></span>
+    </li>`).join('')}
+  </ul>
+  ${flight.unrecognised.length ? `<p class="hint">Also named, and not in the plan: ${
+    flight.unrecognised.map((id) => `<code>${escapeHtml(id)}</code>`).join(', ')}.</p>` : ''}`
+    : `<p class="det">No commit on this branch names a plan item, so none of this work can be matched to one.</p>`)
+    : `<p class="det">No planning document is configured, so none of this can be matched to an item.</p>`}
+
+  <p class="det">${flight.journal.available
+    ? `The journal holds <strong>${flight.journal.records}</strong> record(s) written since the last commit` +
+      `${flight.journal.contributors > 1 ? ` by ${flight.journal.contributors} contributors` : ''}` +
+      `${flight.journal.blockers ? `, <strong>${flight.journal.blockers}</strong> of them a recorded blocker` : ''}.` +
+      ` Only the count appears here — the journal is an operational record and never publishes.` +
+      `${flight.journal.skipped ? ` ${flight.journal.skipped} unparseable line(s) skipped, which is the signature of a process killed mid-write.` : ''}`
+    : 'No journal on this machine, so nothing can be said about what a session recorded but has not committed.'}</p>
 </section>`;
 }
 

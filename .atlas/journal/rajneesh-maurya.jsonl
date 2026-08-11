@@ -29,3 +29,8 @@
 {"at":"2026-08-11T11:40:04.591Z","agent":"subagent","kind":"progress","text":"a subagent finished on main at 4b13d4a","refs":["main@4b13d4a"]}
 {"at":"2026-08-11T11:43:09.768Z","agent":"subagent","kind":"progress","text":"a subagent finished on main at 4b13d4a","refs":["main@4b13d4a"]}
 {"at":"2026-08-11T11:47:19.751Z","agent":"main","kind":"progress","text":"work landed on main — now at 1741597","refs":["main@1741597"]}
+{"at":"2026-08-11T15:31:53.686Z","agent":"subagent","kind":"progress","text":"a subagent finished on fix/dashboard-url-never-announced-after-adoption at 91c3de7","refs":["fix/dashboard-url-never-announced-after-adoption@91c3de7"]}
+{"at":"2026-08-11T15:36:40.328Z","agent":"main","kind":"progress","text":"work landed on fix/dashboard-url-never-announced-after-adoption — now at 91c3de7","refs":["fix/dashboard-url-never-announced-after-adoption@91c3de7"]}
+{"at":"2026-08-11T15:44:21.232Z","agent":"subagent","kind":"progress","text":"a subagent finished on fix/dashboard-url-never-announced-after-adoption at 91c3de7","refs":["fix/dashboard-url-never-announced-after-adoption@91c3de7"]}
+{"at":"2026-08-11T15:45:41.443Z","agent":"subagent","kind":"progress","text":"a subagent finished on fix/dashboard-url-never-announced-after-adoption at 91c3de7","refs":["fix/dashboard-url-never-announced-after-adoption@91c3de7"]}
+{"at":"2026-08-11T15:47:44.659Z","agent":"subagent","kind":"progress","text":"a subagent finished on fix/dashboard-url-never-announced-after-adoption at 91c3de7","refs":["fix/dashboard-url-never-announced-after-adoption@91c3de7"]}

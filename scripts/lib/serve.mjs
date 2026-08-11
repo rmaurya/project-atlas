@@ -152,6 +152,55 @@ export async function unmanagedServer(root, port) {
   return (await portInUse(p)) ? { port: p, url: `http://127.0.0.1:${p}/` } : null;
 }
 
+/**
+ * Is the thing already answering on our port **our own server**, serving **our own output directory**?
+ *
+ * Every record this tool keeps of its servers is keyed by pid — the pidfile, and the machine-wide registry
+ * behind `--list`. Both are therefore destroyed by the same event: a pid that dies. When several servers
+ * race for one repository, the loser's pid can be the one written down, and clearing that dead claim throws
+ * away the only record of the *winner*, which is still listening and still answering. The next start then
+ * finds no record, concludes nothing is running, discovers its derived port is taken, probes one port
+ * upward, and binds there. Now two servers answer for one repository, only the newer is named anywhere, and
+ * the link printed at the top of the session points at whichever one lost the last race.
+ *
+ * That happened four times across four repositories on one machine in a single afternoon.
+ *
+ * The escape from the cycle is to stop asking *who* is serving and ask *what is being served*. A build
+ * writes `build-stamp.txt` into its output directory; a server for this repository serves that exact file
+ * off that exact disk. So fetching it and comparing it to what we can read locally identifies the server by
+ * its content rather than by a pid nobody has a live record of — and it stays true across a restart, a lost
+ * pidfile, a pruned registry, and a server started by a different build of this tool.
+ *
+ * A mismatch, a missing stamp, or anything that is not a plain 200 all mean **not ours**, and the caller
+ * must treat that as a stranger holding the port rather than as something to adopt. Adopting a stranger
+ * would point the user at some other program's web page and call it their dashboard.
+ */
+export async function adoptableServer(root, outDir, port) {
+  const p = port || portForRoot(root);
+  let mine;
+  try { mine = fs.readFileSync(path.join(outDir, 'build-stamp.txt'), 'utf8').trim(); }
+  catch { return null; }              // nothing built here yet — there is no stamp to recognise ourselves by
+  if (!mine) return null;
+  const theirs = await fetchText(`http://127.0.0.1:${p}/build-stamp.txt`);
+  if (theirs === null || theirs.trim() !== mine) return null;
+  return { port: p, url: `http://127.0.0.1:${p}/`, stamp: mine };
+}
+
+/** One short GET, or null. Deliberately not an error: "could not ask" and "answered wrong" are both "not ours". */
+function fetchText(url, timeoutMs = 700) {
+  return new Promise((resolve) => {
+    const req = http.get(url, (res) => {
+      if (res.statusCode !== 200) { res.resume(); resolve(null); return; }
+      let body = '';
+      res.setEncoding('utf8');
+      res.on('data', (c) => { body += c; if (body.length > 4096) { req.destroy(); resolve(null); } });
+      res.on('end', () => resolve(body));
+    });
+    req.setTimeout(timeoutMs, () => { req.destroy(); resolve(null); });
+    req.on('error', () => resolve(null));
+  });
+}
+
 export function serverStatus(root) {
   const file = pidFile(root);
   let raw;

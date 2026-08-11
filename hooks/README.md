@@ -133,6 +133,25 @@ All three are inert unless the repository has a `project-atlas.config.json`, and
 they fire while a session is being torn down, and failing there would turn a missing record into a visible
 error at the least useful possible moment.
 
+## What is *not* here: the statusline
+
+`bin/atlas-statusline` prints the live dashboard's URL into the Claude Code statusline. It reads a JSON
+payload on stdin and writes one line to stdout, which is the shape of everything in this directory — and it
+is deliberately not in this directory.
+
+Every script here is named by [`hooks.json`](hooks.json), where the harness expands `${CLAUDE_PLUGIN_ROOT}`
+for us. Nothing here is ever typed by a person, and nothing here is optional: install the plugin and the
+hooks are live. The statusline is the opposite on both counts. `statusLine` is a key in the user's own
+`settings.json`, so the string naming that file is written down by a human in a file this plugin does not
+own, and it has to keep resolving across upgrades — which is why it lives in `bin/`, on `PATH`, addressable
+as the bare name `atlas-statusline`.
+
+**And nothing installs it.** Editing `~/.claude/settings.json` is a change to the user's environment across
+every repository they open, which is outside the line [`autonomy.md`](../docs/references/autonomy.md) draws.
+It is one stated command, `atlas-statusline --install`, reversed by `--uninstall`, and it refuses to
+overwrite a statusline somebody else wrote. Full description in
+[configuration.md](../docs/references/configuration.md#the-statusline--the-dashboard-url-where-it-cannot-scroll-away).
+
 ## Turning them off
 
 Both switches live in `project-atlas.config.json`, both default to `true`:

@@ -15,6 +15,7 @@ import { readPlanning } from './planning.mjs';
 import { viewPage } from './dashboard.mjs';
 import { readDeck, deckPage } from './deck.mjs';
 import { readContrib } from './contrib.mjs';
+import { readInflight } from './inflight.mjs';
 import { resolveViews, navItems, viewFile } from './views.mjs';
 import { risks, summarise } from './insight.mjs';
 import { repoComponents, scorecard } from './score.mjs';
@@ -548,6 +549,14 @@ ${analysisHtml ? `
 }
 
 function indexPage(index, health, cfg, truncated, nav, views, plan, contrib, nameFor, analysisHtml, releaseFacts, buildDate) {
+  // Read once, and defensively: this is a homepage, and a git call that throws must cost a qualifying
+  // sentence rather than the whole page. `readInflight` already returns `{available:false}` rather than
+  // throwing for the cases it anticipates; the catch is for the ones it does not.
+  let flight = null;
+  try { flight = readInflight(cfg.__root || process.cwd(), cfg, { index, plan }); } catch { flight = null; }
+  const flightFiles = flight?.available && !flight.quiet
+    ? flight.unstaged.length + flight.staged.length + (flight.untracked || 0)
+    : 0;
   const clusters = index.clusters.map((c) => {
     const docs = c.documents.map((p) => index.documents.find((d) => d.path === p)).filter(Boolean)
       .sort((a, b) => (a.title || a.path).localeCompare(b.title || b.path));
@@ -583,8 +592,25 @@ function indexPage(index, health, cfg, truncated, nav, views, plan, contrib, nam
     <strong>${index.stats.lines.toLocaleString()}</strong> lines ·
     <strong>${index.stats.clusters}</strong> clusters${plan && !plan.missing ? ` ·
     <strong>${plan.stats.total}</strong> open items at <strong>${plan.stats.mean ?? '—'}%</strong>` : ''}${contrib?.available ? ` ·
-    <strong>${contrib.totals.commits}</strong> commits` : ''}
+    <strong>${contrib.totals.commits}</strong> commits` : ''}${flightFiles ? ` ·
+    <strong>${flightFiles}</strong> file(s) in flight` : ''}
   </p>
+  ${/*
+     * **The homepage made the same claim the dashboard tiles made, and had to stop making it.**
+     *
+     * "64 open items at 100%" is read as "this project is finished". It is really "the plan, which only
+     * knows what somebody has already written down and marked complete, records nothing outstanding" — and
+     * on a working tree with two dozen modified files those are opposite statements. The tiles now carry a
+     * measured count of files in flight beside the recorded percentage; this line is the first thing anyone
+     * sees, so leaving it unqualified would mean fixing the quieter half of the same defect.
+     *
+     * No figure is adjusted. Work nobody has written down has no denominator, so folding it into a
+     * completion percentage would invent a measurement — which is worse than the blind number, because it
+     * would look measured. A count sits next to a percentage and the sentence says which is which.
+     */''}
+  ${flightFiles ? `<p class="hero-flight cap">That percentage is what the plan <em>records</em>. Measured against
+    the working tree, <strong>${flightFiles}</strong> file(s) are in flight on
+    <code>${escapeHtml(flight.branch || '')}</code> that no figure above can see.</p>` : ''}
   <p class="hero-health">
     ${health.blockingCount
       ? `<a href="health.html"><strong class="bad">${health.blockingCount} blocking finding(s)</strong></a> — defects with no legitimate cause`

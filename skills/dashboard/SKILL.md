@@ -49,6 +49,20 @@ several projects open the useful question stops being "is it up" and becomes "wh
 `atlas serve --launcher` writes a single page linking all of them, if the user wants one bookmark instead of
 several.
 
+## When they ask for it a second time
+
+A user who asks where the dashboard is more than once is telling you the line scrolled away. Offer the
+statusline, which puts the URL in the bar at the bottom of the terminal where it cannot:
+
+```bash
+atlas-statusline --install     # undo with --uninstall; --project scopes it to this repository
+```
+
+**Offer it, do not run it.** It writes `~/.claude/settings.json`, which is the user's environment across every
+repository they open and not this tool's to change — the boundary in `docs/references/autonomy.md`. Say what
+the command does and let them type it. It prints nothing in repositories that have not adopted the tool, and
+it refuses to overwrite a statusline they already have.
+
 ## What not to do
 
 - **Do not report a filesystem path instead of a URL.** `docs/_wiki/index.html` is not a dashboard; it is a

@@ -6,9 +6,10 @@ _Written by `atlas worklog`. Measured from git and the corpus; no prompt text, a
 
 | | |
 |---|---|
-| Commits | 18 |
-| Lines | +5,167 / −201 |
-| Rework rate | 81.8% — a file re-touched within 3 days |
+| Commits | 19 |
+| Lines | +5,571 / −218 |
+| Desks | rajneesh-maurya |
+| Rework rate | 81.9% — a file re-touched within 3 days |
 | Reverts | 0 |
 | Documentation | 0 blocking finding(s) at end of day |
 
@@ -40,6 +41,8 @@ _Written by `atlas worklog`. Measured from git and the corpus; no prompt text, a
 - **M-2** Driving a session from local software — 100%
 - **S-3** The blueprint — one page that assembles the design record — 100%
 - **A-22** Two builds of different versions must not share an output directory — 100%
+- **A-23** A dashboard nobody was told about was never delivered — 100%
+- **A-24** A server that cannot bind must not linger — 100%
 
 ## Commits
 
@@ -61,6 +64,7 @@ _Written by `atlas worklog`. Measured from git and the corpus; no prompt text, a
 - `fc98d77` fix(serve,brand): the server judged itself unwatched while the session was still going (A-21)
 - `4b13d4a` feat(mcp,blueprint,continuity): the last five items, and three defects they exposed (M-1, M-2, S-3, A-20, A-22)
 - `1741597` chore(record): the session's journal and worklog
+- `91c3de7` fix(serve,dashboard): the link was only ever printed by the one hook a first run cannot reach (A-23, A-24)
 
 ---
 

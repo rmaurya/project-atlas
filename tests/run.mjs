@@ -32,6 +32,7 @@ import { buildWikiPages, wikiPageName, isSafePageName, exportSingleFile, exportB
 import { readContrib, estimateHours, taskCoverage } from '../scripts/lib/contrib.mjs';
 import { readTokens, formatTokens, formatSessions, assertNotPublishable, transcriptDir } from '../scripts/lib/tokens.mjs';
 import { readChanges, fileDiff, formatChanges } from '../scripts/lib/changes.mjs';
+import { readInflight, inflightSentence } from '../scripts/lib/inflight.mjs';
 import { branchStatus, createBranch, TYPES } from '../scripts/lib/branch.mjs';
 import { detectHost, gateTarget, formatCapabilities } from '../scripts/lib/host.mjs';
 import { resolveViews, navItems, PANELS } from '../scripts/lib/views.mjs';
@@ -54,7 +55,8 @@ import { testInventory, casesInFile } from '../scripts/lib/testcases.mjs';
 import { designRecord, undesigned, citationHealth, EXPECTED } from '../scripts/lib/design.mjs';
 import { scaffold as scaffoldDesign, TEMPLATES } from '../scripts/lib/scaffold.mjs';
 import { renderLauncher, launcherProjects } from '../scripts/lib/launcher.mjs';
-import { handle as mcpHandle, TOOLS as MCP_TOOLS, PROTOCOL_VERSION as MCP_VERSION } from '../scripts/lib/mcp.mjs';
+import { handle as mcpHandle, TOOLS as MCP_TOOLS, PROTOCOL_VERSION as MCP_VERSION,
+         connectionStatus, formatConnection, runningServers } from '../scripts/lib/mcp.mjs';
 import { runTask, TASKS } from '../scripts/lib/task.mjs';
 import { manifestUrl, checkForUpdate, fetchLatest, readCache, writeCache, isFresh } from '../scripts/lib/update.mjs';
 
@@ -4519,6 +4521,128 @@ test('mcp · every exposed tool reads and none of them writes', () => {
   }
 });
 
+/**
+ * A private home for the status tests: `clientRegistrations` reads real files, and a test that read the
+ * developer's own `~/.claude.json` would pass or fail according to what that machine happens to have
+ * registered. Every location the reporter looks in is therefore under a temp directory it owns.
+ */
+function mcpHome(name, files = {}) {
+  const home = path.join(tmpRoot, `mcp-home-${name}`);
+  fs.mkdirSync(home, { recursive: true });
+  for (const [p, body] of Object.entries(files)) {
+    const full = path.join(home, p);
+    fs.mkdirSync(path.dirname(full), { recursive: true });
+    fs.writeFileSync(full, body, 'utf8');
+  }
+  return home;
+}
+
+test('mcp · --status is read from the code and the machine, never composed', () => {
+  // The failure this pins is the easy one to ship: a status screen that hard-codes the protocol string and
+  // types out a tool list, and is then wrong the day either changes — in a tool whose entire subject is
+  // documentation drifting from the thing it describes.
+  const dir = fixture('mcp-status', { 'docs/A.md': '# A\n' });
+  const st = connectionStatus({ root: dir, version: '1.2.3', pluginRoot: REPO_ROOT,
+                                home: mcpHome('empty'), platform: 'darwin', configDir: null });
+
+  eq(st.protocolVersion, MCP_VERSION, 'the version reported is the version implemented');
+  eq(st.server.version, '1.2.3');
+  eq(st.transport, 'stdio');
+  eq(st.tools.map((t) => t.name), Object.keys(MCP_TOOLS), 'every exposed tool is listed, and only those');
+  for (const t of st.tools) eq(t.purpose, MCP_TOOLS[t.name].title, `${t.name}'s purpose is its own, not a paraphrase`);
+
+  // The snippet has to work when pasted. A relative path in it is a registration that resolves against
+  // whatever directory the client was launched in, which is the one thing the client is free to choose.
+  ok(path.isAbsolute(st.connect.command), `the snippet's command must be absolute: ${st.connect.command}`);
+  ok(fs.existsSync(st.connect.command), 'and must exist — a snippet naming a binary that is not there is a guess');
+  eq(st.connect.args.slice(-2), ['--root', path.resolve(dir)], 'and must pin the corpus, not inherit a cwd');
+  includes(st.connect.snippet, '"mcpServers"');
+
+  // `--status` must short-circuit the serving path. If it fell through, this call would speak JSON-RPC on
+  // stdout instead of answering, and the parse below is what notices.
+  const r = cli(dir, ['mcp', '--status', '--json']);
+  eq(r.code, 0, r.stdout);
+  eq(JSON.parse(r.stdout).protocolVersion, MCP_VERSION);
+});
+
+test('mcp · a registration is reported where one exists, and "no" names the files it read', () => {
+  // Two ways to be registered and wrong, both of which read as success: a config that points at another
+  // checkout of atlas, and one that points this build at another repository. `--root` decides the second,
+  // and a registration without it answers about whichever directory the client launched it in.
+  const mine = fixture('mcp-registered', { 'docs/A.md': '# A\n' });
+  const other = fixture('mcp-elsewhere', { 'docs/B.md': '# B\n' });
+  fs.writeFileSync(path.join(mine, '.mcp.json'), JSON.stringify({
+    mcpServers: { atlas: { command: path.join(REPO_ROOT, 'bin', 'atlas'), args: ['mcp', '--root', mine] } },
+  }), 'utf8');
+  const home = mcpHome('registered', {
+    '.claude.json': JSON.stringify({
+      mcpServers: { 'atlas-other': { command: '/opt/atlas/bin/atlas', args: ['mcp', '--root', other] } },
+    }),
+  });
+
+  const st = connectionStatus({ root: mine, version: '0', pluginRoot: REPO_ROOT, home, platform: 'linux' });
+  eq(st.registration.registered, true);
+  const here = st.registration.found.find((f) => f.name === 'atlas');
+  eq(here.servesThisRepo, true);
+  eq(here.usesThisBuild, true);
+  const elsewhere = st.registration.found.find((f) => f.name === 'atlas-other');
+  eq(elsewhere.servesThisRepo, false, 'a --root pointing somewhere else is not this repository');
+  eq(elsewhere.usesThisBuild, false, 'nor is a command under /opt this build');
+
+  // And where nothing is registered, "no" is backed by named files rather than asserted. A report that says
+  // "not registered" without saying where it looked cannot be checked by the person reading it.
+  const bare = fixture('mcp-unregistered', { 'docs/A.md': '# A\n' });
+  const none = connectionStatus({ root: bare, version: '0', pluginRoot: REPO_ROOT,
+                                  home: mcpHome('bare'), platform: 'darwin' });
+  eq(none.registration.registered, false);
+  eq(none.registration.found.length, 0);
+  ok(none.registration.looked.some((l) => l.file === path.join(bare, '.mcp.json') && l.state === 'absent'),
+     'the project-scope file is named as absent, not silently omitted');
+  ok(none.registration.unchecked.length >= 1, 'and the clients this build cannot read are declared');
+});
+
+test('mcp · a client config that will not parse is never reported as "not registered"', () => {
+  // The project's rule, on the surface where breaking it is cheapest: a check that could not run is never
+  // reported as passing. A half-written `~/.claude.json` is exactly where a registration would be hiding,
+  // and folding it into "no" answers the question with the one file nobody read.
+  const dir = fixture('mcp-unreadable', { 'docs/A.md': '# A\n' });
+  const home = mcpHome('unreadable', { '.claude.json': '{ "mcpServers": { oops' });
+  const st = connectionStatus({ root: dir, version: '0', pluginRoot: REPO_ROOT, home, platform: 'linux' });
+
+  const row = st.registration.looked.find((l) => l.file === path.join(home, '.claude.json'));
+  eq(row.state, 'unreadable');
+  ok(row.detail, 'and it says why, so the reader can go and fix the file');
+
+  const out = formatConnection(st, false);
+  ok(!/^\s*Registered with a client on this machine\s+no\b/m.test(out),
+     `a flat "no" is a claim about a file that would not open:\n${out}`);
+  includes(out, 'could not be');
+  includes(out, 'would not have been seen');
+});
+
+test('mcp · the status reports processes and parents, and never a connection count', () => {
+  // The distinction the whole surface is built around. A stdio server has no pool: the client spawns one
+  // process per connection and owns both ends of its pipes. "0 clients connected" would describe a daemon
+  // this is not, and would read as "nothing uses this" when the truth is "nothing is using it this second".
+  const dir = fixture('mcp-clients', { 'docs/A.md': '# A\n' });
+  const st = connectionStatus({ root: dir, version: '0', pluginRoot: REPO_ROOT,
+                               home: mcpHome('clients'), platform: 'darwin' });
+  const out = formatConnection(st, false);
+  ok(!/clients? connected/i.test(out), `nothing may present itself as a connection count:\n${out}`);
+  includes(out, 'no connection pool');
+  includes(out, 'one process per connection');
+  includes(out, 'Not knowable from here');
+  includes(out, 'unknown, not zero');
+
+  // Unknown is not zero, in the code as well as the prose: a platform whose process table this cannot read
+  // reports that it did not look, and an empty list beside `checked: false` is never "none running".
+  const blind = runningServers({ platform: 'win32' });
+  eq(blind.checked, false);
+  eq(blind.processes.length, 0);
+  ok(blind.why, 'and it says why it could not look');
+  includes(formatConnection({ ...st, running: blind }, false), 'Not checked');
+});
+
 test('ask · exit 1 is a finding, exit 2 is "I could not answer", and they are never confused', () => {
   // A tool that exits non-zero for both tells a pipeline "documentation is broken" when the truth was
   // "atlas could not run" — one is a real finding, the other a pipeline bug.
@@ -4602,6 +4726,164 @@ test('blueprint · a page assembled over scaffolds says the substance is owed, n
   includes(after, 'The substance is owed', 'the six that are still scaffolds still owe their substance');
 });
 
+console.log('\nwork in flight');
+
+/*
+ * Every case below is synchronous, and that is load-bearing rather than incidental. The runner drains
+ * `pendingAsync` partway through this file, so an `async` case registered after that point is never awaited
+ * and is reported as a pass by never having run — which is the one failure mode a regression test must not
+ * have. Each of these was also confirmed to fail with the panel reverted.
+ */
+
+test('inflight · a finished plan on a dirty branch no longer renders as a finished project', () => {
+  // The complaint, verbatim: the Backlog view read "Backlog 62 · Done (62) · In progress (0) · Not started
+  // (0)" while the reader was mid-change, on a branch, with uncommitted files. Every plan panel reads
+  // `planning.source`, and a roadmap records what somebody has already written down and already marked — so
+  // the one state the page could never show was the state its reader was actually in.
+  const dir = fixture('inflight-dirty', {
+    'project-atlas.config.json': JSON.stringify({ planning: { source: 'docs/ROADMAP.md' } }),
+    'docs/ROADMAP.md': '# Plan\n\n| Item | % |\n|---|---|\n| A-1 | 100 |\n\n**A-1 · A finished thing** — **P1 · High**\n',
+    'docs/A.md': '# A\n',
+  });
+  execFileSync('git', ['branch', '-M', 'main'], { cwd: dir, stdio: 'ignore' });
+  execFileSync('git', ['switch', '-qc', 'fix/something-underway'], { cwd: dir, stdio: 'ignore' });
+  fs.writeFileSync(path.join(dir, 'docs/A.md'), '# A\n\nedited while the plan reports everything complete\n');
+
+  const cfg = resolveConfig(dir);
+  const index = buildIndex(dir, cfg);
+  const health = runHealth(index, cfg, dir);
+  const plan = readPlanning(dir, cfg);
+  eq(plan.stats.mean, 100, 'the fixture must reproduce the "everything is done" reading being complained about');
+
+  const html = viewPage({ id: 'backlog', title: 'Backlog', panels: ['tiles', 'inflight'] },
+    { index, health, plan, cfg: { ...cfg, __root: dir }, contrib: null, nav: [] }, (o) => o.body);
+
+  includes(html, 'Work in flight', 'the panel must render on the view the complaint was about');
+  includes(html, 'fix/something-underway', 'and name the branch the work is on');
+  includes(html, 'docs/A.md', 'and the file that is actually being changed');
+  includes(html, 'file(s) in flight it cannot see',
+    'the completion tile must state what its figure excludes, rather than reading as the whole answer');
+  ok(!html.includes('Not shown on this page'), 'a panel with data behind it must not be listed as omitted');
+});
+
+test('inflight · the last two commits on the trunk are not reported as work underway', () => {
+  // `readChanges` compares against the merge-base when the branch has diverged and falls back to `HEAD~2`
+  // when it has not. Those two commits are on the trunk and already delivered; presenting them as work
+  // underway would be this panel committing, in the opposite direction, the exact defect it exists to
+  // remove — a page that cannot tell finished from happening.
+  const dir = fixture('inflight-trunk', { 'docs/A.md': '# A\n' });
+  execFileSync('git', ['branch', '-M', 'main'], { cwd: dir, stdio: 'ignore' });
+  for (const n of ['two', 'three']) {
+    fs.appendFileSync(path.join(dir, 'docs/A.md'), `\n${n}\n`);
+    execFileSync('git', ['add', '-A'], { cwd: dir, stdio: 'ignore' });
+    execFileSync('git', ['-c', 'user.email=t@e.com', '-c', 'user.name=T', 'commit', '-qm', `chore: LANDED-${n} on the trunk`],
+      { cwd: dir, stdio: 'ignore' });
+  }
+
+  const cfg = resolveConfig(dir);
+  const k = readInflight(dir, cfg, { index: null, plan: null });
+  eq(k.diverged, false, 'main has not diverged from itself, and the model must say so');
+  eq(k.commits, [], 'trunk history is not work in flight');
+  eq(k.quiet, true, 'a clean checkout of the trunk has nothing underway');
+  includes(inflightSentence(k), 'Nothing in flight');
+
+  const index = buildIndex(dir, cfg);
+  const health = runHealth(index, cfg, dir);
+  const html = viewPage({ id: 'dashboard', title: 'Overview', panels: ['inflight'] },
+    { index, health, plan: null, cfg: { ...cfg, __root: dir }, contrib: null, nav: [] }, (o) => o.body);
+  includes(html, 'Nothing in flight', 'a clean tree is a measurement and is stated, not left blank');
+  ok(!html.includes('LANDED-three'), 'a commit already on the trunk must never appear as work in flight');
+  ok(!html.includes('Not shown on this page'),
+    '"nothing is happening" is an answer; omitting the panel would make it indistinguishable from "not checked"');
+});
+
+test('inflight · the journal contributes a count and never a word of its text', () => {
+  // The same boundary the decisions panel holds, in the second place a reader would not think to look for
+  // the breach. `.atlas/` is outside the docs root by construction, but this panel renders into
+  // `docs/_wiki`, which publishes — so a journalled sentence embedded here would travel to a wiki.
+  const dir = fixture('inflight-journal', { 'docs/A.md': '# A\n' });
+  const cfg = resolveConfig(dir);
+  journalNote(dir, cfg, { kind: 'blocker', text: 'SECRET-JOURNAL-BLOCKER',
+    why: 'SECRET-JOURNAL-REASONING', identity: 'Ann Example' });
+
+  const index = buildIndex(dir, cfg);
+  const health = runHealth(index, cfg, dir);
+  const html = viewPage({ id: 'dashboard', title: 'Overview', panels: ['inflight'] },
+    { index, health, plan: null, cfg: { ...cfg, __root: dir }, contrib: null, nav: [] }, (o) => o.body);
+
+  includes(html, 'record(s) written since the last commit', 'the count is derived and safe to publish');
+  includes(html, 'of them a recorded blocker', 'and a blocker is the one kind worth counting separately');
+  ok(!html.includes('SECRET-JOURNAL-BLOCKER'), 'journal text must never reach a published page');
+  ok(!html.includes('SECRET-JOURNAL-REASONING'), 'journal reasoning must never reach a published page');
+});
+
+test('inflight · an untracked file is counted and never named', () => {
+  // `git diff` does not see untracked files at all, so the tracked detail and `git status --porcelain`
+  // disagree by exactly that set — reporting only the diff under-counts a tree that is visibly dirty.
+  // Naming them fails the other way: a file git has not been told about is not repository state yet, and
+  // this page shows repository state.
+  const dir = fixture('inflight-untracked', { 'docs/A.md': '# A\n' });
+  fs.writeFileSync(path.join(dir, 'NOT-YET-ADDED-private-notes.md'), '# not for anyone\n');
+
+  const cfg = resolveConfig(dir);
+  const k = readInflight(dir, cfg, { index: null, plan: null });
+  eq(k.untracked, 1);
+  eq(k.tracked, [], 'an untracked file is not a tracked change');
+
+  const index = buildIndex(dir, cfg);
+  const health = runHealth(index, cfg, dir);
+  const html = viewPage({ id: 'dashboard', title: 'Overview', panels: ['inflight'] },
+    { index, health, plan: null, cfg: { ...cfg, __root: dir }, contrib: null, nav: [] }, (o) => o.body);
+  includes(html, '1 untracked file(s), counted but not named');
+  ok(!html.includes('NOT-YET-ADDED-private-notes'), 'the count publishes; the path does not');
+});
+
+test('inflight · a commit naming an item the plan calls not-started shows both figures side by side', () => {
+  // The pairing is the finding, not either half. A commit naming A-1 is unremarkable; a commit naming A-1
+  // while the plan still records A-1 at 0% is the contradiction `progress.mjs` was written to repair — and
+  // until now nothing on the site displayed it.
+  const dir = fixture('inflight-contradiction', {
+    'project-atlas.config.json': JSON.stringify({ planning: { source: 'docs/ROADMAP.md' } }),
+    'docs/ROADMAP.md': '# Plan\n\n| Item | % |\n|---|---|\n| A-1 | 0 |\n\n**A-1 · The thing being built** — **P1 · High**\n',
+  });
+  execFileSync('git', ['branch', '-M', 'main'], { cwd: dir, stdio: 'ignore' });
+  execFileSync('git', ['switch', '-qc', 'feat/the-thing'], { cwd: dir, stdio: 'ignore' });
+  fs.writeFileSync(path.join(dir, 'docs/B.md'), '# B\n');
+  execFileSync('git', ['add', '-A'], { cwd: dir, stdio: 'ignore' });
+  execFileSync('git', ['-c', 'user.email=t@e.com', '-c', 'user.name=T', 'commit', '-qm',
+    'feat: build the thing (A-1, Z-9)'], { cwd: dir, stdio: 'ignore' });
+
+  const cfg = resolveConfig(dir);
+  const index = buildIndex(dir, cfg);
+  const health = runHealth(index, cfg, dir);
+  const plan = readPlanning(dir, cfg);
+  const html = viewPage({ id: 'dashboard', title: 'Overview', panels: ['inflight'] },
+    { index, health, plan, cfg: { ...cfg, __root: dir }, contrib: null, nav: [] }, (o) => o.body);
+
+  includes(html, 'A-1 · The thing being built', 'the item the commit names is resolved to its title');
+  includes(html, 'plan records 0%', 'beside what the plan still says about it');
+  includes(html, 'Also named, and not in the plan', 'an id the plan does not hold is stated, not dropped');
+  includes(html, 'Z-9');
+});
+
+test('inflight · a working tree that could not be read is never reported as quiet', () => {
+  // The same failure the changes panel already had: an error caught and returned as `null` becomes "no data",
+  // and "no data" reads as "nothing is happening". A check that could not run is never reported as passing.
+  const dir = fixture('inflight-broken', { 'docs/A.md': '# A\n' });
+  const cfg = resolveConfig(dir);
+  const index = buildIndex(dir, cfg);
+  const health = runHealth(index, cfg, dir);
+  fs.writeFileSync(path.join(dir, '.git', 'index'), 'GARBAGE-NOT-AN-INDEX', 'utf8');
+
+  const html = viewPage({ id: 'dashboard', title: 'Overview', panels: ['tiles', 'inflight'] },
+    { index, health, plan: null, cfg: { ...cfg, __root: dir }, contrib: null, nav: [] }, (o) => o.body);
+
+  includes(html, 'The working tree could not be read', 'the panel says which check did not run');
+  includes(html, 'the working tree could not be read', 'and the tile carries the same reason');
+  ok(!html.includes('Nothing in flight'), 'an unread tree must never be presented as a quiet one');
+  ok(!html.includes('Not shown on this page'), 'a panel that failed must not be reported as one with no data');
+});
+
 console.log('\nthe live dashboard, and saying where it is');
 
 test('serve · the URL is announced to a session that has not heard it, and once only', () => {
@@ -4669,6 +4951,216 @@ test('serve · a server that cannot bind exits, rather than lingering and rebuil
   } finally {
     holder.kill();
   }
+});
+
+/* ------------------------------------------------------------------ the statusline */
+
+// The script the user names in their own settings.json. Read from the repository rather than a fixture,
+// because what these pin is the shipped file's behaviour and nothing else.
+const STATUSLINE = path.join(REPO_ROOT, 'bin', 'atlas-statusline');
+
+/**
+ * Fire the statusline the way the harness does: a JSON payload on a pipe, one line of stdout expected back.
+ *
+ * `input` is always passed, even when empty, so stdin is a pipe rather than whatever the test runner
+ * inherited. The script skips reading stdin when it is a terminal — otherwise `cat` blocks forever the first
+ * time anyone runs it by hand — and a test that ran down the terminal branch would be testing the other half.
+ */
+const statusline = (cwd, { payload = {}, args = [], env = {} } = {}) =>
+  spawnSync('sh', [STATUSLINE, ...args], {
+    cwd, input: JSON.stringify(payload), encoding: 'utf8', env: { ...process.env, ...env },
+  });
+
+test('statusline · a live server is exactly one line, and an unadopted repository is zero bytes', () => {
+  // The line printed at session start scrolls away, and the port is derived from the repository path so
+  // nobody has it memorised. This puts it where it cannot scroll — which is only safe if it is right, and
+  // "right" starts with saying nothing at all about a repository that never adopted the tool. A statusline
+  // segment in someone else's project is the same trespass as generating `docs/_wiki` there.
+  const dir = fixture('statusline-live', { 'docs/A.md': '# A\n', 'project-atlas.config.json': '{}\n' });
+  fs.mkdirSync(path.join(dir, '.atlas'), { recursive: true });
+  // A pidfile naming this test process: alive, so signal 0 answers and the URL is the honest thing to print.
+  fs.writeFileSync(path.join(dir, '.atlas', 'serve.pid'),
+    JSON.stringify({ pid: process.pid, port: 4321, startedAt: 'now' }), 'utf8');
+
+  const r = statusline(dir);
+  eq(r.status, 0, 'the statusline runs on every assistant message and must never fail');
+  eq(r.stdout, 'atlas · http://127.0.0.1:4321/\n',
+     'the URL, on one line — Claude Code renders every line of stdout as its own statusline row, so a second '
+     + 'line would silently steal a row from whatever else the user put up there');
+
+  // Sessions run from subdirectories constantly. The pidfile is at the repository root, so the ascent is the
+  // whole of finding it.
+  fs.mkdirSync(path.join(dir, 'docs', 'deep', 'deeper'), { recursive: true });
+  includes(statusline(path.join(dir, 'docs', 'deep', 'deeper')).stdout, 'http://127.0.0.1:4321/');
+
+  // A repository that never adopted the tool: not a hint, not an empty separator, nothing.
+  const bare = fixture('statusline-unadopted', { 'README.md': '# nothing to do with atlas\n' });
+  eq(statusline(bare).stdout, '', 'an unadopted repository gets no segment, not an empty one');
+  eq(statusline(bare).status, 0);
+}, { needsPosixShell: true });
+
+test('statusline · a dead pid never becomes a live link', () => {
+  // This is the whole reason the feature is allowed to exist. A frozen dashboard was read as live for an
+  // entire session; pinning a dead URL to the bottom of the terminal would make that failure *more*
+  // convincing, not less. So the pid on the pidfile is verified rather than believed — a killed server
+  // leaves its claim on disk — and the fallback names the state instead of falling silent, because silence
+  // here is indistinguishable from a repository that never adopted the tool and those are different facts.
+  const dir = fixture('statusline-dead', { 'docs/A.md': '# A\n', 'project-atlas.config.json': '{}\n' });
+  fs.mkdirSync(path.join(dir, '.atlas'), { recursive: true });
+  // 999999999 is above every platform's pid_max (99999 on macOS, 4194304 on Linux), so `kill -0` can only
+  // answer ESRCH. A small pid picked at random could be recycled between writing the file and reading it,
+  // which would make this test flaky in the one direction a regression test must never be.
+  fs.writeFileSync(path.join(dir, '.atlas', 'serve.pid'),
+    JSON.stringify({ pid: 999999999, port: 4321, startedAt: 'now' }), 'utf8');
+
+  const r = statusline(dir);
+  eq(r.status, 0);
+  ok(!r.stdout.includes('http://'), 'a pid that is gone must never be rendered as a URL somebody can click');
+  includes(r.stdout, 'down', 'and the state is named, because silence would read as "no atlas here"');
+  eq(r.stdout.split('\n').filter(Boolean).length, 1, 'still one line');
+}, { needsPosixShell: true });
+
+test('statusline · an adopted repository with no pidfile at all still says something', () => {
+  // The case the first version got wrong, and it is not hypothetical: three of the four repositories on the
+  // machine this was built on were answering on their ports with **no pidfile naming them**. Every record
+  // this tool keeps is keyed by a pid, so when servers race, reaping the loser's dead claim discards the
+  // only record of the winner — which keeps listening. Treating "no pidfile" as "no atlas here" reported a
+  // working dashboard as an unrelated project.
+  //
+  // Adoption is what decides whether to speak; the pidfile only decides what is said.
+  const dir = fixture('statusline-no-pidfile', { 'docs/A.md': '# A\n', 'project-atlas.config.json': '{}\n' });
+  ok(!fs.existsSync(path.join(dir, '.atlas', 'serve.pid')), 'the fixture must genuinely have no claim on disk');
+
+  const r = statusline(dir);
+  eq(r.status, 0);
+  includes(r.stdout, 'down', 'an adopted repository is never silent — silence is reserved for "not adopted"');
+  ok(!r.stdout.includes('http://'), 'and it certainly does not invent a URL it has no port for');
+  eq(r.stdout.split('\n').filter(Boolean).length, 1, 'still one line');
+
+  // The distinction that makes the line worth anything: strip the config and the same directory goes quiet.
+  fs.rmSync(path.join(dir, 'project-atlas.config.json'));
+  eq(statusline(dir).stdout, '', 'a repository that never adopted the tool prints nothing at all');
+}, { needsPosixShell: true });
+
+test('statusline · it reads the payload it was handed, not the directory it happens to run in', () => {
+  // Two reasons this cannot fall back to the process working directory. The harness does not document which
+  // directory it spawns the command in, and reading the wrong repository would report another project's port
+  // with complete confidence — which is precisely the failure the per-repository port derivation exists to
+  // prevent (`scripts/lib/serve.mjs:31`), and would be indefensible to reintroduce in the one surface that is
+  // always on screen.
+  //
+  // The argument form is the composition contract. Claude Code runs exactly one statusLine command, so a user
+  // who already has one composes by wrapping — and a wrapper has already drained stdin for its own fields and
+  // cannot hand the payload on. `atlas-statusline "$dir"` needs no stdin at all.
+  const dir = fixture('statusline-payload', { 'docs/A.md': '# A\n', 'project-atlas.config.json': '{}\n' });
+  fs.mkdirSync(path.join(dir, '.atlas'), { recursive: true });
+  fs.writeFileSync(path.join(dir, '.atlas', 'serve.pid'),
+    JSON.stringify({ pid: process.pid, port: 4322, startedAt: 'now' }), 'utf8');
+
+  // Run from a directory in no repository at all, and point at the fixture only through the payload.
+  const elsewhere = fixture('statusline-elsewhere', { 'README.md': '# elsewhere\n' });
+  includes(statusline(elsewhere, { payload: { session_id: 's', cwd: dir } }).stdout, 'http://127.0.0.1:4322/',
+           "the payload's cwd wins over the process's");
+
+  // And with the payload consumed by somebody else, the argument still works.
+  const wrapped = spawnSync('sh', ['-c', `"$1" "$2"`, 'sh', STATUSLINE, dir],
+    { cwd: elsewhere, encoding: 'utf8', input: '' });
+  includes(wrapped.stdout, 'http://127.0.0.1:4322/', 'a wrapper that already read stdin can still call it');
+}, { needsPosixShell: true });
+
+test('statusline · --install refuses to overwrite a statusLine it did not write', () => {
+  // `docs/references/autonomy.md` grants autonomy over derived state and stops at the edge of the
+  // repository. `~/.claude/settings.json` is neither derived nor inside it, so nothing installs this as a
+  // side effect of anything — and when the user does type the command, it still will not replace their own
+  // statusline. Overwriting somebody's configuration is the same act as `publish --force` overwriting
+  // somebody's wiki page, and this project already decided that one.
+  const cfg = path.join(tmpRoot, 'statusline-settings');
+  fs.mkdirSync(cfg, { recursive: true });
+  const file = path.join(cfg, 'settings.json');
+  const mine = { statusLine: { type: 'command', command: '~/bin/my-own-line.sh' }, permissions: { allow: [] } };
+  fs.writeFileSync(file, JSON.stringify(mine), 'utf8');
+
+  const r = statusline(REPO_ROOT, { args: ['--install'], env: { CLAUDE_CONFIG_DIR: cfg } });
+  eq(r.status, 1, 'an install that did not happen is never reported as done');
+  includes(r.stdout, 'my-own-line.sh', 'and it names what is already there rather than describing it');
+  eq(JSON.parse(fs.readFileSync(file, 'utf8')).statusLine.command, '~/bin/my-own-line.sh',
+     "the user's statusline is untouched");
+  eq(JSON.parse(fs.readFileSync(file, 'utf8')).permissions.allow.length, 0, 'and so is everything else');
+
+  // Into a config with no statusLine it writes one, and `--uninstall` takes it back out. Reversible is a
+  // property of the command, not a sentence in a document.
+  fs.writeFileSync(file, JSON.stringify({ permissions: { allow: ['Bash'] } }), 'utf8');
+  const ins = statusline(REPO_ROOT, { args: ['--install'], env: { CLAUDE_CONFIG_DIR: cfg } });
+  eq(ins.status, 0);
+  const after = JSON.parse(fs.readFileSync(file, 'utf8'));
+  eq(after.statusLine.type, 'command');
+  ok(/atlas-statusline$/.test(after.statusLine.command), 'it points at this script');
+  eq(after.permissions.allow, ['Bash'], 'and nothing else in the file moved');
+
+  const un = statusline(REPO_ROOT, { args: ['--uninstall'], env: { CLAUDE_CONFIG_DIR: cfg } });
+  eq(un.status, 0);
+  const restored = JSON.parse(fs.readFileSync(file, 'utf8'));
+  eq(restored.statusLine, undefined, 'removed');
+  eq(restored.permissions.allow, ['Bash'], 'and the rest of the settings survived the round trip');
+}, { needsPosixShell: true, needsJq: true });
+
+test('serve · a server is recognised by what it serves, when every pid-keyed record is gone', () => {
+  // The escape from a cycle that put four servers on one repository. The pidfile and the machine-wide
+  // registry are both keyed by pid, so a single dead pid destroys both — and when servers race, the pid
+  // written down can be the loser's. Reaping it discards the only record of the winner, which is still
+  // listening. The next start then sees no record, finds its port taken, probes one higher, and binds.
+  //
+  // So the last question before starting anything is not "who is running" but "what is being served".
+  //
+  // Driven through a child process because `adoptableServer` is async and this suite's async cases are
+  // drained long before the end of this file — an `async` test appended here is never awaited and passes by
+  // never running. A child gets a real event loop and reports its verdict as an exit status.
+  const dir = fixture('serve-adopt', { 'docs/A.md': '# A\n' });
+  const probe = `
+    import http from 'node:http';
+    import fs from 'node:fs';
+    import path from 'node:path';
+    import { adoptableServer } from ${JSON.stringify(path.join(REPO_ROOT, 'scripts', 'lib', 'serve.mjs'))};
+    const dir = ${JSON.stringify(dir)};
+    const outDir = path.join(dir, 'out');
+    fs.mkdirSync(outDir, { recursive: true });
+    fs.writeFileSync(path.join(outDir, 'build-stamp.txt'), '2026-08-11 15:30:32 UTC\\n');
+    // A server over that exact directory, with no pidfile and no registry entry anywhere — the state the
+    // real repositories were found in.
+    // The server serves from its OWN directory, never from ours. Pointing it at the same file would make
+    // the comparison vacuous — it would echo back whatever we had just written and agree with itself.
+    const theirs = path.join(dir, 'theirs');
+    fs.mkdirSync(theirs, { recursive: true });
+    fs.writeFileSync(path.join(theirs, 'build-stamp.txt'), '2026-08-11 15:30:32 UTC\\n');
+    const srv = http.createServer((req, res) => {
+      if (req.url === '/build-stamp.txt') {
+        res.writeHead(200, { 'content-type': 'text/plain' })
+           .end(fs.readFileSync(path.join(theirs, 'build-stamp.txt')));
+        return;
+      }
+      res.writeHead(404).end();
+    });
+    await new Promise((r) => srv.listen(0, '127.0.0.1', r));
+    const port = srv.address().port;
+    const mine = await adoptableServer(dir, outDir, port);
+    if (!mine || mine.port !== port) { console.log('FAIL: our own stamp was not recognised'); process.exit(1); }
+    // **And a stranger on the port is left strictly alone.** Adopting one would point the user at somebody
+    // else's web page and call it their dashboard — including another atlas server, for another repository,
+    // whose stamp is simply a different build.
+    fs.writeFileSync(path.join(theirs, 'build-stamp.txt'), 'a completely different build\\n');
+    const stranger = await adoptableServer(dir, outDir, port);
+    if (stranger !== null) { console.log('FAIL: a mismatched stamp was adopted'); process.exit(1); }
+    // Nothing listening at all is not ours either.
+    srv.close();
+    await new Promise((r) => srv.on('close', r));
+    fs.writeFileSync(path.join(theirs, 'build-stamp.txt'), '2026-08-11 15:30:32 UTC\\n');
+    const gone = await adoptableServer(dir, outDir, port);
+    if (gone !== null) { console.log('FAIL: a closed port was adopted'); process.exit(1); }
+    console.log('OK');
+  `;
+  const r = spawnSync(process.execPath, ['--input-type=module', '-e', probe], { encoding: 'utf8', timeout: 20_000 });
+  eq(r.status, 0, `adoption probe failed: ${r.stdout || ''}${r.stderr || ''}`);
+  includes(r.stdout, 'OK');
 });
 
 console.log(`\n${pass} passed, ${fail} failed${skipped ? `, ${skipped} skipped on ${process.platform}` : ''}\n`);

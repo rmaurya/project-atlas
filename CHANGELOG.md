@@ -13,6 +13,32 @@ versions follow [Semantic Versioning](https://semver.org/).
 - `atlas plan` — propose the git route for the working tree and wait for approval, rather than only refusing a
   commit once it is attempted.
 
+## [0.1.65] — 2026-08-11
+
+### Fixed
+- **The dashboard link was only ever printed by the one hook a first run cannot reach** (A-23). Three
+  repositories were adopted in one afternoon; all three servers started themselves and answered, and no
+  session ever printed a URL. `on-session-start.sh` was the only place in the tool that named the link, and
+  it is inert unless `project-atlas.config.json` already exists at session start — which is false on the run
+  that *writes* that config. Every other path started the server with `>/dev/null 2>&1`. The announcement
+  now follows the **session** rather than the server: `on-activity.sh` tells any session that has not heard
+  the URL, whichever path brought the server up, exactly once.
+- **A server that could not bind never exited** (A-24). `startServer` set `process.exitCode` on
+  `EADDRINUSE` and returned, and `watch --serve` ran on into its polling loop — so every loser of a race for
+  a port stayed alive indefinitely, serving nothing, invisible to `--status`, and still rebuilding the
+  output directory on every change. Ten such processes were found on one machine. Setting an exit code is
+  not exiting.
+- **`atlas serve` read "no pidfile" as "nothing is running"** (A-24) and stood up a rival one port higher,
+  orphaning a server that kept answering on a port nothing named. The machine-wide registry is a second
+  record, keyed by live pid; when it names a server for this root that still answers, the claim is restored.
+- **Every page heading now names the project.** Each repository gets its own port, so several dashboards are
+  open as a matter of routine, and a page headed "Overview" answers "overview of what?" with nothing.
+
+### Added
+- **`/atlas:dashboard`** — build, serve, open, and say the URL. The manual path for when the automatic one
+  misses. `knowledgebase/SKILL.md` never mentioned `atlas serve` at all, so a first run signed off with a
+  filesystem path; it now ends every run with the link.
+
 ## [0.1.64] — 2026-08-11
 
 ### Added

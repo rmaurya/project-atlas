@@ -254,3 +254,154 @@ The hooks that call these are described in [hooks/README.md](../../hooks/README.
 config key because it runs in every session, including in repositories that have no config file for a key to
 live in. It is described in [hooks/README.md](../../hooks/README.md) and named in
 [SECURITY.md](../../SECURITY.md) as one of this tool's two network requests.
+
+`ATLAS_SERVE=0` disables the live dashboard server for the same reason and in the same way.
+
+---
+
+## The statusline — the dashboard URL where it cannot scroll away
+
+The link is announced once per session: at session start, and — since the run that adopts the tool never
+reaches that hook — after the first tool call of any session that has not heard it. Once is the right number
+for a printed line. Repeat it after every tool call and it becomes noise people filter out, which costs it
+the one moment it needed to be read.
+
+The price of printing it once is that it scrolls away, and the port is derived from the repository path, so
+there is no number to remember and no default to guess. Half an hour in, "where is the dashboard" is answered
+by searching scrollback.
+
+`atlas-statusline` puts it in the Claude Code statusline instead, where it is not a message but a fact about
+the terminal:
+
+```
+atlas · http://127.0.0.1:4238/
+```
+
+### Turning it on — one command, and it is yours to undo
+
+```bash
+atlas-statusline --install      # ~/.claude/settings.json, so it works in every repository you adopt
+atlas-statusline --uninstall    # takes it back out, and touches nothing else in the file
+
+atlas-statusline --install --project     # ./.claude/settings.json instead, for one repository
+```
+
+It writes exactly this, and prints what it wrote:
+
+```json
+{ "statusLine": { "type": "command", "command": "atlas-statusline" } }
+```
+
+Takes effect in the next session.
+
+**Nothing installs this for you, and that is deliberate.** [`autonomy.md`](autonomy.md) grants autonomy over
+derived state and stops at the edge of the repository: *"Autonomy is granted over derived state. It is never
+granted over outward-facing actions."* A `settings.json` is neither. It is not derived — there is no build
+that reproduces it and no directory you can delete to get your old one back — and `~/.claude/settings.json`
+is not in this repository at all; it is the configuration for every project you open. Writing into it from a
+hook would also break the last line of the same document, *"Adoption is a decision, not a default"*, in the
+one file where the decision spans every repository rather than one.
+
+So there is no hook and no install-time side effect. There is a command, it is one line, and undoing it is
+the same command with a different word.
+
+Two things keep the command itself honest:
+
+- **It will not overwrite a statusLine it did not write.** Your statusline is your text. Replacing it
+  silently is the same act as `publish --force` overwriting somebody's wiki page, and this project already
+  decided that one. It prints what is there and exits 1.
+- **An install that did not happen is never reported as done.** Without `jq` it writes nothing, prints the
+  JSON to paste, and exits 1 — the same rule the health reports hold to.
+
+### Composing it with a statusline you already have
+
+Claude Code runs exactly one `statusLine` command, so this cannot be additive on its own and does not pretend
+to be. Three properties make it a component rather than a takeover:
+
+1. **One line, or nothing at all.** Every line on stdout becomes its own statusline row, so a stray newline
+   would silently steal a row from whatever else you put up there. In a repository that has not adopted the
+   tool it emits zero bytes — not a placeholder, not an empty separator.
+2. **No ANSI.** Plain ASCII, so your wrapper dims, colours or truncates it to match its own theme instead of
+   fighting escape codes this script picked.
+3. **The directory can be an argument.** stdin drains once, so a wrapper that has already read the payload
+   for its own fields cannot hand it on. `atlas-statusline "$dir"` needs no stdin.
+
+Which makes a combined statusline an ordinary script:
+
+```sh
+#!/bin/sh
+payload=$(cat)
+dir=$(printf '%s' "$payload" | jq -r '.cwd')
+atlas=$(atlas-statusline "$dir")
+printf '%s%s\n' "$(my-existing-statusline "$dir")" "${atlas:+  |  $atlas}"
+```
+
+`${atlas:+…}` is the point: with no server it expands to nothing, separator included.
+
+### The three states, and why none of them lie
+
+| What is on disk | What is printed |
+|---|---|
+| no repository, or one with no `project-atlas.config.json` | nothing — zero bytes |
+| adopted, and the pidfile names a pid that answers signal 0 | `atlas · http://127.0.0.1:<port>/` |
+| adopted, and anything else — no pidfile, an unreadable one, a dead pid | `atlas · dashboard down` |
+
+**Adoption decides whether it speaks at all; the pidfile only decides what it says.** Getting that the wrong
+way round is how the first version reported a live dashboard as an unrelated project. A missing pidfile looks
+like "never adopted" and frequently is not — the pidfile is the first casualty when two servers race for a
+port, because every record this tool keeps is keyed by a pid, so reaping a dead one throws the claim away
+while the winner is still listening. Three of the four repositories on the machine this was built on were in
+exactly that state: answering on their ports, with nothing on disk naming them.
+
+**A statusline showing a dead link is the exact silent failure this feature exists to remove.** A frozen
+dashboard was once read as live for a whole session; pinning a dead URL to the bottom of the terminal would
+make that failure more convincing, not less. So the pid recorded in `.atlas/serve.pid` is verified with
+signal 0 rather than believed — a killed server leaves its claim on disk — which is the same bar
+`atlas serve --status` holds to. It cannot tell a recycled pid from the original, and nothing cheap can; what
+it rules out is the common case, a server that exited and left its pidfile behind.
+
+The dead case says so rather than falling silent, because silence there is indistinguishable from a
+repository that never adopted the tool, and those are different facts. It is also self-correcting: the next
+tool call fires `on-activity.sh`, which restarts the server and rewrites the pidfile.
+
+### Why it is cheap enough to run constantly
+
+It runs on session start, on every assistant message and on every permission-mode change, debounced at 300ms.
+So it reads `.atlas/serve.pid` directly and **never spawns node**: asking `atlas serve --status` for a number
+already written down would put a Node startup on the critical path of the terminal's own redraw, and a
+statusline that makes the terminal feel slow is a statusline people delete. Finding the repository root is a
+shell loop over `.git` rather than `git rev-parse`, for the same reason.
+
+Measured on this repository, 10 invocations each:
+
+```
+atlas-statusline        22 ms per call
+atlas serve --status    75 ms per call
+```
+
+### Why the command is a bare name and not a path
+
+`atlas-statusline` lives in the plugin's `bin/`, which Claude Code puts on `PATH` while the plugin is enabled
+— the same mechanism that makes `atlas` a command. The bare name is what `--install` writes, because the
+installed plugin lives at a path with the version in it:
+
+```
+~/.claude/plugins/cache/project-atlas/atlas/0.1.64/bin/atlas-statusline
+```
+
+That `0.1.64` was accurate while this page was being written and was `0.1.65` by the time the change landed,
+which is the whole argument. A `settings.json` pointing there stops resolving at the next release, and a
+statusline command that does not resolve prints nothing — indistinguishable from "no server running". That is
+the silent-failure shape this feature exists to remove, and it must not be reintroduced by the wiring. The
+bare name also means disabling the plugin removes the segment cleanly instead of leaving a broken command
+behind.
+
+`--install` checks that the bare name actually resolves before writing it. If it does not, it writes the
+absolute path and says plainly that you will need to re-run it after a plugin update.
+
+### It is not a hook
+
+Everything in `hooks/` is named by `hooks/hooks.json`, where the harness expands `${CLAUDE_PLUGIN_ROOT}`.
+Nothing there is ever typed by a person, and nothing there is optional. This is the opposite on both counts,
+which is why it sits in `bin/` beside `atlas` and why it is a command you run rather than a hook that runs
+you.

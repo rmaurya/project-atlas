@@ -54,14 +54,14 @@ import { survivingLines, formatSurviving } from './lib/surviving.mjs';
 import { note, read as readJournal, formatState, KINDS } from './lib/journal.mjs';
 import { setItemPercent, itemFromBranch, contradictsPlan, STARTED_PERCENT } from './lib/progress.mjs';
 import { handoffPath, handoffAge, formatHandoffPrompt, DEFAULT_STALE_AFTER } from './lib/handoff.mjs';
-import { serve as serveMcp } from './lib/mcp.mjs';
+import { serve as serveMcp, connectionStatus, formatConnection } from './lib/mcp.mjs';
 import { runTask, formatTask, TASKS } from './lib/task.mjs';
 import { designRecord } from './lib/design.mjs';
 import { scaffold as scaffoldDesign } from './lib/scaffold.mjs';
 import { acquire as acquireBuildLock, foreignBuildWarning } from './lib/lock.mjs';
 import { renderLauncher, launcherProjects } from './lib/launcher.mjs';
 import { startServer, spawnDetached, serverStatus, stopServer, writePid, clearPid, openInBrowser, portInUse, unmanagedServer,
-         portForRoot, readRegistry, registerServer, deregisterServer, DEFAULT_PORT, DEFAULT_IDLE_MS } from './lib/serve.mjs';
+         adoptableServer, portForRoot, readRegistry, registerServer, deregisterServer, DEFAULT_PORT, DEFAULT_IDLE_MS } from './lib/serve.mjs';
 
 const argv = process.argv.slice(2);
 
@@ -549,12 +549,6 @@ async function main() {
   }
 
   /*
-   * `atlas mcp` — the same derived data, as structure rather than terminal output.
-   *
-   * Read-only by construction: see mcp.mjs. Nothing is printed to stdout but protocol messages, so the
-   * usual `say()` is deliberately absent from this branch.
-   */
-  /*
    * `atlas ask <task>` — one structured answer with a meaningful exit code, for a caller that is a program.
    *
    * This is M-2's honest scope: CI, a hook or an editor plugin wants "is the documentation sound, and what
@@ -583,7 +577,25 @@ async function main() {
     return;
   }
 
+  /*
+   * `atlas mcp` — the same derived data, as structure rather than terminal output.
+   *
+   * Read-only by construction: see mcp.mjs. Nothing is printed to stdout but protocol messages, so the
+   * usual `say()` is deliberately absent from the serving path below.
+   *
+   * `--status` is the one thing this command may print, and it exists because the serving path is silent by
+   * design: run by hand, `atlas mcp` prints nothing and waits for a client that is never coming, which
+   * looks exactly like a hang. It answers the questions the silence leaves open — what is exposed, which
+   * protocol revision, whether any client here has been told this server exists, and what is running.
+   */
   if (cmd === 'mcp') {
+    if (flag('status')) {
+      const running = runningBuild();
+      const st = connectionStatus({ root, version: running.version, pluginRoot: running.pluginRoot });
+      if (flag('json')) { console.log(JSON.stringify(st, null, 2)); return; }
+      say(formatConnection(st, color));
+      return;
+    }
     serveMcp({ root, version: runningBuild().version });
     return;
   }
@@ -1106,6 +1118,45 @@ async function main() {
       return;
     }
 
+    /*
+     * **Both records are keyed by pid, so one event destroys both.**
+     *
+     * The registry above prunes any entry whose pid is dead, exactly as the pidfile clears a dead claim.
+     * That is right when a server has genuinely gone, and catastrophic when several raced: the pid written
+     * down can be the *loser's*, so reaping it discards the only record of the winner — which is still
+     * listening, still answering, and now invisible to every check this tool makes. The next start finds no
+     * record, sees its derived port taken, probes one port upward and binds there. Repeat, and a machine
+     * accumulates a server per race with the user's open tab pointing at whichever one lost.
+     *
+     * Measured, not theorised: four repositories on this developer's machine reached that state in one
+     * afternoon, one of them running four processes against a single port.
+     *
+     * So the last question before starting anything is not "who is running" but "what is being served".
+     * `adoptableServer` fetches the build stamp off whatever holds the port and compares it to the one on
+     * our own disk — identity by content, which survives every way a pid-keyed record can be lost. A
+     * stranger fails that comparison and is left alone, because adopting one would hand the user somebody
+     * else's web page and call it their dashboard.
+     */
+    const outDirForAdopt = confine(root, cfg.output, 'output', cfg.__configPath);
+    const basePort = typeof flag('port') === 'string' ? Number(flag('port')) : portForRoot(root);
+    const adopted = await adoptableServer(root, outDirForAdopt, basePort);
+    if (adopted) {
+      // **No pid is invented to fill the gap.** The record cannot be restored, because the one thing that
+      // was lost is the number every record is keyed by, and there is no way to learn it from an HTTP
+      // response. Writing a placeholder would be worse than the hole: `serverStatus` verifies a claim with
+      // `process.kill(pid, 0)`, and pid 0 means *the whole process group* to POSIX — so a fabricated claim
+      // would answer "alive" forever and `--stop` would aim a signal at everything this shell owns.
+      //
+      // Refusing to start a rival was the entire point. The record stays missing and is described as
+      // missing; the next start runs this same cheap check and reaches the same correct answer.
+      say(`Already running on ${adopted.url}, serving the build stamped ${adopted.stamp}.`);
+      say(`  Recognised by what it serves, not by a pidfile — that record and its registry entry were both`);
+      say(`  lost, which is how a second server used to get started one port higher. Not starting one.`);
+      say(`  \`lsof -nP -iTCP:${adopted.port} -sTCP:LISTEN\` names the process if you want to restart it cleanly.`);
+      if (!flag('no-open')) openInBrowser(adopted.url);
+      return;
+    }
+
     // Build before serving. Starting a server over a stale or absent output directory is how a live
     // dashboard shows yesterday's numbers on its first paint and looks broken from the first second.
     // Derived from the repository path, so several projects can be live at once without anyone assigning
@@ -1449,6 +1500,7 @@ function usage() {
   atlas sessions [--out F]   how sessions went — turns, interruptions, friction, rework
   atlas prompt [--out FILE]  a system prompt assembled from this repository's own rules and state
   atlas mcp                  serve the corpus over MCP on stdio — read-only, no dependency
+    --status                 what a client would connect to, where it is registered, what is running
   atlas ask <task>           one structured answer for a program; exit 1 on findings, 2 if it could not run
   atlas design [--scaffold]  the design record's state; --scaffold writes questions, never answers
   atlas handoff              the derived half of a handoff, as a prompt — writes nothing

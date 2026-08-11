@@ -75,6 +75,15 @@ if command -v claude >/dev/null 2>&1; then
   if verify_install; then
     say ""
     say "Done and current. Try /atlas:help — and 'atlas' is on your PATH in the next session."
+    # **Stated, not done.** The statusline puts the live dashboard's URL in the bar at the bottom of the
+    # terminal, and turning it on means writing `statusLine` into ~/.claude/settings.json — the user's
+    # configuration for every repository they open, not this tool's to edit. `docs/references/autonomy.md`
+    # draws that line at the edge of the repository, and an installer that quietly reconfigured someone's
+    # terminal would be the clearest possible crossing of it. So the installer names the command and stops;
+    # the command itself refuses to overwrite a statusline somebody else wrote, and `--uninstall` undoes it.
+    say ""
+    say "Optional — pin the live dashboard's URL to your statusline, so it never scrolls away:"
+    say "  atlas-statusline --install        (undo: atlas-statusline --uninstall)"
     exit 0
   fi
   say ""

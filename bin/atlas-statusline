@@ -1,0 +1,322 @@
+#!/usr/bin/env sh
+# project-atlas · the dashboard URL, in the one place it cannot scroll away
+#
+# The link is announced once per session — by `hooks/on-session-start.sh`, and since the adoption defect by
+# `hooks/on-activity.sh` as well. Once is the right number for a printed line: repeat it after every tool
+# call and it becomes noise people filter out, which costs it the one moment it needed to be read. But the
+# price of printing it once is that it scrolls away, and half an hour later "where is the dashboard" is
+# answered by searching scrollback for a URL whose port nobody memorised, because the port is derived from
+# the repository path and is different in every checkout.
+#
+# The statusline is the fix, because it is not a message. It is a fact about the terminal, rendered wherever
+# the user is already looking.
+#
+# ---------------------------------------------------------------- why this lives in bin/ and not hooks/
+#
+# Every script in `hooks/` is named by `hooks/hooks.json`, where the harness expands `${CLAUDE_PLUGIN_ROOT}`
+# for us. Nothing there is ever typed by a person. This one is the opposite: `statusLine` is a key in the
+# user's own `settings.json`, so the string that names this file is written down by a human, in a file this
+# plugin does not own, and it has to stay correct across upgrades.
+#
+# An absolute path would not. The installed plugin lives at
+# `~/.claude/plugins/cache/project-atlas/atlas/0.1.64/bin/atlas-statusline` — the version is *in the path*.
+# That `0.1.64` was accurate when this was written and was 0.1.65 before the change landed, which is the
+# whole argument: a settings.json pointing at today's cache stops resolving at the next release, and a
+# statusline command that does not resolve prints nothing, which is indistinguishable from "no server". That
+# is the silent-failure shape this feature exists to remove, so the wiring must not reintroduce it.
+#
+# Claude Code puts an enabled plugin's `bin/` on PATH — the same mechanism that makes `atlas` a command — so
+# the durable spelling is the bare name `atlas-statusline`. It survives upgrades, and disabling the plugin
+# removes the segment cleanly instead of leaving a broken command behind. `--install` checks that the bare
+# name actually resolves before writing it, and falls back to the absolute path while saying what that costs.
+#
+# ---------------------------------------------------------------- speed
+#
+# This runs on session start, on every assistant message, and on every permission-mode change, debounced at
+# 300ms. It reads `.atlas/serve.pid` directly and never spawns node: asking `atlas serve --status` for a
+# number that is already written down would put a node startup on the critical path of the terminal's own
+# redraw, and a statusline that makes the terminal feel slow is a statusline people delete. Finding the
+# repository root is a shell loop over `.git` rather than `git rev-parse` for the same reason — the ascent
+# costs no process at all.
+#
+# ---------------------------------------------------------------- three states, and none of them lie
+#
+#   no repository, or one with no project-atlas.config.json      →  nothing. Zero bytes.
+#   an adopted repository whose pidfile names a live pid          →  atlas · http://127.0.0.1:<port>/
+#   an adopted repository, any other state                        →  atlas · dashboard down
+#
+# The pid is verified rather than trusted, because a killed server leaves its pidfile behind. **A statusline
+# showing a dead link is the exact silent failure this feature exists to remove** — the frozen dashboard read
+# as live for a whole session, now pinned to the bottom of the screen where it would be believed harder.
+#
+# **Adoption, not the pidfile, is what decides between silence and a line**, and getting that wrong is how
+# the first version of this script reported a working dashboard as an unrelated project. A missing pidfile
+# looks like "never adopted" and very often is not: the pidfile is the first casualty when servers race for
+# a port, because every record this tool keeps is keyed by a pid and reaping a dead one discards the claim
+# while the winner is still listening. Three of the four repositories on this developer's machine were in
+# exactly that state — answering on their ports with nothing naming them.
+#
+# So the config file decides whether to speak at all, and after that every state that is not a live pid is
+# the same fact to a reader: adopted, not currently reachable. Self-correcting, too — the next tool call
+# fires `on-activity.sh`, which restarts the server and rewrites the pidfile.
+#
+# Signal 0 is the same bar `serve --status` holds to (`scripts/lib/serve.mjs:204`). It cannot tell a recycled
+# pid from the original, and nothing cheap can; what it does rule out is the common case, which is a server
+# that exited and left its claim on disk.
+#
+# ---------------------------------------------------------------- composing with a statusline you already have
+#
+# Claude Code runs exactly one `statusLine` command, so this cannot be additive by itself and must not
+# pretend to be. Three commitments make it a component rather than a takeover:
+#
+#   1. **One line, or nothing at all.** Every line on stdout becomes its own statusline row, so a stray
+#      newline would silently steal a row from whatever else is up there.
+#   2. **No ANSI.** Plain ASCII, so a wrapper can dim, colour or truncate it to match its own theme instead
+#      of fighting escape codes this script chose.
+#   3. **The directory can be passed as an argument.** stdin can only be drained once, so a wrapper that has
+#      already read the payload for its own fields could not hand it on. `atlas-statusline "$dir"` needs no
+#      stdin at all.
+#
+# So a combined statusline is an ordinary shell script:
+#
+#   #!/bin/sh
+#   payload=$(cat)
+#   dir=$(printf '%s' "$payload" | jq -r '.cwd')
+#   atlas=$(atlas-statusline "$dir")
+#   printf '%s%s\n' "$(my-existing-statusline "$dir")" "${atlas:+  |  $atlas}"
+#
+# `${atlas:+…}` is the point: when there is no server this expands to nothing, separator included, so an
+# unadopted repository costs no empty brackets.
+
+set -u
+
+SELF=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)/$(basename -- "$0")
+
+usage() {
+  cat <<'EOF'
+atlas-statusline — the live dashboard URL, for the Claude Code statusline.
+
+  atlas-statusline [<dir>]      print one line for <dir> (default: the payload's cwd, else $PWD)
+  atlas-statusline --install    add it to ~/.claude/settings.json      --project for ./.claude/settings.json
+  atlas-statusline --uninstall  remove it again                        --project for ./.claude/settings.json
+
+It reads the JSON statusline payload on stdin when there is one, and needs nothing but a directory
+otherwise. Prints nothing in a repository that has not adopted project-atlas.
+EOF
+}
+
+# ---------------------------------------------------------------- finding the repository
+#
+# Walks up for `.git`, which is `-e` rather than `-d` because a worktree's `.git` is a file. Bounded by
+# reaching `/`, so a path outside any repository ends the loop rather than the process.
+repo_root() {
+  d=$1
+  while [ -n "$d" ] && [ "$d" != "/" ]; do
+    [ -e "$d/.git" ] && { printf '%s' "$d"; return 0; }
+    d=${d%/*}
+  done
+  return 1
+}
+
+# The same two expressions `hooks/on-activity.sh:53,75` reads the pidfile with, deliberately identical: if
+# the file's shape ever changes, one grep has to find every reader of it.
+pid_of()  { sed -n 's/.*"pid"[[:space:]]*:[[:space:]]*\([0-9]*\).*/\1/p'  "$1" 2>/dev/null; }
+port_of() { sed -n 's/.*"port"[[:space:]]*:[[:space:]]*\([0-9]*\).*/\1/p' "$1" 2>/dev/null; }
+
+# ---------------------------------------------------------------- wiring it up
+#
+# **Editing settings.json is a change to the user's environment, and this asks before it makes one.**
+# `docs/references/autonomy.md` grants autonomy over derived state and stops at the edge of the repository;
+# `~/.claude/settings.json` is neither derived nor inside it. So there is no hook that installs this, and
+# nothing writes the key as a side effect of anything else. It happens when someone types the command.
+#
+# Two things then keep the command itself honest:
+#
+# - **It refuses to overwrite a statusLine it did not write.** A user's statusline is their text, and
+#   silently replacing it is the same act as `publish --force` overwriting somebody's wiki page. It prints
+#   what is already there and the recipe for composing with it, and exits 1.
+# - **An install that did not happen is never reported as done.** Without `jq` it writes nothing and prints
+#   the exact JSON to paste — the same rule the reports follow, that a step which could not run is never
+#   reported as having run.
+settings_file() {
+  if [ "$1" = project ]; then
+    r=$(repo_root "$(pwd)") || { echo "atlas-statusline: --project needs to be run inside a git repository." >&2; exit 1; }
+    printf '%s' "$r/.claude/settings.json"
+  else
+    printf '%s' "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json"
+  fi
+}
+
+# The bare name is the durable spelling, but only if it actually resolves — see the header. Checked rather
+# than assumed, because the failure of an unresolvable command is an empty statusline, which looks exactly
+# like a working one with no server running.
+installed_command() {
+  if command -v atlas-statusline >/dev/null 2>&1; then
+    printf 'atlas-statusline'
+  else
+    printf '%s' "$SELF"
+  fi
+}
+
+install_it() {
+  scope=$1
+  file=$(settings_file "$scope") || exit 1
+  cmd=$(installed_command)
+  snippet="\"statusLine\": { \"type\": \"command\", \"command\": \"$cmd\" }"
+
+  if ! command -v jq >/dev/null 2>&1; then
+    echo "atlas-statusline: jq is not installed, so nothing was written."
+    echo "Add this to $file yourself:"
+    echo ""
+    echo "  $snippet"
+    exit 1
+  fi
+
+  if [ -e "$file" ]; then
+    if ! jq -e . "$file" >/dev/null 2>&1; then
+      echo "atlas-statusline: $file is not valid JSON. Nothing was written — fix it first." >&2
+      exit 1
+    fi
+    existing=$(jq -r '.statusLine.command // ""' "$file")
+    case $existing in
+      ''|atlas-statusline|*/atlas-statusline) ;;
+      *)
+        echo "atlas-statusline: $file already has a statusLine, and it is not this one:"
+        echo ""
+        echo "  $existing"
+        echo ""
+        echo "That is your configuration and this will not overwrite it. To run both, point statusLine at a"
+        echo "script of your own that calls each and joins the results — \`atlas-statusline --help\` shows one."
+        exit 1
+        ;;
+    esac
+  else
+    mkdir -p "$(dirname -- "$file")" || exit 1
+    echo '{}' > "$file" || exit 1
+  fi
+
+  tmp="$file.atlas.$$"
+  # Written to a temporary file and moved into place, so an interrupted or failing jq leaves the settings
+  # exactly as they were rather than truncated. This file is not ours to half-write.
+  if jq --arg c "$cmd" '.statusLine = { type: "command", command: $c }' "$file" > "$tmp" 2>/dev/null; then
+    mv -- "$tmp" "$file"
+  else
+    rm -f -- "$tmp"
+    echo "atlas-statusline: could not write $file. Nothing was changed." >&2
+    exit 1
+  fi
+
+  echo "atlas-statusline: added to $file"
+  echo "  $snippet"
+  if [ "$cmd" != atlas-statusline ]; then
+    echo ""
+    echo "  Written as an absolute path because 'atlas-statusline' does not resolve on this PATH. That path"
+    echo "  contains the plugin version, so re-run this after a plugin update — or add the plugin's bin/ to"
+    echo "  PATH and re-run it once to switch to the durable spelling."
+  fi
+  echo ""
+  # The undo instruction is spelled the same way the installed command is. Printing `atlas-statusline
+  # --uninstall` to someone for whom that name does not resolve hands them a reversal that does not run,
+  # which makes "reversible" a claim rather than a fact.
+  echo "Takes effect in the next session. Undo with: $cmd --uninstall$([ "$scope" = project ] && printf ' --project')"
+}
+
+uninstall_it() {
+  scope=$1
+  file=$(settings_file "$scope") || exit 1
+  [ -e "$file" ] || { echo "atlas-statusline: $file does not exist — nothing to remove."; exit 0; }
+  command -v jq >/dev/null 2>&1 || {
+    echo "atlas-statusline: jq is not installed, so nothing was changed. Delete the \"statusLine\" key in $file." >&2
+    exit 1
+  }
+  existing=$(jq -r '.statusLine.command // ""' "$file" 2>/dev/null)
+  case $existing in
+    '') echo "atlas-statusline: $file has no statusLine — nothing to remove."; exit 0 ;;
+    atlas-statusline|*/atlas-statusline) ;;
+    *)
+      echo "atlas-statusline: the statusLine in $file is not this one, so it was left alone:"
+      echo "  $existing"
+      exit 1
+      ;;
+  esac
+  tmp="$file.atlas.$$"
+  if jq 'del(.statusLine)' "$file" > "$tmp" 2>/dev/null; then
+    mv -- "$tmp" "$file"
+    echo "atlas-statusline: removed from $file"
+  else
+    rm -f -- "$tmp"
+    echo "atlas-statusline: could not write $file. Nothing was changed." >&2
+    exit 1
+  fi
+}
+
+# ---------------------------------------------------------------- arguments
+
+scope=user
+arg_dir=
+for a in "$@"; do
+  case $a in
+    --project) scope=project ;;
+    --install) action=install ;;
+    --uninstall) action=uninstall ;;
+    -h|--help) usage; exit 0 ;;
+    -*) echo "atlas-statusline: unknown option $a" >&2; usage >&2; exit 1 ;;
+    *) arg_dir=$a ;;
+  esac
+done
+
+case ${action:-print} in
+  install)   install_it "$scope"; exit 0 ;;
+  uninstall) uninstall_it "$scope"; exit 0 ;;
+esac
+
+# ---------------------------------------------------------------- the line itself
+
+# **Only read stdin when something is piping into it.** `cat` on a terminal blocks forever, and the first
+# thing anyone does with a statusline script is run it by hand to see what it prints. A tool that hangs when
+# you try it is a tool nobody gets as far as installing.
+payload=
+[ -t 0 ] || payload=$(cat 2>/dev/null)
+
+dir=$arg_dir
+if [ -z "$dir" ] && [ -n "$payload" ]; then
+  # The payload's `cwd` is authoritative: the directory this command is spawned in is not documented, and a
+  # statusline that reads the wrong repository would report another project's port with total confidence —
+  # which is the failure the derived-port scheme exists to prevent, not one to reintroduce here.
+  dir=$(printf '%s' "$payload" | sed -n 's/.*"cwd"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)
+fi
+# `$(pwd)` rather than `$PWD`, because `$PWD` is inherited: a parent that spawns this with a different
+# working directory without updating the variable — which is what `child_process` does by default — leaves a
+# stale value behind, and a stale value here means reporting another repository's port.
+[ -n "$dir" ] || dir=$(pwd)
+case $dir in /*) ;; *) dir=$(CDPATH= cd -- "$dir" 2>/dev/null && pwd) || exit 0 ;; esac
+
+root=$(repo_root "$dir") || exit 0
+
+# **Silence means one thing only: this repository has not adopted the tool.**
+#
+# Overloading it was the first version's mistake, and the config file is what separates the two cases. A
+# repository with no `project-atlas.config.json` has no dashboard to have an opinion about, and printing a
+# segment there would put atlas in the statusline of every unrelated project the user opens.
+#
+# A repository that *has* adopted it always gets a line, because from here on every silence would be a lie
+# of omission. This is not hypothetical: the pidfile is the first casualty whenever servers race for a port
+# — the record is keyed by a pid, so reaping a dead one throws away the claim while the winner keeps
+# listening. Three of the four repositories on this machine reached exactly that state, still answering on
+# their ports with no pidfile naming them, and a statusline that fell silent would have reported a working
+# dashboard as an unadopted repository.
+[ -f "$root/project-atlas.config.json" ] || exit 0
+
+pidfile="$root/.atlas/serve.pid"
+pid=$(pid_of "$pidfile" 2>/dev/null)
+port=$(port_of "$pidfile" 2>/dev/null)
+
+# A live pid is the only thing that earns a URL. Everything else — no pidfile, an unreadable one, a claim
+# naming a process that has gone — is the same fact to a reader: adopted, and not currently reachable. It is
+# also self-correcting, because the next tool use fires `on-activity.sh`, which brings the server back.
+if [ -n "$pid" ] && [ -n "$port" ] && kill -0 "$pid" 2>/dev/null; then
+  printf 'atlas · http://127.0.0.1:%s/\n' "$port"
+else
+  printf 'atlas · dashboard down\n'
+fi
+exit 0
