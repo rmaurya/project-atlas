@@ -596,6 +596,7 @@ ${updateBar(about)}
   <nav>
 ${sections.filter((s) => s.label).map((s) => `    <a href="#${s.file}" data-go="${s.file}"${s.first ? ' class="on" aria-current="page"' : ''}>${escapeHtml(s.label)}</a>`).join('\n')}
   </nav>
+  <time class="clock" id="clock" aria-live="off"></time>
   <button type="button" class="theme-toggle" id="themeToggle" aria-label="Theme: system"></button>
 </header>
 ${sections.map((s) => `<main data-page="${s.file}"${s.first ? ' class="on"' : ''}>\n${s.inner}\n</main>`).join('\n')}
@@ -768,7 +769,10 @@ export const BUNDLE_PAGES = [
  * exempting it left seven elements sharing an id and six of them unreachable. Chrome means *outside the body
  * this bundle copies* — not *looks like furniture*.
  */
-const CHROME_IDS = new Set(['themeToggle']);
+// The clock joins the toggle for the same reason and by the same test: it lives in the topbar, and this
+// bundler rebuilds the topbar rather than copying any page's. A per-page `clock--dashboard` would rename an
+// element that no longer exists while the one that does keeps the plain id.
+const CHROME_IDS = new Set(['themeToggle', 'clock']);
 
 /** Inline the stylesheet and search index into one HTML file, for anywhere that takes a single document. */
 export function exportSingleFile(root, cfg, which = 'dashboard') {

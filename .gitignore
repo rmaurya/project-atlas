@@ -13,6 +13,11 @@ docs/_wiki/
 # Which session was last told the dashboard URL, so the line is said once per session rather than after
 # every tool call. A session id, meaningful only on the machine that produced it.
 .atlas/serve-announced
+
+# The session's own task list, appended as items open and close. Live local state rather than record: it
+# describes what one person is doing right now on one machine, and committing it would put a diff in front of
+# every commit and show a teammate somebody else's half-finished afternoon. The journal is the committed one.
+.atlas/tasks-live.jsonl
 .atlas/artifact-page.html
 
 # Generated launcher pages — rewritten by `atlas serve --launcher`, published as artifacts.

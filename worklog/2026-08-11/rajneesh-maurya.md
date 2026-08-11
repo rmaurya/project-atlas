@@ -6,8 +6,8 @@ _Written by `atlas worklog`. Measured from git and the corpus; no prompt text, a
 
 | | |
 |---|---|
-| Commits | 20 |
-| Lines | +7,717 / −244 |
+| Commits | 21 |
+| Lines | +7,866 / −247 |
 | Desks | rajneesh-maurya |
 | Rework rate | 81.9% — a file re-touched within 3 days |
 | Reverts | 0 |
@@ -43,6 +43,7 @@ _Written by `atlas worklog`. Measured from git and the corpus; no prompt text, a
 - **A-22** Two builds of different versions must not share an output directory — 100%
 - **A-23** A dashboard nobody was told about was never delivered — 100%
 - **A-24** A server that cannot bind must not linger — 100%
+- **M-3** The control plane belongs outside this tool — 40%
 
 ## Commits
 
@@ -66,6 +67,7 @@ _Written by `atlas worklog`. Measured from git and the corpus; no prompt text, a
 - `1741597` chore(record): the session's journal and worklog
 - `91c3de7` fix(serve,dashboard): the link was only ever printed by the one hook a first run cannot reach (A-23, A-24)
 - `92ee74a` feat(mcp,statusline,dashboard): three surfaces that each answered a question nobody could get an answer to (A-23, A-24)
+- `43f5622` docs(mcp,autonomy): the request was to give the MCP server full control, and that cannot be built (M-3)
 
 ---
 

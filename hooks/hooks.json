@@ -32,6 +32,15 @@
         ]
       },
       {
+        "matcher": "TaskCreate|TaskUpdate",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "S=\"${CLAUDE_PLUGIN_ROOT}/hooks/on-task.sh\"; [ -r \"$S\" ] && sh \"$S\"; exit 0"
+          }
+        ]
+      },
+      {
         "hooks": [
           {
             "type": "command",

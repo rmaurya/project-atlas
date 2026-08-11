@@ -118,7 +118,18 @@ export const DEFAULT_VIEWS = [
   {
     id: 'executive', title: 'Executive', nav: true,
     blurb: 'The few numbers that survive summarising. Everything here is a link to the page that explains it.',
-    panels: ['tiles', 'inflight', 'deliveryTiles', 'progress', 'caveats'],
+    /*
+     * **`inflight` was here and had to come off.** The panel is a file-by-file table — twenty rows of paths
+     * and line counts — and on a page whose stated promise is "the few numbers that survive summarising" it
+     * became the tallest thing on the screen, squeezed into one masonry column with its table clipped. An
+     * executive reading for thirty seconds does not want the diff; the headline tile already says how many
+     * files are in flight, and it links to the view that lists them.
+     *
+     * `charts` replaces it, which is what this page was missing: it is the only view with a plan figure, a
+     * delivery figure and no picture of either, so the one audience least able to spend time reading was the
+     * one being handed the most prose. Composition, contribution and effort in a glance, then the numbers.
+     */
+    panels: ['tiles', 'charts', 'deliveryTiles', 'progress', 'caveats'],
   },
 ];
 

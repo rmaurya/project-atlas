@@ -1227,7 +1227,7 @@ async function main() {
       const idleMs = flag('detached') ? (Number(flag('idle-ms', DEFAULT_IDLE_MS)) || DEFAULT_IDLE_MS) : 0;
 
       startServer({
-        outDir, port, idleMs,
+        outDir, root, port, idleMs,
         // The pidfile is deliberately NOT cleared here: the port is held by someone, and on the common path
         // that someone is this repository's own healthy server. Clearing its claim on the way out would
         // leave a running server nothing can find or stop — a worse state than the one being reported.

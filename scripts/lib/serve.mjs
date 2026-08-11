@@ -258,8 +258,50 @@ export function openInBrowser(url) {
  * the detached server exits, a foreground `watch --serve` ignores it, because a terminal someone is
  * sitting in front of is evidence enough that they still want it.
  */
-export function startServer({ outDir, port = DEFAULT_PORT, idleMs = 0, onIdle = null, onListen = null, onError = null }) {
+export function startServer({ outDir, root = null, sources = null, port = DEFAULT_PORT, idleMs = 0, onIdle = null, onListen = null, onError = null }) {
   let lastRequest = Date.now();
+
+  /*
+   * **The one link on every derived page that the server could not answer.**
+   *
+   * Each generated page opens with "Source: `docs/references/authoring.md` — edit that file, not this one",
+   * and links it. The href is relative to the repository root, which is correct when the HTML is opened off
+   * the filesystem and dead the moment the same file is served: the server hosts the output directory, the
+   * source lives above it, and the browser got `not found`. The banner exists for exactly one purpose — send
+   * the reader to the file they should edit — so a link that dies under the server is the banner failing at
+   * its only job, on every page, silently.
+   *
+   * **The allowlist is the corpus, not a path rule.** Widening the server to "anything under the repository
+   * root" would trade one broken link for a loopback file browser over `.env`, `.git` and every key on the
+   * machine's checkout. What is served instead is the exact set of documents this build indexed — a list the
+   * build already has and hands over. A request for anything outside it is a 404, and a build that supplied
+   * no list serves nothing, so the failure mode of the plumbing is "the old broken link", never "more is
+   * readable than intended".
+   *
+   * Served as plain text deliberately: it is markdown source, and rendering it would hand back something that
+   * looks like the derived page the reader is being sent away from.
+   */
+  // Read per miss rather than captured at startup: the corpus changes under a running server every time the
+  // watcher rebuilds, and a list snapshotted at boot would 404 exactly the document somebody just added.
+  // This only runs on the path that was already about to return 404, so it costs nothing on a normal request.
+  const allowNow = () => {
+    if (sources) return sources instanceof Set ? sources : new Set(sources);
+    try { return new Set(JSON.parse(fs.readFileSync(path.join(outDir, 'sources.json'), 'utf8'))); }
+    catch { return new Set(); }
+  };
+  const serveSource = (rel, res) => {
+    const miss = () => res.writeHead(404, { 'content-type': 'text/plain' }).end('not found');
+    const allow = allowNow();
+    if (!root || !allow.size || !allow.has(rel)) { miss(); return; }
+    // Re-checked against the root even though the path came off the allowlist: the list is data, and a
+    // containment check that only runs on paths already believed safe is a check that never runs.
+    const abs = path.resolve(root, rel);
+    if (abs !== root && !abs.startsWith(root + path.sep)) { miss(); return; }
+    fs.readFile(abs, (err, buf) => {
+      if (err) { miss(); return; }
+      res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' }).end(buf);
+    });
+  };
 
   const server = http.createServer((req, res) => {
     lastRequest = Date.now();
@@ -271,7 +313,7 @@ export function startServer({ outDir, port = DEFAULT_PORT, idleMs = 0, onIdle = 
       return;
     }
     fs.readFile(file, (err, buf) => {
-      if (err) { res.writeHead(404, { 'content-type': 'text/plain' }).end('not found'); return; }
+      if (err) { serveSource(rel, res); return; }
       res.writeHead(200, {
         'content-type': TYPES[path.extname(file).toLowerCase()] || 'application/octet-stream',
         'cache-control': 'no-store',

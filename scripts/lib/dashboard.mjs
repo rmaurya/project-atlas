@@ -1105,6 +1105,40 @@ function inflightPanel(flight, index) {
       <p class="empty"><span class="dot" style="background:${st('good')}"></span> ${lead}</p></figure>`;
   }
 
+  /*
+   * **The session's open items, first — because this is the question the page kept answering wrongly.**
+   *
+   * Everything else in this panel describes files. Files are the residue of work, not the work, and a reader
+   * looking at "21 uncommitted files" still cannot tell what is being attempted. The task list is the only
+   * thing here that says what someone set out to do, so it leads.
+   *
+   * Statuses are shown as the harness recorded them and never re-derived: a task nobody marked done is open,
+   * even when the files it touches look finished. Inferring completion from a diff is exactly the guess this
+   * panel exists to avoid making.
+   */
+  const tasks = flight.sessionTasks;
+  const taskBlock = tasks?.available && tasks.items.length ? (() => {
+    const order = { in_progress: 0, pending: 1, completed: 2 };
+    const sorted = [...tasks.items].sort(
+      (a, b) => (order[a.status] ?? 1) - (order[b.status] ?? 1) || Number(a.id) - Number(b.id));
+    const dot = (s) => st(s === 'completed' ? 'good' : s === 'in_progress' ? 'warning' : 'muted');
+    const label = (s) => s === 'in_progress' ? 'in progress' : s === 'completed' ? 'done' : 'not started';
+    const rows = sorted.map((t) => `<tr>
+      <td class="num">${escapeHtml(t.id)}</td>
+      <td><span class="dot" style="background:${dot(t.status)}"></span> ${escapeHtml(label(t.status))}</td>
+      <td>${escapeHtml(t.subject || '(untitled)')}</td>
+    </tr>`).join('');
+    return `<section class="sect">
+      <h3>Session tasks <span class="count">${tasks.open} open · ${tasks.done} done</span></h3>
+      <p class="cap">What the session driving this change set out to do, recorded to
+        <code>.atlas/tasks-live.jsonl</code> as each item was opened or closed and replayed here. Statuses are
+        shown as they were recorded — a task nobody marked done is open, however finished its files look.</p>
+      <div class="table-wrap"><table class="mini-table tasks-live">
+        <thead><tr><th class="num">#</th><th>Status</th><th>Task</th></tr></thead>
+        <tbody>${rows}</tbody></table></div>
+    </section>`;
+  })() : '';
+
   const total = flight.tracked.length + (flight.untracked || 0);
   const rows = flight.tracked.slice(0, 12).map((f) => {
     // A file can be staged and modified again at once, so the states are listed rather than picked between.
@@ -1137,6 +1171,8 @@ function inflightPanel(flight, index) {
       ? `, diverged from <code>${escapeHtml(flight.main)}</code> at <code>${escapeHtml(flight.base || '—')}</code>`
       : `, which has not diverged from <code>${escapeHtml(flight.main)}</code> — so nothing is counted here as committed-but-unmerged`}${
     flight.ahead ? ` · ${flight.ahead} unpushed commit(s)` : ''}.</p>
+
+  ${taskBlock}
 
   ${flight.tracked.length ? `
   <div class="table-wrap">

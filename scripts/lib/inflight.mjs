@@ -15,16 +15,28 @@
  *
  * ## What "in flight" is allowed to mean
  *
- * Only what the repository can be asked. There is a task list in the agent session driving this change, and
- * it would answer the question perfectly; it is also not in the repository, cannot be verified from it, and
- * bridging to it would put unreviewable state on a page whose entire warranty is that everything on it is
- * derived. So the answer is assembled from four things git and the working tree already know, and each of
- * them is reported as the thing it is:
+ * Only what the repository can be asked — which turned out to be more than the first version of this module
+ * believed.
+ *
+ * It originally argued that the agent session's task list, though it would answer the question perfectly, was
+ * "not in the repository, cannot be verified from it", and that bridging to it would put unreviewable state on
+ * a page whose entire warranty is that everything on it is derived. The constraint was stated correctly and
+ * the conclusion drawn from it was wrong. The owner watched this dashboard report a finished project three
+ * times while sitting beside a session with seven open items, and *"I cannot verify that data"* is a reason to
+ * get the data onto disk, not a licence to render a page that is confidently incorrect.
+ *
+ * So `on-task.sh` writes each task change into `.atlas/tasks-live.jsonl` as it happens — the same append-only
+ * shape, and the same reasoning, as the journal. By the time the build runs it is a file, read like any other.
+ * Nothing here reaches into a harness; the harness reaches into the repository, which was always allowed.
+ *
+ * Five sources, each reported as the thing it is:
  *
  *   1. **The branch**, and whether it is protected — `branch.mjs`, which already models that.
  *   2. **Uncommitted and staged files** with their line counts — `changes.mjs`, which already reads them.
  *   3. **Commits since this branch diverged**, and which plan items their subjects name.
  *   4. **The journal**, as a count and never as content.
+ *   5. **The session's task list**, replayed from the recorded log — subjects and statuses, which are the
+ *      titles of work someone chose to open, not the contents of anything.
  *
  * ## Four rules, each of which is a way this could otherwise lie
  *
@@ -48,6 +60,8 @@
  * would look like it had been measured.
  */
 
+import fs from 'node:fs';
+import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { readChanges } from './changes.mjs';
 import { branchStatus } from './branch.mjs';
@@ -210,7 +224,57 @@ export function readInflight(root, cfg = {}, { index = null, plan = null } = {})
     };
   } catch { /* an unreadable journal is stated as absent, never as empty */ }
 
-  const quiet = !tracked.length && !untracked && !journal.records;
+  /*
+   * **The session's own task list, read back off disk.**
+   *
+   * This panel was built deriving everything from git, and a task list is not in git — so the first version
+   * left it out on the grounds that it was not honestly derivable. That was right about the constraint and
+   * wrong about the conclusion. The dashboard sat next to a session with seven open items and reported a
+   * finished project three times running, and "the data lives somewhere I cannot verify" is a reason to get
+   * it onto disk, not a reason to render a page that is confidently wrong.
+   *
+   * `on-task.sh` appends one record per task change, the same append-only shape the journal uses and for the
+   * same reason. By the time the build runs it is ordinary repository state, verifiable by reading a file,
+   * and nothing here reaches into a harness.
+   *
+   * **Replayed, not snapshotted.** The log is a sequence of operations, so current state is the fold over it:
+   * later records win field by field, and a field absent from an update leaves the earlier value alone. A
+   * snapshot file would have been simpler and would lose the one property that matters — a session killed
+   * mid-write loses at most its last line and never corrupts what came before.
+   */
+  const sessionTasks = (() => {
+    let raw;
+    try { raw = fs.readFileSync(path.join(root, '.atlas', 'tasks-live.jsonl'), 'utf8'); }
+    catch { return { available: false, items: [] }; }
+
+    const byId = new Map();
+    for (const line of raw.split('\n')) {
+      if (!line.trim()) continue;
+      let r;
+      try { r = JSON.parse(line); } catch { continue; }   // a torn last line is skipped, never fatal
+      if (!r?.id) continue;
+      const prev = byId.get(r.id) || { id: r.id, subject: null, status: 'pending', activeForm: null };
+      byId.set(r.id, {
+        id: r.id,
+        subject: r.subject ?? prev.subject,
+        status: r.status ?? prev.status,
+        activeForm: r.activeForm ?? prev.activeForm,
+        at: r.at || prev.at || null,
+      });
+    }
+
+    // A task the harness deleted leaves its last recorded state behind, so `deleted` is a status like any
+    // other and is dropped from the list rather than shown as outstanding.
+    const items = [...byId.values()].filter((t) => t.status !== 'deleted');
+    return {
+      available: true,
+      items,
+      open: items.filter((t) => t.status !== 'completed').length,
+      done: items.filter((t) => t.status === 'completed').length,
+    };
+  })();
+
+  const quiet = !tracked.length && !untracked && !journal.records && !sessionTasks.open;
 
   return {
     available: true,
@@ -233,6 +297,7 @@ export function readInflight(root, cfg = {}, { index = null, plan = null } = {})
     clusters: [...clusters.entries()].map(([id, count]) => ({ id, count })).sort((a, b) => b.count - a.count),
     outsideCorpus,
     journal,
+    sessionTasks,
     quiet,
   };
 }

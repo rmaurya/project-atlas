@@ -35,6 +35,8 @@ measured against the code — the same distinction the tool preserves everywhere
 | A-19 | 100 | P-7 | 100 | P-8 | 100 |
 | A-20 | 100 | A-21 | 100 | A-22 | 100 |
 | A-23 | 100 | A-24 | 100 | M-3 | 40 |
+| A-25 | 100 | A-26 | 100 | A-27 | 100 |
+| A-28 | 100 | | | | |
 
 ---
 
@@ -657,6 +659,47 @@ reporting all along; the duplicate builds it named were these.*
 treating a missing pidfile as proof that nothing is running — the machine-wide registry is a second record,
 keyed by live pid rather than by a file this repository may have lost, and when it names a server for this
 root that still answers, the claim is restored instead of a rival being stood up one port higher.*
+
+**A-25 · The dashboard could not see the work the session was doing** — **P0 · Critical**
+*Shipped in 0.1.66.* *Three times in one afternoon the owner pointed at a page reporting a finished project
+while sitting beside a session with seven open items, and each time the answer was that the task list is not
+in the repository. That answer was true and useless. A-22's panel had already reasoned its way to leaving it
+out — "not in the repository, cannot be verified from it" — which is the right constraint and the wrong
+conclusion: **"I cannot verify that data" is a reason to get it onto disk, not a licence to render a page
+that is confidently wrong.***
+*So `on-task.sh` appends one record per task change to `.atlas/tasks-live.jsonl`, the same append-only shape
+the journal uses and for the same survives-a-kill reason, and the panel replays it. Nothing reaches into the
+harness; the harness writes to the repository, which was always allowed. Statuses are shown as recorded and
+never re-derived from the diff — inferring "done" from a finished-looking file is the guess the panel exists
+to avoid.*
+***The second half was the one that had been missing.*** *Data on disk would still have looked frozen,
+because nothing rebuilt on a task change — `on-write.sh` fires for markdown only. The hook rebuilds detached,
+and the open page picks it up through the stamp it already polls.*
+
+**A-26 · Every page linked its own source, and the link 404'd** — **P1 · High**
+*Shipped in 0.1.66.* *Each derived page opens with "Source: `docs/references/authoring.md` — edit that file,
+not this one". The href is relative to the repository root: correct from the filesystem, dead through the
+server, which hosts the output directory while the source sits above it. The banner's only job is to send a
+reader to the file they should edit, so it was failing at it on every page, silently, since the server
+existed.*
+*The fix is not a path rule. Serving "anything under the root" would trade one broken link for a loopback
+file browser over `.env` and `.git`; what is served is the exact set of documents the build indexed, written
+to `sources.json` and re-read per miss so a document added by the watcher resolves without a restart.
+Verified: the failing link returns 200, `package-lock.json` and `.git/config` still 404.*
+
+**A-27 · A dashboard people leave open should say when now is** — **P3 · Low**
+*Shipped in 0.1.66.* *Local time and UTC in the header — local for the reader, UTC because every stamp this
+tool writes is UTC and comparing them should not require arithmetic. Rendered by the browser, never by the
+build: a baked timestamp would break byte-identical rebuilds and would be wrong within a second and stay
+wrong for as long as the page was open, which is the same class of lie as a frozen dashboard.*
+
+**A-28 · The Executive view was the least readable page in the site** — **P2 · Medium**
+*Shipped in 0.1.66.* *Its promise is "the few numbers that survive summarising" and it carried the in-flight
+panel: a twenty-row table of paths and line counts, the tallest thing on the page, squeezed into one masonry
+column with its columns clipped. Meanwhile the one view with both a plan figure and a delivery figure had no
+picture of either — the audience least able to spend time reading was handed the most prose. The file table
+comes off, the charts go on, and the headline tile still says how many files are in flight and links to the
+view that lists them.*
 
 **A-7 · The boundary holds** — **P0 · Critical**
 *Shipped in 0.1.55.*
