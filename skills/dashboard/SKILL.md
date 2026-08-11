@@ -1,0 +1,59 @@
+---
+description: Build the site, start the live dashboard server, open it in the browser and print the URL. Use when the user asks for the dashboard, the wiki, the site or a link to it, when they ask where the dashboard is or whether it is running, or when they type /atlas:dashboard.
+disable-model-invocation: true
+---
+
+# Dashboard
+
+!`atlas serve`
+
+# Every dashboard on this machine
+
+!`atlas serve --list`
+
+> **If the block above is empty**, `atlas` is not on `PATH` — the plugin is not installed where this is
+> running. Say so; do not read an empty section as "no dashboard is running".
+
+---
+
+`atlas serve` has already run above. It builds first, starts the server if it is not up, opens the browser,
+and is idempotent — running it when a server is already up opens the page rather than fighting for the port.
+
+**Your entire job is to report the URL as a link, on its own line, as the first thing you say.** Not a file
+path. Not "the site is built". A `http://127.0.0.1:<port>/` URL the user can click.
+
+This command exists because the automatic path failed once in a way worth not repeating: three repositories
+were adopted in one afternoon, all three servers started themselves and answered, and no session ever
+printed a port. The dashboard being up is not the deliverable — **the user knowing where it is** is the
+deliverable.
+
+## Reading the block above
+
+- **A URL was printed** — say it, say whether it was already running or just started, and stop. One screen.
+- **"Port … is already in use"** — something else holds the derived port. Say what
+  `lsof -nP -iTCP:<port> -sTCP:LISTEN` would name, and offer `atlas serve --port <other>`.
+- **"Started pid …, but it is not listening"** — the child died. Run `atlas watch --serve` to surface the
+  error rather than guessing at it.
+- **The block is empty or says the config is missing** — this repository has not adopted the tool. There is
+  nothing to serve yet, and serving an empty output directory would produce a page that looks broken. Say
+  so and run `atlas:knowledgebase`, which does the adoption and ends here anyway.
+- **`atlas` not on PATH** (both blocks empty) — the plugin is not installed where this is running. Say that
+  plainly; do not read an empty section as "nothing is running".
+
+## The list
+
+The second block names every atlas dashboard running on this machine, one port per project, derived from the
+repository path so they never contend. Show it **only when it has more than this repository in it** — with
+several projects open the useful question stops being "is it up" and becomes "which one am I looking at".
+
+`atlas serve --launcher` writes a single page linking all of them, if the user wants one bookmark instead of
+several.
+
+## What not to do
+
+- **Do not report a filesystem path instead of a URL.** `docs/_wiki/index.html` is not a dashboard; it is a
+  file. Opening it directly gets a page whose live-reload polling cannot reach anything.
+- **Do not stop the server to "clean up".** It exits on its own after 30 idle minutes. `atlas serve --stop`
+  is for when the user asks.
+- **Do not publish anything.** This is loopback-only, on this machine. Publishing is `atlas:publish`, it is
+  outward-facing, and it is confirmed every time.

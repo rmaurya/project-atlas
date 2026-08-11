@@ -1084,6 +1084,28 @@ async function main() {
       return;
     }
 
+    /*
+     * **The pidfile is not the only record, and treating it as one produced orphans.**
+     *
+     * A pidfile can be lost while its server is perfectly alive — overwritten by a second start that raced
+     * it, cleared by a stale-pid check that misfired, removed by hand. The old code read "no pidfile" as
+     * "nothing is running", started a second server, found the derived port taken, probed one port upward,
+     * and bound there. Now two servers answer for one repository, only the newer is named anywhere, and the
+     * link printed at the top of the session points at the older one — which keeps answering, so nothing
+     * ever looks broken. That is exactly how a session was spent reading a dashboard nobody was updating.
+     *
+     * The machine-wide registry is the second record, and it is keyed by live pid rather than by a file
+     * this repository might have lost. If it names a server for this root and that port answers, the right
+     * move is to adopt it and restore the claim — not to stand up a rival.
+     */
+    const known = readRegistry().find((e) => path.resolve(e.root || '') === path.resolve(root));
+    if (known && await portInUse(known.port)) {
+      writePid(root, { pid: known.pid, port: known.port });
+      say(`Already running on ${known.url} (pid ${known.pid}) — its pidfile had gone missing, and is restored.`);
+      if (!flag('no-open')) openInBrowser(known.url);
+      return;
+    }
+
     // Build before serving. Starting a server over a stale or absent output directory is how a live
     // dashboard shows yesterday's numbers on its first paint and looks broken from the first second.
     // Derived from the repository path, so several projects can be live at once without anyone assigning
@@ -1155,6 +1177,10 @@ async function main() {
 
       startServer({
         outDir, port, idleMs,
+        // The pidfile is deliberately NOT cleared here: the port is held by someone, and on the common path
+        // that someone is this repository's own healthy server. Clearing its claim on the way out would
+        // leave a running server nothing can find or stop — a worse state than the one being reported.
+        onError: () => process.exit(1),
         onIdle: () => { clearPid(root); process.exit(0); },
         onListen: (p) => {
           if (flag('detached')) writePid(root, { pid: process.pid, port: p });

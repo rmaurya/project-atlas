@@ -123,7 +123,7 @@ export function viewPage(view, ctx, shell) {
   const side = rendered.filter((b) => b.id === 'items').map((b) => b.html).join('\n');
 
   const body = `
-<h1>${escapeHtml(view.title)}</h1>
+<h1><span class="h1-proj">${escapeHtml(index.siteTitle)}</span>${escapeHtml(view.title)}</h1>
 <p class="lede">${escapeHtml(view.blurb || '')}
 <span class="stamp" id="stamp"${cfg.__stamp ? ` data-built="${escapeHtml(cfg.__stamp)}"` : ''}>${
   cfg.__stamp ? `· built ${escapeHtml(cfg.__stamp)}` : ''}</span></p>

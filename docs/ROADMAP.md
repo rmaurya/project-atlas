@@ -33,7 +33,8 @@ measured against the code — the same distinction the tool preserves everywhere
 | A-13 | 100 | A-14 | 100 | A-15 | 100 |
 | A-16 | 100 | A-17 | 100 | A-18 | 100 |
 | A-19 | 100 | P-7 | 100 | P-8 | 100 |
-| A-20 | 100 | A-21 | 100 | A-22 | 100 | | | | |
+| A-20 | 100 | A-21 | 100 | A-22 | 100 |
+| A-23 | 100 | A-24 | 100 | | | | |
 
 ---
 
@@ -626,6 +627,36 @@ in a row because the 0.1.62 watcher was rebuilding over it seconds later.*
 *The lock should record which build holds it and say so when the answer changes — "your working copy is
 building into a directory an installed 0.1.62 watcher is also writing" is a sentence that would have saved
 the whole detour. Stopping one of them is the user's call, not the tool's.*
+
+**A-23 · A dashboard nobody was told about was never delivered** — **P0 · Critical**
+*Shipped in 0.1.65.* *Three repositories were adopted in one afternoon. All three servers started
+themselves and answered on their derived ports, and no session ever printed a URL — so as far as the person
+who asked for a knowledgebase could tell, the feature had not run at all. The autonomy worked; the hand-over
+did not exist.*
+*The cause is that `on-session-start.sh` was the only place in the whole tool that named the link, and it
+requires `project-atlas.config.json` to exist **at session start** — which is precisely false on the run
+that adopts the tool, because that run writes the config. Every other path that starts a server did so with
+`>/dev/null 2>&1`. The one session where somebody is waiting to see what they just built is the exact
+session that was told nothing.*
+*So the announcement now follows the **session** rather than the server: `on-activity.sh` tells any session
+that has not heard the URL, whichever path brought the server up, exactly once. A marker holding the session
+id is what keeps "once" honest — a line repeated after every tool call is a line people stop reading, which
+costs it the one moment it needed to be read. And `knowledgebase/SKILL.md`, which never mentioned
+`atlas serve` at all, now ends every run with the link; a first run that reports `docs/_wiki/index.html` and
+stops has named a file, not handed over a dashboard.*
+
+**A-24 · A server that cannot bind must not linger** — **P1 · High**
+*Shipped in 0.1.65.* *Ten server processes were found on one machine, against four repositories. Four of
+them belonged to a single repo and only one held a port.*
+*`startServer` set `process.exitCode` on `EADDRINUSE` and returned — and setting an exit code is not
+exiting. `watch --serve` ran on into its polling loop, so every loser of a race for a port stayed alive
+indefinitely: serving nothing, invisible to `--status` because it never wrote a pidfile, and **still
+rebuilding the output directory on every change**. That is what A-22's build-owner warning had been
+reporting all along; the duplicate builds it named were these.*
+*Two fixes. A server that cannot bind exits, because it has no remaining job. And `atlas serve` stops
+treating a missing pidfile as proof that nothing is running — the machine-wide registry is a second record,
+keyed by live pid rather than by a file this repository may have lost, and when it names a server for this
+root that still answers, the claim is restored instead of a rival being stood up one port higher.*
 
 **A-7 · The boundary holds** — **P0 · Critical**
 *Shipped in 0.1.55.*

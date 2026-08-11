@@ -209,7 +209,7 @@ export function openInBrowser(url) {
  * the detached server exits, a foreground `watch --serve` ignores it, because a terminal someone is
  * sitting in front of is evidence enough that they still want it.
  */
-export function startServer({ outDir, port = DEFAULT_PORT, idleMs = 0, onIdle = null, onListen = null }) {
+export function startServer({ outDir, port = DEFAULT_PORT, idleMs = 0, onIdle = null, onListen = null, onError = null }) {
   let lastRequest = Date.now();
 
   const server = http.createServer((req, res) => {
@@ -237,6 +237,17 @@ export function startServer({ outDir, port = DEFAULT_PORT, idleMs = 0, onIdle = 
       console.error(`project-atlas: port ${port} is already in use. Another server is there — ` +
                     `\`atlas serve --status\` says whether it is ours, and \`--port\` picks a different one.`);
       process.exitCode = 1;
+      // **Setting an exit code is not exiting**, and the difference leaked ten processes onto a machine.
+      //
+      // `watch --serve` continues past this point into its polling loop, so a child that lost the race for
+      // the port stayed alive forever — not serving anything, invisible to `--status` because it never
+      // wrote a pidfile, and *still rebuilding the output directory on every change*. Four of them
+      // accumulated against one repository, each racing the others to write the same files, which is what
+      // the build-owner warning had been reporting all along.
+      //
+      // A server that cannot bind has no remaining job. The caller says how to end it, because a caller
+      // sitting in a terminal and a caller running detached deserve different exits.
+      if (onError) onError(err, { port });
       return;
     }
     throw err;

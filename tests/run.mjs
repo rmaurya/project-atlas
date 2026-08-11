@@ -13,7 +13,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { execFileSync, spawnSync } from 'node:child_process';
+import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 import { globToRegExp, resolveConfig, DEFAULT_CLUSTERS, DEFAULT_CONFIG, clusterFor, unsafeRegexReason, AUTOMATION_KEYS } from '../scripts/lib/config.mjs';
@@ -4600,6 +4600,75 @@ test('blueprint · a page assembled over scaffolds says the substance is owed, n
   includes(after, 'What it covers');
   ok(!after.includes('No section below has a written document behind it'), 'one written artifact and the claim retires');
   includes(after, 'The substance is owed', 'the six that are still scaffolds still owe their substance');
+});
+
+console.log('\nthe live dashboard, and saying where it is');
+
+test('serve · the URL is announced to a session that has not heard it, and once only', () => {
+  // The defect this pins: `on-session-start.sh` was the only place that ever printed the link, and it exits
+  // early unless `project-atlas.config.json` already exists — which is false on the run that adopts the
+  // tool, because that run writes the config. Three repositories were adopted in one afternoon, all three
+  // servers started themselves and answered, and no session was ever told a port. The work was done and
+  // undeliverable.
+  const dir = fixture('serve-announce', { 'docs/A.md': '# A\n', 'project-atlas.config.json': '{}\n' });
+  fs.mkdirSync(path.join(dir, '.atlas'), { recursive: true });
+  // A pidfile naming this test process: alive, so the hook takes the already-running path and announces
+  // without starting anything.
+  fs.writeFileSync(path.join(dir, '.atlas', 'serve.pid'),
+    JSON.stringify({ pid: process.pid, port: 4321, startedAt: 'now' }), 'utf8');
+
+  const fire = (sid) => spawnSync('sh', [path.join(REPO_ROOT, 'hooks', 'on-activity.sh')], {
+    cwd: dir, input: JSON.stringify({ session_id: sid }), encoding: 'utf8',
+    env: { ...process.env, CLAUDE_PLUGIN_ROOT: REPO_ROOT },
+  });
+
+  const first = fire('sess-A');
+  eq(first.status, 0, 'a PostToolUse hook must never fail the tool call that triggered it');
+  includes(first.stdout, 'http://127.0.0.1:4321/', 'the session that has not heard the URL is told it');
+
+  // Every subsequent tool call in that session is silent. One line per session is a line people read; one
+  // per tool call is noise they filter out, and noise is how the line stops being read at all.
+  eq(fire('sess-A').stdout.trim(), '', 'the same session is not told again');
+  eq(fire('sess-A').stdout.trim(), '', 'nor on the call after that');
+
+  // A different session has not heard it, whoever started the server and whenever.
+  includes(fire('sess-B').stdout, 'http://127.0.0.1:4321/', 'a new session is told about a server already up');
+}, { needsPosixShell: true });
+
+test('serve · a server that cannot bind exits, rather than lingering and rebuilding', () => {
+  // Ten processes accumulated on one machine before this was found. `startServer` set `process.exitCode`
+  // on EADDRINUSE and returned — but setting an exit code is not exiting, and `watch --serve` runs on into
+  // its polling loop. Each loser of a race for the port stayed alive forever: serving nothing, invisible to
+  // `--status` because it never wrote a pidfile, and still rebuilding the output directory on every change.
+  // Four of them raced to write one directory, which is what the build-owner warning had been reporting.
+  //
+  // Written synchronously on purpose. An `async` case appended here is registered after the runner has
+  // already drained its pending promises, so it is never awaited and never reported — it passes by not
+  // running, which is the one failure mode a regression test must not have.
+  const dir = fixture('serve-bind-clash', { 'docs/A.md': '# A\n' });
+  const flag = path.join(dir, 'held-port.txt');
+  const holder = spawn(process.execPath, ['-e',
+    `require('http').createServer(()=>{}).listen(0,'127.0.0.1',function(){` +
+    `require('fs').writeFileSync(process.env.FLAG,String(this.address().port))})`],
+    { stdio: 'ignore', env: { ...process.env, FLAG: flag } });
+  try {
+    const nap = () => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50);
+    for (let i = 0; i < 100 && !fs.existsSync(flag); i++) nap();
+    ok(fs.existsSync(flag), 'the test could not hold a port to clash with');
+    const port = fs.readFileSync(flag, 'utf8').trim();
+
+    const r = spawnSync(process.execPath,
+      [path.join(REPO_ROOT, 'scripts', 'atlas.mjs'), 'watch', '--serve', '--detached',
+       '--port', port, '--idle-ms', '60000', '--quiet'],
+      { cwd: dir, encoding: 'utf8', timeout: 20_000 });
+    ok(!r.error || r.error.code !== 'ETIMEDOUT',
+       'the process must end on its own — a timeout here IS the leak this test exists for');
+    includes(r.stderr, 'already in use', 'and it must say why before it goes');
+    ok(!fs.existsSync(path.join(dir, '.atlas', 'serve.pid')),
+       'a server that never listened must not leave a claim behind for the next start to trip over');
+  } finally {
+    holder.kill();
+  }
 });
 
 console.log(`\n${pass} passed, ${fail} failed${skipped ? `, ${skipped} skipped on ${process.platform}` : ''}\n`);

@@ -51,7 +51,12 @@ Pick the entry point that matches the request.
    almost always do).
 4. **Write the entry point first.** If there is no `docs/README.md`, that single hand-written index is worth
    more than the whole generated site. See `docs/references/authoring.md`.
-5. **Build, then stop and show the user.** Do not proceed to reorganising documents in the same pass.
+5. **Build, serve, and hand over a URL.** Run `atlas serve` and **report the
+   `http://127.0.0.1:<port>/` link it prints, on its own line.** Then stop — do not proceed to reorganising
+   documents in the same pass.
+
+**Ending a first run without a URL is a failed run.** See "Finish with the link" below; it is not optional
+and it is not a thing to ask permission for.
 
 ### B · Authoring knowledge ("write the developer manual", "document the architecture")
 
@@ -78,6 +83,25 @@ Run `health --verbose`, then read `docs/references/health-signals.md` to interpr
 last run, not the absolute counts — absolutes are noise after the first run, and a report that cries wolf gets
 ignored, which is the failure mode that kills these systems.
 
+## Finish with the link
+
+**Every run that builds anything ends by running `atlas serve` and stating the URL it prints.** First line of
+the summary, on its own line, clickable. This is not a step to propose, confirm or defer — it is the last
+step of the work.
+
+`atlas serve` builds first, starts the server only if one is not already up, opens the browser, and is
+idempotent — running it twice opens the page rather than fighting for the port. It is loopback-only and
+exits after 30 idle minutes, so starting one is as reversible as any other derived artifact. Nothing about
+it is outward-facing, which is exactly why it needs no permission.
+
+**A filesystem path is not a hand-over.** Reporting `docs/_wiki/index.html` and stopping is the failure this
+rule exists to prevent: it names a file whose live-reload polling cannot reach a server, so the page looks
+current forever. Three repositories were once adopted in one afternoon, all three servers came up and
+answered, and not one session printed a port — the work was done and undeliverable.
+
+If the port is held or the server will not listen, **say that instead** — a named failure is a hand-over too.
+Never substitute the file path silently.
+
 ## Commands
 
 ```bash
@@ -86,6 +110,9 @@ atlas scan                  # build the index; --json for the raw model
 atlas tasks [filter]        # the planning document, with progress bars
 atlas health                # rot report; --verbose for every instance; exit 1 on blocking
 atlas build                 # generate the site: index, dashboard, deck, health
+atlas serve                 # build + start the live dashboard, open it, print the URL — idempotent
+atlas serve --list          # every atlas dashboard running on this machine, one port per project
+atlas serve --stop          # end this repository's server now, rather than at its idle timeout
 atlas watch                 # rebuild on change; the open page reloads itself
 atlas all                   # scan + health + build
 ```

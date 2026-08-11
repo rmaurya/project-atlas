@@ -245,7 +245,7 @@ function wikiPage(index, cfg, truncated, nav, nameFor) {
     siteTitle: index.siteTitle,
     nav,
     body: `
-<h1>Wiki</h1>
+<h1><span class="h1-proj">${escapeHtml(index.siteTitle)}</span>Wiki</h1>
 <p class="lede">${index.stats.documents} documents · ${index.stats.lines.toLocaleString()} lines ·
 ${index.stats.clusters} clusters. Every page is derived from the markdown in this repository — edit the source,
 never the page.</p>
@@ -648,7 +648,7 @@ function healthPage(index, health, cfg, nav, nameFor) {
     siteTitle: index.siteTitle,
     nav,
     body: `
-<h1>Documentation health</h1>
+<h1><span class="h1-proj">${escapeHtml(index.siteTitle)}</span>Documentation health</h1>
 <p class="lede">${health.blockingCount
   ? `<strong class="bad">${health.blockingCount} blocking finding(s).</strong>`
   : '<span class="ok">No blocking findings.</span>'}
@@ -814,6 +814,13 @@ footer { border-top:1px solid var(--line); padding:20px 5%; color:var(--muted); 
 .wordmark { color:var(--atlas-summit); }
 
 h1 { font-size:30px; line-height:1.25; margin:8px 0 12px; letter-spacing:-.01em; }
+/* Which project am I looking at?
+   Every repository gets its own dashboard on its own port, so several are open at once as a matter of
+   routine — and a page headed "Overview" answers "overview of what?" with nothing. The nav carries the
+   project name, but at 13px beside a logo it reads as branding rather than as the answer. So the heading
+   states it too, muted enough that the page name still leads. */
+.h1-proj { color:var(--muted); font-weight:600; }
+.h1-proj::after { content:" · "; color:var(--line); font-weight:400; }
 h2 { font-size:22px; margin:34px 0 10px; letter-spacing:-.005em; }
 h3 { font-size:18px; margin:26px 0 8px; }
 h4,h5,h6 { font-size:16px; margin:20px 0 6px; }

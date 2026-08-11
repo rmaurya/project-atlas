@@ -10,6 +10,9 @@ docs/_wiki/
 
 # The server's claim on a port, rewritten on every start — churn, not record.
 .atlas/serve.pid
+# Which session was last told the dashboard URL, so the line is said once per session rather than after
+# every tool call. A session id, meaningful only on the machine that produced it.
+.atlas/serve-announced
 .atlas/artifact-page.html
 
 # Generated launcher pages — rewritten by `atlas serve --launcher`, published as artifacts.

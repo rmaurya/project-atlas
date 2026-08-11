@@ -17,6 +17,8 @@
 # not a config key: this runs in every session, including in repositories that have no project-atlas config to
 # read a key from.
 
+payload=$(cat 2>/dev/null)   # only the session id is read from this
+
 [ "${ATLAS_UPDATE_CHECK:-1}" = "0" ] && exit 0
 
 S="${CLAUDE_PLUGIN_ROOT:-.}/bin/atlas"
@@ -56,4 +58,12 @@ while [ $i -lt 20 ]; do
   sleep 0.25
 done
 [ -n "$url" ] && echo "project-atlas: live dashboard at $url (rebuilds and patches itself on every change)"
+
+# Record which session was told, so `on-activity.sh` — which announces the URL to any session that has not
+# heard it, and is the only thing that covers the run where this hook exited early because the config did
+# not exist yet — does not repeat the line after every tool call for the rest of this session.
+if [ -n "$url" ] && command -v jq >/dev/null 2>&1; then
+  sid=$(printf '%s' "$payload" | jq -r '.session_id // ""' 2>/dev/null)
+  [ -n "$sid" ] && printf '%s' "$sid" > "$root/.atlas/serve-announced" 2>/dev/null
+fi
 exit 0
