@@ -36,7 +36,7 @@ import { buildWikiPages, wikiPageName, isSafePageName, exportSingleFile, exportB
 import * as healthModule from '../scripts/lib/health.mjs';
 import { readContrib, estimateHours, taskCoverage } from '../scripts/lib/contrib.mjs';
 import { num } from '../scripts/lib/format.mjs';
-import { pauseSession, readParked, verifyParked, stopSession, worktrees, agentIdOf, PARKED_FILE }
+import { pauseSession, readParked, verifyParked, stopSession, worktrees, agentIdOf, writeParked, PARKED_FILE }
   from '../scripts/lib/session.mjs';
 import { readTokens, formatTokens, formatSessions, assertNotPublishable, transcriptDir,
          readTokenEconomics, formatEconomics, writeTokenSnapshot, snapshotLine, classifyWrite,
@@ -8169,6 +8169,76 @@ test('render · neither renderer passes a data: URL through into a published hre
       }
     }
   }
+});
+
+test('session · a directory merely named agent-* is not an agent worktree (A-38)', () => {
+  // Both halves of this were demonstrated by an audit on real directories. `agentIdOf` matched any basename
+  // beginning `agent-`, which is a name a person is entitled to use, so:
+  //   `atlas stop --force` removed a hand-made worktree at ../agent-portal holding uncommitted work; and
+  //   `atlas pause` treated a clone at ~/src/agent-portal as an agent, ran `git add -A`, and committed a
+  //   .env of live credentials on main, past a pre-commit hook that had just refused it.
+  eq(agentIdOf('/x/.claude/worktrees/agent-abc'), 'abc', 'the real shape still resolves');
+  eq(agentIdOf('/x/.claude/worktrees/agent-abc/'), 'abc', 'trailing separator too');
+  for (const impostor of [
+    '/Users/me/src/agent-portal', '../agent-portal', 'agent-portal',
+    '/x/worktrees/agent-abc', '/x/.claude/agent-abc', '/x/.claude/worktrees/nested/agent-abc',
+  ]) eq(agentIdOf(impostor), null, `${impostor} must not read as an agent worktree`);
+});
+
+test('session · pause classifies the operator\'s own checkout before anything that looks like an agent', () => {
+  // The order was reversed, so a repository that merely looked like an agent worktree was classified as one
+  // before anything asked whether it was the operator's. Ownership is the more important question.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'atlas-agentname-'));
+  const repo = path.join(dir, 'agent-portal');           // a real repo whose name is the trap
+  fs.mkdirSync(repo, { recursive: true });
+  execFileSync('git', ['init', '-q', '-b', 'main', repo], { stdio: 'ignore' });
+  fs.writeFileSync(path.join(repo, 'README.md'), '# mine\n', 'utf8');
+  execFileSync('git', ['add', '-A'], { cwd: repo, stdio: 'ignore' });
+  execFileSync('git', ['-c', 'user.email=t@e.com', '-c', 'user.name=T', 'commit', '-qm', 'base'],
+    { cwd: repo, stdio: 'ignore' });
+  fs.writeFileSync(path.join(repo, '.env'), 'AWS_SECRET_ACCESS_KEY=hunter2\n', 'utf8');
+
+  const before = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repo, encoding: 'utf8' }).trim();
+  const r = pauseSession(repo, { now: '2026-01-01T00:00:00Z' });
+  const after = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repo, encoding: 'utf8' }).trim();
+
+  eq(after, before, 'pause must not commit in the operator\'s own repository');
+  eq(r.agents.find((a) => a.isMain)?.wipRef ?? null, null, 'and must not checkpoint it');
+  const tracked = execFileSync('git', ['ls-files'], { cwd: repo, encoding: 'utf8' });
+  eq(tracked.includes('.env'), false, 'the secret is still untracked');
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('session · the parked manifest ignores itself, in any repository (A-38)', () => {
+  // The rule lived only in this project's own .gitignore — the one repository where the problem cannot
+  // happen — so every adopting repo committed absolute home paths and agent labels. The old test asserted
+  // the rule in exactly that place, which is how it passed.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'atlas-parkignore-'));
+  execFileSync('git', ['init', '-q', '-b', 'main', dir], { stdio: 'ignore' });
+  fs.writeFileSync(path.join(dir, 'README.md'), '# r\n', 'utf8');
+  execFileSync('git', ['add', '-A'], { cwd: dir, stdio: 'ignore' });
+  execFileSync('git', ['-c', 'user.email=t@e.com', '-c', 'user.name=T', 'commit', '-qm', 'base'],
+    { cwd: dir, stdio: 'ignore' });
+
+  writeParked(dir, { version: 1, at: '2026-01-01T00:00:00Z', root: dir, agents: [] });
+  const ignored = execFileSync('git', ['check-ignore', PARKED_FILE], { cwd: dir, encoding: 'utf8' }).trim();
+  eq(ignored, PARKED_FILE, 'git must ignore it in a repository that never heard of this tool');
+
+  // And the journal, which IS tracked, must not be swept up by an over-broad rule.
+  fs.mkdirSync(path.join(dir, '.atlas', 'journal'), { recursive: true });
+  fs.writeFileSync(path.join(dir, '.atlas', 'journal', 'x.jsonl'), '{}\n', 'utf8');
+  let journalIgnored = false;
+  try {
+    execFileSync('git', ['check-ignore', '.atlas/journal/x.jsonl'],
+      { cwd: dir, stdio: ['ignore', 'pipe', 'ignore'] });
+    journalIgnored = true;
+  } catch { /* non-zero means not ignored, which is what we want */ }
+  eq(journalIgnored, false, 'the journal is tracked and must stay trackable');
+
+  writeParked(dir, { version: 1, at: '2026-01-02T00:00:00Z', root: dir, agents: [] });
+  const gi = fs.readFileSync(path.join(dir, '.atlas', '.gitignore'), 'utf8');
+  eq(gi.split('\n').filter((l) => l.trim() === 'parked.json').length, 1, 'the entry is not appended twice');
+  fs.rmSync(dir, { recursive: true, force: true });
 });
 
 console.log(`\n${pass} passed, ${fail} failed${skipped ? `, ${skipped} skipped on ${process.platform}` : ''}\n`);

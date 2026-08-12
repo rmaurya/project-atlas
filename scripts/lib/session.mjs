@@ -77,9 +77,26 @@ export function worktrees(root) {
   return list;
 }
 
-/** An agent worktree is one this harness made: `.claude/worktrees/agent-<id>`. */
+/**
+ * An agent worktree is one **this harness made**, at `.claude/worktrees/agent-<id>`.
+ *
+ * **The whole path is the evidence, not the last segment.** The first version of this matched any directory
+ * whose basename began `agent-`, which is a name a person is entitled to use. An audit demonstrated both
+ * halves of the consequence on real directories:
+ *
+ *  - `atlas stop --force` removed a hand-made worktree at `../agent-portal`, on an unrelated branch, holding
+ *    three weeks of uncommitted work.
+ *  - `atlas pause` treated a clone at `~/src/agent-portal` as an agent, ran `git add -A`, and committed a
+ *    `.env` containing live AWS credentials — on `main`, past a `pre-commit` hook that had just refused it.
+ *
+ * Neither is a plausible thing for a tool to do to somebody, and both came from four characters of regex.
+ * Requiring the two parent segments makes the claim "this is ours" rest on a path only the harness creates,
+ * rather than on a prefix anybody might pick.
+ *
+ * Windows separators are accepted because `git worktree list` reports native paths.
+ */
 export function agentIdOf(dir) {
-  const m = /(?:^|[/\\])agent-([A-Za-z0-9_-]+)$/.exec(dir);
+  const m = /(?:^|[/\\])\.claude[/\\]worktrees[/\\]agent-([A-Za-z0-9_-]+)[/\\]?$/.exec(String(dir || ''));
   return m ? m[1] : null;
 }
 
@@ -138,7 +155,11 @@ export function pauseSession(root, opts = {}) {
 
   const agents = [];
   for (const w of trees) {
-    const id = agentIdOf(w.dir) || (real(w.dir) === rootReal ? '(main)' : null);
+    // **The main checkout is tested first, and by real path.** Reversed, a repository that merely *looks*
+    // like an agent worktree is classified as one before anything asks whether it is the operator's own —
+    // which is how `pause` came to commit somebody's `.env` on `main`. Ownership of the tree is the more
+    // important question, so it is asked first.
+    const id = real(w.dir) === rootReal ? '(main)' : agentIdOf(w.dir);
     if (!id) continue;
     if (!fs.existsSync(w.dir)) continue;
     const dirty = dirtyCount(w.dir);
@@ -209,9 +230,36 @@ export function pauseSession(root, opts = {}) {
   return { available: true, reason: null, dryRun, ...parked };
 }
 
+/**
+ * The manifest, and the ignore rule that has to travel with it.
+ *
+ * **This repository's own `.gitignore` was doing the work, and it is the one repository where the problem
+ * cannot occur.** Nothing in `scripts/`, `hooks/` or `install.sh` writes an ignore rule into a repository
+ * that adopts the tool, so `pause` wrote `.atlas/parked.json` — absolute home paths, agent labels — straight
+ * into everybody else's working tree, where the next `git add -A` commits it. The test asserted the rule in
+ * the single place it was already true, which is how it passed.
+ *
+ * Fixed by making the state ignore itself: a `.gitignore` inside `.atlas/` naming exactly `parked.json`.
+ * Scoped to that one entry deliberately — `.atlas/journal/` **is** tracked, and a blanket ignore here would
+ * quietly stop a contributor's journal from ever being committed again.
+ *
+ * Written every time rather than once, so a repository that has had `.atlas/` cleared is covered on the next
+ * pause, and never appended twice.
+ */
 export function writeParked(root, parked) {
   const f = path.join(root, PARKED_FILE);
-  fs.mkdirSync(path.dirname(f), { recursive: true });
+  const dir = path.dirname(f);
+  fs.mkdirSync(dir, { recursive: true });
+
+  const ignore = path.join(dir, '.gitignore');
+  const entry = path.basename(PARKED_FILE);
+  const line = `# Session state for \`atlas pause\`. Machine-local: agent labels and absolute paths, never prompts.\n${entry}\n`;
+  let current = '';
+  try { current = fs.readFileSync(ignore, 'utf8'); } catch { /* absent is the common case */ }
+  if (!current.split('\n').some((l) => l.trim() === entry)) {
+    fs.writeFileSync(ignore, current ? `${current.replace(/\n*$/, '\n')}${line}` : line, 'utf8');
+  }
+
   fs.writeFileSync(f, `${JSON.stringify(parked, null, 2)}\n`, 'utf8');
   return f;
 }
@@ -268,9 +316,15 @@ export function stopSession(root, opts = {}) {
   const removed = [];
   const kept = [];
 
+  // Same real-path comparison `pauseSession` uses. A raw string compare here meant `/tmp/…` and
+  // `/private/tmp/…` read as different directories, so `stop` would try to remove its own root — and the
+  // only thing that stopped it was git refusing, not this code. A guard that works by accident is not one.
+  const realStop = (p) => { try { return fs.realpathSync(p); } catch { return path.resolve(p); } };
+  const rootRealStop = realStop(root);
+
   for (const w of trees) {
     const id = agentIdOf(w.dir);
-    if (!id || w.dir === root) continue;
+    if (!id || realStop(w.dir) === rootRealStop) continue;
     const dirty = dirtyCount(w.dir);
     if (dirty === null) continue;
     if (dirty > 0 && !force) {
