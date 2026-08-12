@@ -6,8 +6,8 @@ _Written by `atlas worklog`. Measured from git and the corpus; no prompt text, a
 
 | | |
 |---|---|
-| Commits | 2 |
-| Lines | +4,207 / −105 |
+| Commits | 3 |
+| Lines | +4,244 / −108 |
 | Desks | rajneesh-maurya |
 | Rework rate | 81.7% — a file re-touched within 3 days |
 | Reverts | 0 |
@@ -17,11 +17,13 @@ _Written by `atlas worklog`. Measured from git and the corpus; no prompt text, a
 
 - **M-4** The derived layer, in markdown, for an agent with only Read and Grep — 100%
 - **A-29** The tool's own documentation had drifted from the tool — 100%
+- **A-25** The dashboard could not see the work the session was doing — 100%
 
 ## Commits
 
 - `f14ea1f` feat(kb,docs,serve): the agent-readable half of the output, and eight claims the corpus made that the code contradicts (M-4, A-29)
 - `29062b0` chore(record): the session's journal (A-29)
+- `426947a` fix(pages): the one publish path that never saw the local-only strip (A-25)
 
 ---
 
