@@ -73,6 +73,66 @@ const sum = (xs) => xs.reduce((a, b) => a + b, 0);
 const nice = (n) => (n >= 1000 ? `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}k` : String(Math.round(n)));
 
 /**
+ * The values a time chart's gridlines are drawn at, for a series whose maximum is `max`.
+ *
+ * **Evenly spaced thirds are right for a large maximum and a lie for a small one.** `nice` states a whole
+ * number below 1000, so with a maximum of 1 the middle line — drawn at 0.5 — is labelled `1`, and the axis
+ * reads *0, 1, 1*: two lines at two heights claiming the same value, with nothing on the page to say which one
+ * to believe. It is not only the duplicate. Every odd maximum is mislabelled the same way and more quietly: at
+ * 7 the middle line sits at 3.5 and says `4`, so a reader measuring a point against it is off by half a unit
+ * and has no reason to suspect it. The economics view sidestepped this by going cumulative; every other series
+ * that peaks in single figures still walked into it.
+ *
+ * So below 1000 the lines are placed on **whole units — the granularity their own labels are stated at** — and
+ * a line is dropped rather than drawn wrong: one whose label would name a value it is not at, and one whose
+ * label would repeat a line already drawn. Two gridlines are a legitimate axis; two contradictory ones are not.
+ *
+ * At 1000 and above `nice` is openly approximate (`12k` for 12,345) and the thirds stand: rounding a label
+ * that already declares itself rounded is not the same defect.
+ */
+function gridValues(max) {
+  const small = max < 1000;
+  const mid = small ? Math.round(max / 2) : max / 2;
+  const wanted = mid > 0 && mid < max ? [0, mid, max] : [0, max];
+  const seen = new Set();
+  return wanted.filter((v) => {
+    if (small && Number(nice(v)) !== v) return false;    // the label would name a height this line is not at
+    const label = nice(v);
+    if (seen.has(label)) return false;                   // and no two lines may carry the same one
+    seen.add(label);
+    return true;
+  });
+}
+
+/** Horizontal gridlines with their labels, shared by every chart that has a y-axis so the rule cannot fork. */
+function yGrid({ max, y, pad, w }) {
+  return gridValues(max).map((v) =>
+    `<line class="c-grid" x1="${pad.l}" x2="${w - pad.r}" y1="${y(v).toFixed(1)}" y2="${y(v).toFixed(1)}"/>
+     <text class="c-tick" x="${pad.l - 5}" y="${(y(v) + 3).toFixed(1)}" text-anchor="end">${nice(v)}</text>`).join('');
+}
+
+/**
+ * The x labels: one every `step`, and always the last one.
+ *
+ * **The final label is anchored at its right edge, not centred.** Centred, it sits at `w - pad.r` — ten pixels
+ * from the edge of the viewBox — so half of a five-character date, some fourteen pixels, hung outside the
+ * viewBox and was clipped on every time chart this tool draws, including the Commits-per-week chart shipped on
+ * the Delivery page.
+ *
+ * Anchoring rather than widening `pad.r`, for two reasons. A wider right pad is a fixed guess about how wide
+ * the widest label will ever be, and the next caller with a longer one re-breaks it silently; `text-anchor`
+ * is bounded by construction, whatever the label says. And `pad.r` is in the x scale, so widening it moves
+ * every plotted point, path and gridline in every chart — a far larger change than the defect. This touches
+ * one attribute on one label and nothing that carries data.
+ */
+function xTicks({ labels, x, h }) {
+  const step = Math.ceil(labels.length / 6);
+  const last = labels.length - 1;
+  return labels.map((l, i) => (i % step === 0 || i === last)
+    ? `<text class="c-tick" x="${x(i).toFixed(1)}" y="${h - 6}" text-anchor="${i === last ? 'end' : 'middle'}">${escapeHtml(l)}</text>` : '').join('');
+}
+
+/**
  * A sparkline for a stat tile: the tile states the total, this states the shape that produced it.
  *
  * There was no small form here, so a page could carry a headline number and no way to see which way it was
@@ -205,9 +265,7 @@ export function lineChart({ title, series, labels, unit = '', note = null, w = 4
   const x = (i) => pad.l + (i * (w - pad.l - pad.r)) / Math.max(1, labels.length - 1);
   const y = (v) => h - pad.b - (v / max) * (h - pad.t - pad.b);
 
-  const grid = [0, 0.5, 1].map((f) =>
-    `<line class="c-grid" x1="${pad.l}" x2="${w - pad.r}" y1="${y(max * f).toFixed(1)}" y2="${y(max * f).toFixed(1)}"/>
-     <text class="c-tick" x="${pad.l - 5}" y="${(y(max * f) + 3).toFixed(1)}" text-anchor="end">${nice(max * f)}</text>`).join('');
+  const grid = yGrid({ max, y, pad, w });
 
   const paths = live.map((s, i) => {
     // A gap is a gap. `M` restarts the path where a value is missing rather than drawing through it.
@@ -224,9 +282,7 @@ export function lineChart({ title, series, labels, unit = '', note = null, w = 4
       stroke-linejoin="round" stroke-linecap="round"/>${dots}`;
   }).join('');
 
-  const step = Math.ceil(labels.length / 6);
-  const ticks = labels.map((l, i) => (i % step === 0 || i === labels.length - 1)
-    ? `<text class="c-tick" x="${x(i).toFixed(1)}" y="${h - 6}" text-anchor="middle">${escapeHtml(l)}</text>` : '').join('');
+  const ticks = xTicks({ labels, x, h });
 
   const legend = live.length > 1
     ? `<div class="legend">${live.map((s, i) => `<span><i style="background:var(--cat-${i})"></i>${escapeHtml(s.label)}</span>`).join('')}</div>`
@@ -270,13 +326,8 @@ export function stackedArea({ title, series, labels, unit = '', note = null, w =
       <title>${escapeAttr(s.label)}</title></path>`;
   }).join('');
 
-  const grid = [0, 0.5, 1].map((f) =>
-    `<line class="c-grid" x1="${pad.l}" x2="${w - pad.r}" y1="${y(max * f).toFixed(1)}" y2="${y(max * f).toFixed(1)}"/>
-     <text class="c-tick" x="${pad.l - 5}" y="${(y(max * f) + 3).toFixed(1)}" text-anchor="end">${nice(max * f)}</text>`).join('');
-
-  const step = Math.ceil(labels.length / 6);
-  const ticks = labels.map((l, i) => (i % step === 0 || i === labels.length - 1)
-    ? `<text class="c-tick" x="${x(i).toFixed(1)}" y="${h - 6}" text-anchor="middle">${escapeHtml(l)}</text>` : '').join('');
+  const grid = yGrid({ max, y, pad, w });
+  const ticks = xTicks({ labels, x, h });
 
   return `<figure class="chart"><figcaption>${escapeHtml(title)}</figcaption>
   <svg viewBox="0 0 ${w} ${h}" role="img" aria-label="${escapeAttr(title)}">

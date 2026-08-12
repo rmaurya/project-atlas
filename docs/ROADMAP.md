@@ -40,7 +40,7 @@ measured against the code — the same distinction the tool preserves everywhere
 | C-7 | 100 | C-8 | 100 | | |
 | C-9 | 100 | A-31 | 100 | A-30 | 100 |
 | C-10 | 45 | C-11 | 10 | Q-4 | 10 |
-| Q-5 | 10 | A-32 | 0 | | |
+| Q-5 | 10 | A-32 | 0 | Q-6 | 100 |
 
 ---
 
@@ -407,6 +407,39 @@ panel it renders is read from the developer's own checkout, so the case passes o
 to have a gitignored `.atlas/tasks-live.jsonl` of its own and fails everywhere else, including CI. **It fails
 on `main` today.** Found while building C-10 and deliberately not fixed there: the fix belongs in the
 dashboard, which was being changed concurrently by another line of work.
+
+**Q-6 · Three shipped defects: two axes that mislead, and a publish boundary that eats prose** — **P1 · High**
+
+*Three defects found by reading the shipped output rather than the code, all present on `main`, all fixed
+here.* They are filed together because they share a shape: each is silent, each affects every page rather
+than the one it was noticed on, and each fails in the direction nobody checks.
+
+**The last x label was clipped on every time chart the tool draws.** `lineChart` and `stackedArea` centred it
+on `w - pad.r` — ten pixels from the edge of the viewBox — so half of a five-character date hung outside the
+picture, including on the Commits-per-week chart shipped on the Delivery page. Fixed by anchoring the final
+label at its right edge rather than widening `pad.r`: a wider pad is a guess about how wide a label will ever
+be and the next longer one re-breaks it, and `pad.r` is in the x scale, so widening it would move every
+plotted point in every chart to fix a label.
+
+**A small maximum produced gridlines that contradicted each other.** Lines at `[0, 0.5, 1]` of a maximum of 1
+render as *0, 1, 1*, because `nice` states whole numbers below 1000 — two lines at two heights claiming the
+same value. The duplicate is the visible half; the quiet half is that every odd maximum is mislabelled the
+same way, so at 7 the middle line sits at 3.5 and says `4`. Below 1000 the lines now sit on whole units, the
+granularity their own labels are stated at, and a line that would name a height it is not at is not drawn.
+The economics view sidestepped this by going cumulative; every other series that peaks in single figures met
+it.
+
+**`stripLocalOnly` matched the marker as a substring, so prose naming it was deleted from the published copy
+and only from there.** This file's own sentence — *"The view carries `data-local-only`, the same guarantee
+as…"* — published as *"The view carries , the same guarantee as…"*: the `<code>` span around the marker's name
+was cut out. It is the most dangerous of the three, because it removes content silently from the artefact
+handed to other people, and because the documents most likely to trip it are the ones explaining the boundary.
+A match now requires the attribute form, with quoted attribute values consumed whole and `>` never crossed.
+Both exit doors are tested against a real marked element on disk, so narrowing the match cannot fail open.
+
+**Every existing case asserted that the private panel was gone; none asserted that the public paragraph was
+still there.** That asymmetry is the reason this survived — a previous agent hit it writing a caption about
+the marker and reworded around it rather than filing it. The new case asserts both halves together.
 
 ## Track 4 — Delivery
 

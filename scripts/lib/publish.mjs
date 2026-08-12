@@ -500,7 +500,35 @@ function inlineScript(js) {
  * classes change for layout reasons by people who are not thinking about publishing, and a stripper that
  * silently stops matching is worse than no stripper: it fails open, quietly, on the one path where the cost
  * of failing is that private state is already public.
+ *
+ * ## The marker is an attribute, and only an attribute
+ *
+ * This scanned for the bare substring, so **any page that merely named `data-local-only` in prose lost the
+ * element containing it — from the published copy only.** The roadmap says *"The view carries
+ * `data-local-only`, the same guarantee as…"*; published, that sentence read *"The view carries , the same
+ * guarantee as…"*, because the `<code>` span around the marker's own name was cut out. The dashboard has a
+ * comment recording the same thing happening to a card that documented the mechanism, and the caption on the
+ * economics view was reworded around it rather than fixed.
+ *
+ * It is the worst-shaped failure in this file: it deletes content **silently**, from the artefact handed to
+ * other people and not from the copy the author is looking at, and it fails in the direction nobody checks —
+ * everybody tests that the private panel is gone, nobody tests that the public paragraph is still there. The
+ * documents most likely to trip it are the ones explaining the boundary, which is to say the documents whose
+ * whole subject is what does and does not get published.
+ *
+ * So a match now requires the attribute form: the marker preceded by whitespace inside a start tag, with
+ * quoted attribute values consumed whole so a marker named inside one (`title="uses data-local-only"`) is a
+ * value and not a marker, and `>` never crossed so text between tags can never be read as an attribute.
+ * `(?![\w-])` rather than `\b`, because `\b` matches before a hyphen and would let a future
+ * `data-local-only-reason` trigger a strip of the element carrying it.
+ *
+ * **This narrows what matches, so it is exactly the kind of change that can fail open.** It cannot fail open
+ * here for the reason that matters: every marker this project emits is written as `data-local-only="1"` in a
+ * start tag, which is the form that still matches, and both exit doors — `exportSingleFile` and
+ * `exportBundle` — are tested against a real marked element on disk, not only against the matcher.
  */
+const LOCAL_ONLY = /<([a-zA-Z][\w-]*)(?:"[^"]*"|'[^']*'|[^>"'])*?\sdata-local-only(?![\w-])/i;
+
 export function stripLocalOnly(html) {
   // Matched by scanning for the marker and then walking to the element's own closing tag, counting nested
   // opens of the same tag name. A regex cannot do this correctly — these panels contain nested <section> and
@@ -508,10 +536,10 @@ export function stripLocalOnly(html) {
   // that still carries half the private content.
   let out = html;
   for (;;) {
-    const at = out.indexOf('data-local-only');
-    if (at === -1) return out;
-    const open = out.lastIndexOf('<', at);
-    const tag = /^<([a-zA-Z][\w-]*)/.exec(out.slice(open))?.[1];
+    const m = LOCAL_ONLY.exec(out);
+    if (!m) return out;
+    const open = m.index;
+    const tag = m[1];
     if (!tag) return out;                            // malformed; leave it rather than cut blind
     const openRe = new RegExp(`<${tag}\\b`, 'g');
     const closeTag = `</${tag}>`;
