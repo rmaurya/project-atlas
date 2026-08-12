@@ -42,7 +42,9 @@ measured against the code — the same distinction the tool preserves everywhere
 | C-10 | 45 | C-11 | 10 | Q-4 | 10 |
 | Q-5 | 10 | A-32 | 100 | A-33 | 100 |
 | A-34 | 100 | A-35 | 100 | Q-6 | 100 |
-| A-36 | 0 | A-37 | 100 | | |
+| A-36 | 0 | A-37 | 100 | A-38 | 100 |
+| A-39 | 100 | A-40 | 100 | A-41 | 100 |
+| A-42 | 100 | A-43 | 100 | A-44 | 100 |
 
 ---
 
@@ -492,7 +494,12 @@ as…"* — published as *"The view carries , the same guarantee as…"*: the `<
 was cut out. It is the most dangerous of the three, because it removes content silently from the artefact
 handed to other people, and because the documents most likely to trip it are the ones explaining the boundary.
 A match now requires the attribute form, with quoted attribute values consumed whole and `>` never crossed.
-Both exit doors are tested against a real marked element on disk, so narrowing the match cannot fail open.
+
+*This entry used to end "Both exit doors are tested against a real marked element on disk, so narrowing the
+match cannot fail open." **That sentence was false, and it was the sentence doing the work of justifying the
+narrowing.*** There are three exit doors, not two — `exportSingleFile`, `exportBundle`, and the `gh-pages`
+tree — and the third had no strip test at all. The narrowing did not fail open, but the reasoning that said
+it could not was checking two of three. See A-39.
 
 **Every existing case asserted that the private panel was gone; none asserted that the public paragraph was
 still there.** That asymmetry is the reason this survived — a previous agent hit it writing a caption about
@@ -1177,6 +1184,136 @@ the CLI would answer with "Unknown command", which is how `atlas spec --gate` ca
 rather than as a bare `atlas spec` that does not exist. Aliases get a mention in an alias block rather than a
 line of their own: two entries describing one implementation is the same drift in miniature, and the second
 copy is the one that goes stale.
+
+**A-38 · The publish stripper failed open, silently and totally** — **P0 · Critical**
+*Shipped.* `stripLocalOnly` walked from a marker to the element's own closing tag. When it could not find
+one, `if (nextClose === -1) return out;` returned from the **function**, not from the loop over that one
+element — so the first marker it could not walk abandoned stripping for the **whole document** and handed
+back the input byte-for-byte.
+
+***The failure and the success were the same value.*** No error, no warning, and not one changed byte for a
+reviewer to notice. Every caller treated the input as a successful strip, and every test asserted only that a
+well-formed marked panel was removed.
+
+*One `<img data-local-only="1">` planted in the real build leaked through all four exit doors* —
+`exportSingleFile` twice, `exportBundle`, and the tree `stagePages` force-pushes to `gh-pages` — **10,626
+bytes per page**: 61 local branch names, 12 working-tree paths, the session task list and the operator's
+absolute home path. Five triggers, all reproduced: the marker on a void element (`<img>`, `<hr>`, `<br>`,
+`<input>`, `<meta>` — the renderers already emit void elements seven times over), a `<section` inside an HTML
+comment, a hyphenated sibling tag matching `<section\b`, a `>` inside a quoted attribute value, and a
+self-closing form that opened a depth nothing would close.
+
+*Two fixes, and the second is the one that matters.* Void and self-closing elements have no closing tag and
+are cut where they stand; the walker counts depth over a real scan that skips comments and consumes quoted
+attribute values whole. And **a silent pass-through is now unreachable**: the loop ends only when the marker
+no longer matches, anything unwalkable throws, and every exit door calls `assertNoLocalOnly` on the bytes it
+is about to hand over rather than trusting that a strip happened. Refusing to publish is recoverable;
+publishing the panel is not.
+
+**A-39 · The third exit door, and the one with no test** — **P0 · Critical**
+*Shipped.* `stripLocalOnly` is reached from `exportSingleFile`, from `exportBundle`, and from
+`stripLocalOnlyTree`, which `stagePages` calls on the tree it **force-pushes to `gh-pages`** — the target
+this file's own module comment calls *"public and permanent-ish"*. `grep stagePages tests/run.mjs` returned
+one hit, in an unrelated list: the door that publishes to the open internet was the untested one.
+
+***The coverage claim inside the fix was itself the defect.*** Q-6's entry above said *"Both exit doors are
+tested against a real marked element on disk, so narrowing the match cannot fail open"* — a statement that
+was false in the direction that costs most, and that was doing the work of justifying a narrowing. It has
+been corrected in place. A-25's shape, recurring inside the coverage claim for a fix.
+
+*Tested with the `<img>` exploit through the real `stagePages`.* And the sweep widened: `stripLocalOnlyTree`
+rewrote `*.html` only, so of 197 staged files **104 went to the public branch without being read**. Every
+file is now checked, whatever its extension — a marker cannot legitimately appear in the other 104, which is
+precisely why nobody would notice one that did.
+
+**A-40 · A build claim copied from another repository authorised deleting this one** — **P0 · Critical**
+*Shipped.* The claim (A-34) is the only thing that lets the build delete a directory it cannot otherwise
+prove it owns, which makes it a credential — and it was not checked like one. `readClaim` compared `c.output`
+against the output path **relative to the repository root**, and `docs/_wiki` is the default in every
+project-atlas repository, so the comparison was between two copies of one default string.
+
+***A claim carried by `cp -r`, a backup, a Docker layer or a clone validated against any repository on the
+machine.*** Demonstrated by copying a genuine claim out of a real interrupted build in one repository into
+another, which destroyed `claim-victim/docs/_wiki/handwritten.txt`. The prose above `readClaim` asserted the
+opposite property in as many words; the test covered `output: 'somewhere/else'`, which is the easy half — a
+claim naming a *different* directory rather than the same one somewhere else.
+
+*Also unauthenticated, each verified to destroy:* `startedAt` of `"banana"`, `true`, `1` or 1970 (only
+truthiness was checked, and `"banana"` is truthy); a missing `pid`; and **the claim file being a symlink to
+one outside the repository** — `readFileSync` follows links, two lines after the directory beside it is
+deliberately checked with `lstat` rather than `stat`.
+
+*The identity is now the resolved absolute path of the directory*, which is the one thing a copy cannot bring
+with it. This gives up "a checkout that moved on disk still recognises its own interrupted build", and that
+is the right trade: a moved checkout is refused with a message naming the directory and the command, while an
+unauthenticated claim is a deletion nobody asked for. `startedAt` must round-trip as ISO-8601 and fall inside
+a 30-day window; the file is opened `O_NOFOLLOW` and must be a regular file; and `pid` is read at last — not
+to authenticate, which it cannot do (a genuinely interrupted build leaves a dead pid, indistinguishable from
+one that never existed), but to refuse when a build is running **right now**.
+
+**A-41 · A dangling symlink walked past the containment guards** — **P1 · High**
+*Shipped.* `realpathOrBest` resolved "the longest existing ancestor" with `realpathSync`, which throws ENOENT
+for a symlink whose target does not exist. A final component that was a dangling symlink therefore resolved
+to its own lexical path, and every guard built on it compared the wrong path.
+
+Both were walked past, with the write landing exactly where the guard exists to prevent: `confine` returned a
+path "inside the repository" for a link pointing at `~/.ssh/authorized_keys` and the write created that file
+outside the repository; `assertNotPublishable` — the only mechanism keeping transcript-derived reports out of
+a published wiki — allowed `--out` aimed at a link whose target was inside the output directory. Each
+guard's own comment names the case it just failed.
+
+*Bounded: a write primitive, not a disclosure.* The content is counts-only and the path must be given on the
+command line. Fixed anyway, and fixed by reading the link — `readlink` answers for a dangling symlink, and
+its answer is where the bytes go. The change only ever resolves **further**, so it can turn "inside" into
+"outside" and never the reverse; the twelve containment attacks that failed before still fail.
+
+**A-42 · The derived markdown published the branch names the HTML beside it strips** — **P1 · High**
+*Shipped.* `kb/resume.md` printed every journal ref verbatim, which meant the names of unmerged local
+branches — **nine of them reached the staged tree**, measured on this repository, on their way to a
+force-push. Beside them, the dashboard's branches panel carries `data-local-only`, explains at length why a
+branch name must not travel, and is cut from every published copy. The guarded path and the unguarded path
+published the same facts and only one was ever looked at, because `stripLocalOnlyTree` read `*.html` only.
+
+*Fixed at the source, not with a second marker language.* An in-band marker in markdown would repeat a
+failure this project has already paid for once: the HTML matcher was narrowed to an attribute form precisely
+because scanning for the bare name deleted paragraphs that merely **mentioned** it — silently, and from the
+published copy only. A markdown marker would do the same to any document that documented it. So the name is
+never written, in any copy, which also means the local file and the published file say the same thing and
+there is no second artefact to review and ship separately. The count survives, because a count leaks nothing
+and `atlas state` prints the names locally on demand.
+
+**A-43 · The homepage measured the current directory, not the repository being built** — **P1 · High**
+*Shipped.* `indexPage` read the working tree from `cfg.__root || process.cwd()`. `__root` is attached to a
+**copy** of the config made for the view context, thirty lines below the call, so the config reaching this
+function never carried it — the fallback was not a fallback, it was the only branch that ever ran.
+
+Invisible on one machine, because you build the repository you are standing in. Two make it plain: run from
+`rA`, a build of `rB` put **rA's seven in-flight files and rA's branch name on rB's homepage**, while rB's
+own Executive view, built in the same run from a context that did carry `__root`, showed nothing in flight.
+One build, two answers, and the wrong one on the first page anybody opens. It is also a small disclosure: the
+count and the branch belong to a repository the reader was never told about.
+
+*The fallback is gone with the bug, and a test refuses `process.cwd()` anywhere in `render.mjs`.* A default
+that silently substitutes a different repository cannot report the mistake it is covering for. Filed under
+Q-5, whose text attributes this to `dashboard.mjs`; the `render.mjs` half is here.
+
+**A-44 · The health page called a signal blocking that the engine will never block** — **P2 · Medium**
+*Shipped.* The page computed `isBlocking` from `(cfg.blocking || []).includes(s.id)` — the configured
+*request* — rather than from the finding's own `blocking` flag. The engine's rule has a second term:
+`blockingFor` refuses an operator signal outright, *"enforced in code, not by configuration"*. Config
+validation deliberately keeps an id it does not recognise so a config written for a newer version still
+loads, which is exactly how `"blocking": ["H17"]` arrives intact.
+
+***The page contradicted the sentence it was printing.*** With that one line of config, `health.html`
+rendered `<span class="sig block">H17</span>` and *"**Blocking** — no legitimate cause"* directly after
+H17's own text ending *"ADVISORY, AND NEVER BLOCKING — enforced in code, not by configuration"*. The engine
+was right the whole way through — `blockingCount` 0, `atlas health` clean, the commit gate silent — and the
+one artefact a person reads said otherwise. Whichever half the reader believes, they have to distrust the
+other.
+
+*The renderer now reads the flag the engine computed*, and restates the engine's rule only where there are no
+findings to read a flag from. **`dashboard.mjs:412` carries the identical expression and is not fixed here**
+— same defect, different owner, reported rather than touched.
 
 ## Track 7 — Specification and consistency
 

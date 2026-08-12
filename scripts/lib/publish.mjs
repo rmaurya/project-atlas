@@ -391,6 +391,12 @@ export function stagePages(root, cfg, { push = false } = {}) {
    * every HTML file in the staged tree, before `--push` is even considered, and it runs on **staging** rather
    * than at push time: staging is what a person inspects to decide whether to push, so a staged tree that
    * still contained the private panels would be reviewed as safe and then pushed.
+   *
+   * **This is the third exit door, and for a long time it was the untested one.** `stripLocalOnly` is reached
+   * from `exportSingleFile`, from `exportBundle`, and from here — and the coverage claim that justified
+   * narrowing the marker to an attribute named the first two and called them "both". The one it left out is
+   * the one that force-pushes. It throws rather than returning on anything it cannot strip, so a refusal here
+   * ends the publish with the staged tree half-written and nothing pushed, which is the outcome to want.
    */
   stripLocalOnlyTree(work);
 
@@ -408,15 +414,33 @@ export function stagePages(root, cfg, { push = false } = {}) {
   return { work, branch, slug, pushed, url: slug ? `https://${slug.split('/')[0]}.github.io/${slug.split('/')[1]}/` : null };
 }
 
-/** Apply `stripLocalOnly` to every HTML file in a staged tree, in place. */
-export function stripLocalOnlyTree(dir) {
+/**
+ * Apply `stripLocalOnly` to every HTML file in a staged tree, in place — and then check every file of every
+ * kind, because "HTML file" is this function's guess about where a marker can be, not a fact about the tree.
+ *
+ * The staged tree for this repository is 197 files, 93 of them HTML. The other 104 were copied to a branch
+ * that is force-pushed to the open internet without being read at all. Nothing marked is expected in them —
+ * markdown has no attributes to carry a marker — but "nothing is expected there" is exactly the reasoning that
+ * left `exportBundle` unstripped for a release, so the sweep is over everything and its cost is one pass.
+ *
+ * `root` is passed down only so the error can name the file by its path within the tree rather than by a
+ * temp-directory absolute nobody recognises.
+ */
+export function stripLocalOnlyTree(dir, root = dir) {
   for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
     const p = path.join(dir, e.name);
-    if (e.isDirectory()) { stripLocalOnlyTree(p); continue; }
-    if (!/\.html?$/i.test(e.name)) continue;
-    const before = fs.readFileSync(p, 'utf8');
-    const after = stripLocalOnly(before);
-    if (after !== before) fs.writeFileSync(p, after, 'utf8');
+    if (e.isDirectory()) { stripLocalOnlyTree(p, root); continue; }
+    const rel = path.relative(root, p).split(path.sep).join('/');
+
+    let before;
+    try { before = fs.readFileSync(p, 'utf8'); } catch { continue; }   // unreadable or not text; nothing to scan
+
+    if (/\.html?$/i.test(e.name)) {
+      const after = stripLocalOnly(before, `${rel} in the staged site`);
+      if (after !== before) fs.writeFileSync(p, after, 'utf8');
+      continue;
+    }
+    assertNoLocalOnly(before, `${rel} in the staged site`);
   }
 }
 
@@ -529,33 +553,149 @@ function inlineScript(js) {
  */
 const LOCAL_ONLY = /<([a-zA-Z][\w-]*)(?:"[^"]*"|'[^']*'|[^>"'])*?\sdata-local-only(?![\w-])/i;
 
-export function stripLocalOnly(html) {
-  // Matched by scanning for the marker and then walking to the element's own closing tag, counting nested
-  // opens of the same tag name. A regex cannot do this correctly — these panels contain nested <section> and
-  // <figure> elements, and a lazy `[\s\S]*?` would stop at the first inner close and leave a broken fragment
-  // that still carries half the private content.
+/**
+ * Elements HTML gives no closing tag. **This list is the whole of defect one**, and it is worth being precise
+ * about why: the walker below looked for `</img>`, never found one, and *returned the entire document
+ * unmodified* — every marked panel on it, silently, with no error and no changed byte to notice in review. One
+ * `<img data-local-only="1">` in a header therefore published the work-in-flight panel, the session task list,
+ * 61 local branch names and the operator's home directory through all four exit doors at once. The renderers
+ * already emit void elements seven times over; the marker landing on one was a matter of time.
+ */
+const VOID_ELEMENTS = new Set([
+  'area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'param', 'source', 'track', 'wbr',
+]);
+
+/** Thrown rather than returned. See `stripLocalOnly`: this stripper has no way to fail quietly. */
+class LocalOnlyStripError extends Error {}
+
+/**
+ * The index just past the `>` that ends the start tag beginning at `from`, or -1 if the tag never ends.
+ *
+ * Quoted attribute values are consumed whole, so a `>` inside `title="a > b"` does not end the tag. That is
+ * the same rule `LOCAL_ONLY` uses to find the marker, and the two must agree or the walker would start
+ * counting depth from the middle of an attribute value.
+ */
+function endOfStartTag(html, from) {
+  for (let i = from + 1; i < html.length; i++) {
+    const ch = html[i];
+    if (ch === '"' || ch === "'") {
+      const close = html.indexOf(ch, i + 1);
+      if (close === -1) return -1;
+      i = close;
+      continue;
+    }
+    if (ch === '>') return i + 1;
+  }
+  return -1;
+}
+
+/**
+ * The index just past the `</tag>` that closes the element opened at `open`, or -1 if it is not there.
+ *
+ * Depth is counted over a real scan rather than `indexOf`, which is what the four remaining triggers were:
+ * `<!-- <section -->` inside a panel counted as a nested open, a `>` inside an attribute value ended a tag
+ * early, `<section-detail>` matched `<section\b` because `\b` matches before a hyphen, and a self-closing
+ * `<section/>` incremented a depth nothing would ever decrement. Each one drove the count off by one, the
+ * closing tag ran out, and the function above returned the document whole.
+ */
+function endOfElement(html, tag, open, afterOpenTag) {
+  const re = new RegExp(`<!--|<${tag}(?![\\w-])|</${tag}(?![\\w-])`, 'gi');
+  re.lastIndex = afterOpenTag;
+  let depth = 1;
+  for (;;) {
+    const t = re.exec(html);
+    if (!t) return -1;
+    if (t[0] === '<!--') {
+      const end = html.indexOf('-->', t.index + 4);
+      if (end === -1) return -1;                     // an unterminated comment swallows the rest of the file
+      re.lastIndex = end + 3;
+      continue;
+    }
+    if (t[0][1] === '/') {
+      const end = html.indexOf('>', t.index);
+      if (end === -1) return -1;
+      if (--depth === 0) return end + 1;
+      re.lastIndex = end + 1;
+      continue;
+    }
+    const end = endOfStartTag(html, t.index);
+    if (end === -1) return -1;
+    if (html[end - 2] !== '/') depth++;              // `<section/>` opens nothing
+    re.lastIndex = end;
+  }
+}
+
+/**
+ * Every element carrying the marker, removed — or an exception. There is no third outcome.
+ *
+ * **The failure this replaces.** The walker returned `out` from the *function* the moment it could not find a
+ * closing tag, not from the loop over that one element. So the first marker it could not walk abandoned
+ * stripping for the whole document and handed back the input byte-for-byte, with no error, no warning and
+ * nothing in the output to compare against. Every caller treated that as a successful strip, because a
+ * successful strip and a total abdication are the same value.
+ *
+ * That shape — a guard whose failure is indistinguishable from its success — is the thing being fixed here,
+ * more than any one of the five inputs that triggered it. So:
+ *
+ *  - **The loop cannot end early.** It ends when `LOCAL_ONLY` no longer matches, which is the definition of
+ *    the job being done. Nothing else returns.
+ *  - **Anything it cannot walk throws.** A marked element whose start tag never ends, or whose closing tag is
+ *    not there, means the document is not shaped the way this function must understand it to be safe. Refusing
+ *    to publish is recoverable; publishing the panel is not.
+ *  - **Every exit door re-checks its own output** with `assertNoLocalOnly`, against the bytes it is about to
+ *    hand over rather than against this function's promise. Before this, `LOCAL_ONLY` appeared nowhere but
+ *    inside this function and not one caller verified anything.
+ */
+export function stripLocalOnly(html, where = 'this document') {
   let out = html;
   for (;;) {
     const m = LOCAL_ONLY.exec(out);
-    if (!m) return out;
+    if (!m) break;
     const open = m.index;
-    const tag = m[1];
-    if (!tag) return out;                            // malformed; leave it rather than cut blind
-    const openRe = new RegExp(`<${tag}\\b`, 'g');
-    const closeTag = `</${tag}>`;
-    let depth = 0, i = open;
-    for (;;) {
-      openRe.lastIndex = i;
-      const nextOpen = openRe.exec(out);
-      const nextClose = out.indexOf(closeTag, i);
-      if (nextClose === -1) return out;              // unbalanced; refuse to guess where it ends
-      if (nextOpen && nextOpen.index < nextClose) { depth++; i = nextOpen.index + 1; continue; }
-      depth--;
-      i = nextClose + closeTag.length;
-      if (depth === 0) break;
+    const tag = m[1].toLowerCase();
+
+    const afterOpenTag = endOfStartTag(out, open);
+    if (afterOpenTag === -1) throw refuseToStrip(where, tag, out, open, 'its start tag is never closed by a `>`');
+
+    // A void element and a self-closing one have no closing tag to walk to, and looking for one is what
+    // abandoned the document. Cut the tag itself; there is nothing else to cut.
+    if (VOID_ELEMENTS.has(tag) || out[afterOpenTag - 2] === '/') {
+      out = out.slice(0, open) + out.slice(afterOpenTag);
+      continue;
     }
-    out = out.slice(0, open) + out.slice(i);
+
+    const end = endOfElement(out, tag, open, afterOpenTag);
+    if (end === -1) throw refuseToStrip(where, tag, out, open, `no matching \`</${tag}>\` follows it`);
+    out = out.slice(0, open) + out.slice(end);
   }
+  assertNoLocalOnly(out, where);
+  return out;
+}
+
+function refuseToStrip(where, tag, html, open, why) {
+  return new LocalOnlyStripError(
+    `Refusing to publish ${where}: it carries a \`data-local-only\` <${tag}> that cannot be removed — ${why}.\n` +
+    `  ${JSON.stringify(html.slice(open, open + 120))}\n` +
+    `  This marker is the only thing keeping work-in-flight, session tasks, local branch names and working-tree\n` +
+    `  paths out of a published copy. A partial strip is not a safe fallback, so nothing is published from here\n` +
+    `  until the markup is balanced.`);
+}
+
+/**
+ * The last look, taken by the caller at the bytes it is about to hand over.
+ *
+ * Deliberately not a claim that `stripLocalOnly` ran — it is a claim about the output. Both exports assemble
+ * their result out of several stripped pages plus a shell, a search index and per-page scripts, and the
+ * staged tree is a verbatim copy of a directory; each of those is a chance for a marked element to arrive
+ * after the strip, by a route no future reader of `stripLocalOnly` would think to check.
+ */
+export function assertNoLocalOnly(html, where) {
+  const m = LOCAL_ONLY.exec(html);
+  if (!m) return html;
+  throw new LocalOnlyStripError(
+    `Refusing to publish ${where}: a \`data-local-only\` element survived the strip.\n` +
+    `  ${JSON.stringify(html.slice(m.index, m.index + 120))}\n` +
+    `  This is a bug in the publisher, not in the page. Nothing is written or pushed.`);
 }
 
 export function exportBundle(root, cfg, pages = null, about = {}) {
@@ -592,7 +732,7 @@ export function exportBundle(root, cfg, pages = null, about = {}) {
    * both or the id census counts ids belonging to markup that will not be in the output, and prefixes
    * survivors against collisions that no longer exist. One helper, so the two passes cannot drift.
    */
-  const readPage = (p) => stripLocalOnly(fs.readFileSync(path.join(outDir, p.from), 'utf8'));
+  const readPage = (p) => stripLocalOnly(fs.readFileSync(path.join(outDir, p.from), 'utf8'), `${p.from} in the bundle`);
 
   // Ids carried by more than one page. Chrome is deduplicated; the rest are prefixed.
   const seen = new Map();
@@ -674,7 +814,9 @@ export function exportBundle(root, cfg, pages = null, about = {}) {
   sections.push({ file: 'about', label: 'About',
     inner: aboutSection(about, title, legalPages(all, outDir)), js: '', first: false });
 
-  return `<!doctype html>
+  // Ten stripped pages, plus a shell, a search index and every page's own script — assembled here, so the
+  // assembly is what gets checked. `assertNoLocalOnly` returns the string it was given.
+  return assertNoLocalOnly(`<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -777,7 +919,7 @@ ${sections.map((s) => `<script>${inlineScript(s.js)}</script>`).join('\n')}
 })();</script>
 </body>
 </html>
-`;
+`, 'the standalone bundle');
 }
 
 /**
@@ -960,7 +1102,7 @@ export function exportSingleFile(root, cfg, which = 'dashboard') {
   if (!fs.existsSync(src)) throw new Error(`${which}.html not found in ${cfg.output}. Run \`atlas build\` first.`);
 
   // Before anything else: this file is made to be handed to someone. See `stripLocalOnly`.
-  let html = stripLocalOnly(fs.readFileSync(src, 'utf8'));
+  let html = stripLocalOnly(fs.readFileSync(src, 'utf8'), `the ${which} export`);
   const css = fs.readFileSync(path.join(outDir, 'atlas.css'), 'utf8');
   html = html.replace(/<link rel="stylesheet" href="[^"]*atlas\.css">/, `<style>\n${css}\n</style>`);
   html = html.replace(/<script src="[^"]*search-index\.js"><\/script>/, () => {
@@ -982,5 +1124,8 @@ export function exportSingleFile(root, cfg, which = 'dashboard') {
   html = html.replace(/<a class="brand" href="[^"]*">([\s\S]*?)<\/a>/, '<span class="brand">$1</span>');
   // The build stamp poll has nothing to poll against outside the site directory.
   html = html.replace(/poll\(\); setInterval\(poll, \d+\);/, '/* live reload disabled in standalone export */');
-  return html;
+
+  // The stripped page has had a stylesheet, a search index and its own inline scripts folded into it since the
+  // strip ran. Checked against the bytes that leave, not against the fact that a strip happened.
+  return assertNoLocalOnly(html, `the ${which} export`);
 }

@@ -58,20 +58,90 @@ export const BUILD_MARKERS = ['README.md', '.gitattributes'];
 export const BUILD_CLAIM = '.atlas-build-claim.json';
 
 /**
- * Is this a claim staked by this tool, on this directory?
+ * How long a claim stays evidence. A build that started more than this ago is not a build that is running,
+ * and the directory it left behind is better refused — refusing costs one `rm -rf`, and the alternative is a
+ * claim that authorises deletion forever, carried indefinitely by whatever copied it.
+ */
+const CLAIM_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
+
+/** A pid that could have been issued. macOS caps at 99998 and Linux at 2^22; anything above is not a pid. */
+const MAX_PID = 4 * 1024 * 1024;
+
+/**
+ * Is this a claim staked by **this** build, on **this** directory?
  *
- * Checked rather than trusted, because the whole value of the guard is that it does not delete on the
- * strength of a filename. The recorded `output` is the path **relative to the repository root**, so a
- * checkout that moved on disk still recognises its own interrupted build, while a claim copied out of some
- * other directory does not authorise deleting this one.
+ * This file is the only thing standing between a `rm -rf` and a directory the tool cannot otherwise prove it
+ * owns, so it is a credential, and it was not being checked like one. Every one of the following was verified
+ * to destroy `docs/_wiki/handwritten.txt` in a repository no build had ever run in:
+ *
+ *  - **A claim copied out of another repository.** `output` was compared against the path *relative to the
+ *    repository root*, and `docs/_wiki` is the default in every project-atlas repo — so the comparison was
+ *    between two copies of the same default string and passed for any repository on the machine. A `cp -r`, a
+ *    backup, a Docker layer, a clone: each carries a working credential. The prose above this function
+ *    claimed the opposite property, and the test only covered `output: "somewhere/else"`.
+ *  - **`startedAt` of `"banana"`, `true`, `1`, or 1970.** Only truthiness was checked, and `"banana"` is
+ *    truthy.
+ *  - **No `pid` at all, or a `pid` that cannot exist.** `pid` was written by every build and read by nothing.
+ *  - **The claim being a symlink to a file outside the repository.** `readFileSync` follows links; two lines
+ *    away, the directory itself is checked with `lstat` precisely because `stat` would not.
+ *
+ * So: the identity is the **resolved absolute path** of the directory, which is the only thing a copy cannot
+ * bring with it — two directories with the same contents and the same relative path are still two directories,
+ * and their absolute paths are what differ. This gives up the "a checkout that moved on disk still recognises
+ * its own interrupted build" property, and that is the right trade: a moved checkout is refused with a message
+ * naming the directory and the command, while an unauthenticated claim is a deletion nobody asked for. The
+ * relative path is still recorded and still checked, because it costs nothing and it is what a human reads.
  */
 function readClaim(outDir, root) {
   try {
-    const c = JSON.parse(fs.readFileSync(path.join(outDir, BUILD_CLAIM), 'utf8'));
-    if (c?.tool !== 'project-atlas' || !c.startedAt) return null;
-    const rel = path.relative(root, outDir).split(path.sep).join('/');
-    return c.output === rel ? c : null;
+    const raw = readRegularFile(path.join(outDir, BUILD_CLAIM));
+    if (raw === null) return null;
+    const c = JSON.parse(raw);
+    if (c?.tool !== 'project-atlas') return null;
+
+    // Identity. `realpathSync` on both sides, so a symlinked output directory is compared as the place it
+    // actually is — the same rule `confine` applies one function above.
+    const here = realOrSelf(outDir);
+    if (typeof c.outputPath !== 'string' || realOrSelf(c.outputPath) !== here) return null;
+    if (c.output !== path.relative(root, outDir).split(path.sep).join('/')) return null;
+
+    // Freshness. `toISOString` round-trips, which rejects every non-string and every unparseable string
+    // without a second check; `true`, `1` and `"banana"` all fail here.
+    if (typeof c.startedAt !== 'string') return null;
+    const t = Date.parse(c.startedAt);
+    if (!Number.isFinite(t) || new Date(t).toISOString() !== c.startedAt) return null;
+    const age = Date.now() - t;
+    if (age > CLAIM_MAX_AGE_MS) return null;
+    if (age < -60_000) return null;                  // dated in the future by more than clock skew
+
+    // The process. A claim is written by a live build; the pid says which one.
+    if (!Number.isInteger(c.pid) || c.pid <= 0 || c.pid > MAX_PID) return null;
+    // A *running* build owns this directory right now, and clearing it underneath that build is worse than
+    // refusing: two builds writing one tree is the failure `atlas` already warns about elsewhere. Our own pid
+    // is the interesting exception — a rebuild inside one process, which is how the tests reach this path.
+    if (c.pid !== process.pid && isAlive(c.pid)) return null;
+
+    return c;
   } catch { return null; }
+}
+
+/** Read a path only if it is a regular file, never following a symlink at the final component. */
+function readRegularFile(p) {
+  const flags = fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0);
+  let fd = null;
+  try {
+    fd = fs.openSync(p, flags);                      // ELOOP on a symlink, where the platform has O_NOFOLLOW
+    if (!fs.fstatSync(fd).isFile()) return null;     // and a belt for Windows, which has no O_NOFOLLOW
+    if (!fs.lstatSync(p).isFile()) return null;
+    return fs.readFileSync(fd, 'utf8');
+  } catch { return null; } finally { if (fd !== null) try { fs.closeSync(fd); } catch { /* already gone */ } }
+}
+
+const realOrSelf = (p) => { try { return fs.realpathSync(p); } catch { return path.resolve(p); } };
+
+/** Signal 0 asks the kernel whether the pid exists without sending anything. EPERM means it does. */
+function isAlive(pid) {
+  try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; }
 }
 
 /**
@@ -128,6 +198,9 @@ function prepareOutputDir(root, cfg) {
   fs.writeFileSync(path.join(outDir, BUILD_CLAIM), JSON.stringify({
     tool: 'project-atlas',
     output: path.relative(root, outDir).split(path.sep).join('/'),
+    // The field that makes this a claim on *this* directory rather than on every directory of that name. See
+    // `readClaim`: a copy of this file carries the path it was written for, which is not where it now sits.
+    outputPath: realOrSelf(outDir),
     startedAt: new Date().toISOString(),
     pid: process.pid,
     note: 'A build is writing this directory, or died writing it. Everything here is derived and safe to delete.',
@@ -255,7 +328,7 @@ export function renderSite(index, health, cfg, root) {
   // banner on every page without becoming a file browser over the checkout. Paths only; no content.
   fs.writeFileSync(path.join(outDir, 'sources.json'),
     JSON.stringify(index.documents.map((d) => d.path).sort()), 'utf8');
-  fs.writeFileSync(path.join(outDir, 'index.html'), indexPage(index, health, cfg, truncated, docNav.map((n) => ({ ...n, current: n.href === 'index.html' })), views0, plan, contrib, nameFor, analysisHtml, releaseFacts, buildDate), 'utf8');
+  fs.writeFileSync(path.join(outDir, 'index.html'), indexPage(index, health, cfg, root, truncated, docNav.map((n) => ({ ...n, current: n.href === 'index.html' })), views0, plan, contrib, nameFor, analysisHtml, releaseFacts, buildDate), 'utf8');
   fs.writeFileSync(path.join(outDir, 'wiki.html'), wikiPage(index, cfg, truncated,
     docNav.map((n) => ({ ...n, current: n.href === 'wiki.html' })), nameFor), 'utf8');
   fs.writeFileSync(path.join(outDir, 'health.html'), healthPage(index, health, cfg, docNav.map((n) => ({ ...n, current: n.href === 'health.html' })), nameFor), 'utf8');
@@ -710,12 +783,31 @@ ${analysisHtml ? `
 </section>` : ''}`;
 }
 
-function indexPage(index, health, cfg, truncated, nav, views, plan, contrib, nameFor, analysisHtml, releaseFacts, buildDate) {
+/**
+ * `root` is a parameter, and it is a parameter because it was not one.
+ *
+ * The in-flight reading used to come from `cfg.__root || process.cwd()`. `__root` is attached to a *copy* of
+ * the config made for the view context, thirty lines below the call to this function, so `cfg` here never
+ * carried it and the fallback was not a fallback — it was the only branch that ever ran. Every homepage this
+ * tool has built measured the working tree of whatever directory the process happened to be in.
+ *
+ * On one machine that is invisible, because you build the repository you are standing in. `atlas build --root
+ * <elsewhere>` makes it plain, and two repositories were enough to prove it: run from `rA`, a build of `rB`
+ * put rA's seven in-flight files on rB's homepage — "7 file(s) are in flight on `master`" — while rB's own
+ * Executive view, built in the same run from a context that *did* carry `__root`, showed nothing in flight.
+ * One build, two answers, and the wrong one on the first page anybody opens. It is also a small disclosure:
+ * the count and the branch name belong to a repository the reader was never told about.
+ *
+ * The fallback is gone with it. A default that silently substitutes a different repository cannot report the
+ * mistake it is covering for; if `root` is ever missing again, this must fail loudly rather than measure
+ * somewhere else.
+ */
+function indexPage(index, health, cfg, root, truncated, nav, views, plan, contrib, nameFor, analysisHtml, releaseFacts, buildDate) {
   // Read once, and defensively: this is a homepage, and a git call that throws must cost a qualifying
   // sentence rather than the whole page. `readInflight` already returns `{available:false}` rather than
   // throwing for the cases it anticipates; the catch is for the ones it does not.
   let flight = null;
-  try { flight = readInflight(cfg.__root || process.cwd(), cfg, { index, plan }); } catch { flight = null; }
+  try { flight = readInflight(root, cfg, { index, plan }); } catch { flight = null; }
   const flightFiles = flight?.available && !flight.quiet
     ? flight.unstaged.length + flight.staged.length + (flight.untracked || 0)
     : 0;
@@ -808,7 +900,29 @@ ${scoreSection(scorecard(repoComponents({ contrib, health, plan, index, ...relea
 function healthPage(index, health, cfg, nav, nameFor) {
   const sections = Object.values(SIGNALS).map((s) => {
     const items = health.findings.filter((f) => f.signal === s.id && !f.suppressed);
-    const isBlocking = (cfg.blocking || []).includes(s.id);
+    /*
+     * **Whether a signal blocks is the health engine's decision, and this page used to make its own.**
+     *
+     * `(cfg.blocking || []).includes(s.id)` is the configured *request*, not the answer. The engine's
+     * `blockingFor` reads the same list and then refuses one class of entry outright: an operator signal
+     * cannot block, "enforced in code, not by configuration", because H17 is a claim about how a session was
+     * run rather than about the repository. Config validation deliberately keeps an id it does not recognise
+     * so that a config written for a newer version still loads, which is exactly how `"blocking": ["H17"]`
+     * arrives here intact.
+     *
+     * So with that one line of config the page rendered `H17` in the blocking style and printed "**Blocking**
+     * — no legitimate cause." directly after H17's own text, which ends "ADVISORY, AND NEVER BLOCKING —
+     * enforced in code, not by configuration". The engine was right the whole time — `blockingCount` was 0,
+     * `atlas health` exited clean, the commit gate never fired — and the one artefact a person actually reads
+     * said the opposite. A rendered contradiction is worse than either answer alone: whichever the reader
+     * believes, they have to distrust the other.
+     *
+     * Read from the findings' own `blocking` flag where there are findings, so the page cannot drift from the
+     * gate again. Where there are none there is no flag to read, and the heading still has to say what kind
+     * of signal this is — so that case restates the engine's rule rather than half of it.
+     */
+    const isBlocking = items.some((f) => f.blocking)
+      || (!items.length && (cfg.blocking || []).includes(s.id) && !s.operator);
     // Zero findings because the check ran, or zero because its pattern was declined? Those are different
     // claims, and only one of them is "clean". See health.mjs::runHealth.
     const skipped = (health.unevaluated || []).includes(s.id);

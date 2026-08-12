@@ -30,7 +30,8 @@ import { readDeck } from '../scripts/lib/deck.mjs';
 import { RAMP, STATUS, INK, viewPage, signalGroups } from '../scripts/lib/dashboard.mjs';
 import { CAT, CAT_MAX, donut, lineChart, stackedArea, sparkbars } from '../scripts/lib/charts.mjs';
 import { automationAllows } from '../scripts/lib/config.mjs';
-import { buildWikiPages, wikiPageName, isSafePageName, exportSingleFile, exportBundle, RESERVED, gitlabPagesJob, stageWiki, stripLocalOnly, BUNDLE_PAGES } from '../scripts/lib/publish.mjs';
+import { buildWikiPages, wikiPageName, isSafePageName, exportSingleFile, exportBundle, RESERVED, gitlabPagesJob, stageWiki, stripLocalOnly, stripLocalOnlyTree, stagePages, assertNoLocalOnly, BUNDLE_PAGES } from '../scripts/lib/publish.mjs';
+import { confine, isAtOrInside, realpathOrBest } from '../scripts/lib/paths.mjs';
 // A namespace import, because `OPERATOR_SIGNALS` arrives with H17 and a named import of an export that does
 // not exist yet fails at module load — which would take the whole suite down rather than one test.
 import * as healthModule from '../scripts/lib/health.mjs';
@@ -8169,6 +8170,438 @@ test('render · neither renderer passes a data: URL through into a published hre
       }
     }
   }
+});
+
+/* ================================================ what an adversary did with these (A-38 … A-44) */
+
+/**
+ * **Synchronous, like everything appended below the drain.** `pendingAsync` is emptied thousands of lines
+ * above, so an `async` case here would be constructed, never awaited, and counted as a pass it never earned.
+ *
+ * Every case below is the exploit that was run against the code, not a paraphrase of it: the marker planted
+ * on an `<img>`, a claim copied between two repositories, `--out` aimed at a dangling symlink, a staged tree
+ * grepped for branch names, one repository built from inside another. Each one was verified to fail against
+ * the code as it was, and to pass only after the fix.
+ */
+
+console.log('\nthe publisher, attacked');
+
+/** A page shaped like the real ones: a marked panel holding a secret, and a public paragraph beside it. */
+const SECRET = 'fix/nobody-elses-business';
+const markedPage = (planted) => `<!doctype html>
+<html><head><title>t</title></head>
+<body>
+${planted}
+<main>
+<section class="card" id="public"><h2>Public</h2><p>A paragraph that must survive.</p></section>
+<section class="card" id="branches" data-local-only="1"><h2>Branches</h2>
+  <section class="inner"><p>${SECRET}</p></section>
+  <p>/Users/somebody/private/path</p></section>
+</main>
+</body></html>
+`;
+
+test('publish · the marker on a void element strips that element and leaves the rest of the document stripped', () => {
+  /*
+   * **A-38, and the whole of it in one input.** `stripLocalOnly` walked from a marker to the element's own
+   * closing tag; `<img>` has none, `indexOf('</img>')` returned -1, and the line `if (nextClose === -1) return
+   * out;` returned from the *function*. So one marked void element anywhere on a page abandoned stripping for
+   * the entire document and handed back the input byte-for-byte — no error, no warning, and no changed byte
+   * for a reviewer to notice. The renderers already emit void elements seven times over.
+   *
+   * Asserted in both directions: the planted `<img>` is gone, and — the half nobody checks — the real marked
+   * panel beside it is gone too, which is the assertion that failed before the fix.
+   */
+  const html = stripLocalOnly(markedPage('<img data-local-only="1" src="badge.svg">'));
+  eq(/data-local-only/.test(html), false, 'no marker may survive, on a void element or anywhere else');
+  eq(html.includes(SECRET), false, 'and the panel beside the void element must still be stripped');
+  eq(html.includes('<img'), false, 'the marked <img> itself is gone');
+  includes(html, 'A paragraph that must survive.', 'while the public paragraph is untouched');
+});
+
+test('publish · every void element and the self-closing form, not just the one that was found', () => {
+  // A list, because the fix is a list and a list is the kind of thing that gets one entry short. `<input>`
+  // and `<meta>` are the two most likely to acquire a marker next — a filter control and a page-level flag.
+  for (const tag of ['img', 'hr', 'br', 'input', 'meta', 'link', 'col', 'source', 'wbr']) {
+    const html = stripLocalOnly(markedPage(`<${tag} data-local-only="1">`));
+    eq(html.includes(SECRET), false, `<${tag}>: the document must still be stripped`);
+    eq(/data-local-only/.test(html), false, `<${tag}>: no marker may survive`);
+  }
+  // XHTML-style, on a non-void tag: it opens nothing, so nothing may be walked to.
+  const selfClosed = stripLocalOnly(markedPage('<span data-local-only="1"/>'));
+  eq(selfClosed.includes(SECRET), false, 'a self-closing marked element must not abandon the document');
+});
+
+test('publish · a comment, a hyphenated tag and a quoted `>` no longer drive the walker off the end', () => {
+  // The other three triggers, each of which ended the same way: depth never returned to zero, the closing tag
+  // ran out, and the function returned the whole document. Every one of these is legal markup that a panel
+  // could grow tomorrow.
+  const cases = {
+    'a comment naming the tag': '<section class="card" data-local-only="1"><!-- <section --><p>x</p></section>',
+    'a hyphenated sibling tag': '<section class="card" data-local-only="1"><section-detail>x</section-detail></section>',
+    'a quoted > inside an attribute': '<section class="card" data-local-only="1" title="a > b"><p>x</p></section>',
+  };
+  for (const [why, planted] of Object.entries(cases)) {
+    const html = stripLocalOnly(markedPage(planted));
+    eq(html.includes(SECRET), false, `${why}: the document must still be stripped`);
+    eq(/data-local-only/.test(html), false, `${why}: no marker may survive`);
+    includes(html, 'A paragraph that must survive.', `${why}: and the public paragraph is untouched`);
+  }
+});
+
+test('publish · a marker it cannot walk refuses the publish rather than returning the document', () => {
+  /*
+   * **The half that matters more than any trigger.** Handling `<img>` fixes one input; making a silent
+   * pass-through unreachable fixes the shape. A stripper whose failure and whose success are the same value
+   * cannot be reviewed, cannot be tested from the outside, and had in fact never been.
+   *
+   * Genuinely unbalanced markup — an unclosed `<section` in panel text, which a browser also reads as a start
+   * tag — is the one case where the right answer is neither "strip" nor "return". It throws.
+   */
+  const unwalkable = markedPage('<section class="card" data-local-only="1"><p>a stray <section in prose</p>');
+  let threw = null;
+  try { stripLocalOnly(unwalkable, 'the page under test'); } catch (e) { threw = e; }
+  ok(threw, 'markup this cannot be walked must refuse, not return the input');
+  includes(threw.message, 'Refusing to publish the page under test');
+  includes(threw.message, 'data-local-only', 'and name the marker it could not remove');
+
+  // The property behind it, stated as a property: nothing this function returns carries a marker.
+  eq(/data-local-only/.test(stripLocalOnly(markedPage('<img data-local-only="1">'))), false);
+  let threwAgain = null;
+  try { assertNoLocalOnly('<p>ok</p><div data-local-only="1">leak</div>', 'a hand-made document'); }
+  catch (e) { threwAgain = e; }
+  ok(threwAgain, 'assertNoLocalOnly is what every exit door calls, and it must refuse a surviving marker');
+});
+
+test('publish · the gh-pages tree is the third exit door, and it strips and verifies every file', () => {
+  /*
+   * **A-39.** `stripLocalOnly` is reached from `exportSingleFile`, from `exportBundle`, and from
+   * `stripLocalOnlyTree` — which `stagePages` calls on the tree it force-pushes to `gh-pages`, described in
+   * `publish.mjs` itself as "the target where getting it wrong is public and permanent-ish". The coverage
+   * claim that justified narrowing the marker to an attribute named the first two and called them "both", and
+   * `stagePages` had no strip test at all. The untested door was the one that publishes to the open internet.
+   *
+   * Run against a real staged tree, through the real `stagePages`, with the `<img>` exploit planted in it.
+   */
+  const dir = fixture('pages-strip', { 'docs/A.md': '# A\n' });
+  const { cfg, index, health } = analyse(dir, {});
+  const r = renderSite(index, health, cfg, dir);
+
+  // Planted after the build, in the built page, exactly as the audit did it.
+  const page = path.join(r.outDir, 'index.html');
+  fs.writeFileSync(page, fs.readFileSync(page, 'utf8').replace('<main>',
+    `<img data-local-only="1" src="badge.svg">\n<main>\n<section data-local-only="1"><p>${SECRET}</p></section>`), 'utf8');
+  ok(fs.readFileSync(page, 'utf8').includes(SECRET), 'sanity: the built page really carries it now');
+
+  const staged = stagePages(dir, cfg, { push: false });
+  const out = fs.readFileSync(path.join(staged.work, 'index.html'), 'utf8');
+  eq(out.includes(SECRET), false, 'nothing marked may reach the tree that is force-pushed');
+  eq(/data-local-only/.test(out), false, 'and no marker may survive in it');
+
+  // And the 104 files of 197 that this function never opened. A marker cannot legitimately appear in them,
+  // which is exactly why nobody would notice one that did.
+  fs.writeFileSync(path.join(r.outDir, 'notes.txt'), `<div data-local-only="1">${SECRET}</div>\n`, 'utf8');
+  let threw = null;
+  try { stagePages(dir, cfg, { push: false }); } catch (e) { threw = e; }
+  ok(threw, 'a marked element in a non-HTML staged file must stop the publish, not ride along in it');
+  includes(threw.message, 'notes.txt', 'and the message names the file');
+});
+
+test('publish · a claim copied from another repository does not authorise deleting this one', () => {
+  /*
+   * **A-40.** `readClaim` compared `c.output` against the output path *relative to the repository root*. That
+   * is `docs/_wiki` in every project-atlas repository there has ever been, so the comparison was between two
+   * copies of one default string. A claim carried by `cp -r`, a backup, a Docker layer or a clone therefore
+   * validated against any repository on the machine — and a valid claim authorises `rm -rf` of a directory
+   * holding files no build wrote.
+   *
+   * The existing case covered `output: "somewhere/else"`, which is the easy half: a claim that names a
+   * different directory. This is a claim that names the *same* directory, in a different repository.
+   */
+  const source = fixture('claim-source', { 'docs/A.md': '# A\n' });
+  const victim = fixture('claim-victim', { 'docs/A.md': '# A\n', 'docs/_wiki/handwritten.txt': 'months of work\n' });
+
+  // A genuine claim, from a real interrupted build in another repository — not a hand-written forgery.
+  const killed = buildAndDieBeforeMarkers(source);
+  eq(killed.signal, 'SIGKILL', 'sanity: the source build really was interrupted');
+  const genuine = path.join(source, 'docs', '_wiki', BUILD_CLAIM);
+  ok(fs.existsSync(genuine), 'sanity: the interrupted build staked a claim');
+  const parsed = JSON.parse(fs.readFileSync(genuine, 'utf8'));
+  eq(parsed.output, 'docs/_wiki', 'and it records the default relative path every repository uses');
+
+  // `cp` it across, which is the whole exploit.
+  fs.copyFileSync(genuine, path.join(victim, 'docs', '_wiki', BUILD_CLAIM));
+
+  const { cfg, index, health } = analyse(victim, {});
+  let threw = null;
+  try { renderSite(index, health, cfg, victim); } catch (e) { threw = e; }
+  ok(threw, 'a claim written for another directory must not authorise deleting this one');
+  eq(fs.readFileSync(path.join(victim, 'docs', '_wiki', 'handwritten.txt'), 'utf8'), 'months of work\n');
+
+  // The property that must survive the fix: the source repository still recognises its own wreckage.
+  const own = analyse(source, {});
+  const recovered = renderSite(own.index, own.health, own.cfg, source);
+  ok(fs.existsSync(path.join(recovered.outDir, 'index.html')), 'the interrupted build still recovers in place');
+});
+
+test('publish · a claim is authenticated, not merely present — timestamp, pid, and not a symlink', () => {
+  /*
+   * The rest of A-40, each verified to destroy `handwritten.txt` before the fix. `startedAt` was checked for
+   * truthiness only, so `"banana"` passed; `pid` was written by every build and read by nothing; and the file
+   * was read with `readFileSync`, which follows a symlink, two lines after the directory beside it is
+   * deliberately checked with `lstat` rather than `stat`.
+   */
+  const now = () => new Date().toISOString();
+
+  /*
+   * Each forgery is otherwise perfect — right tool, right relative path, right *absolute* path — with one
+   * field corrupted, so each assertion is about the check it names and not about the identity check catching
+   * everything on its way past.
+   *
+   * **`pid: 999999` is in the audit's list and is not in this one, and that is a finding rather than an
+   * omission.** A pid cannot authenticate a claim: a genuinely interrupted build leaves the pid of a process
+   * that is now dead, which is byte-identical to a pid that never existed. Rejecting a dead pid would reject
+   * exactly the case the claim was invented for. What a pid *can* say is that a build is running right now,
+   * and `readClaim` uses it for that — a live pid that is not ours means refuse. The audit's actual artefact
+   * — a claim carrying `pid: 999999` and no `outputPath` — is refused, and is asserted below.
+   */
+  const forgeries = {
+    'startedAt "banana"': { startedAt: 'banana' },
+    'startedAt true': { startedAt: true },
+    'startedAt 1': { startedAt: 1 },
+    'startedAt at the epoch': { startedAt: '1970-01-01T00:00:00.000Z' },
+    'startedAt in the future': { startedAt: new Date(Date.now() + 86_400_000).toISOString() },
+    'no pid': { startedAt: now(), pid: undefined },
+    'a pid above every kernel\'s ceiling': { startedAt: now(), pid: 2 ** 31 },
+    'a pid of zero': { startedAt: now(), pid: 0 },
+    'a pid that is not a number': { startedAt: now(), pid: 'many' },
+    'a live pid belonging to another process': { startedAt: now(), pid: 1 },
+  };
+  let n = 0;
+  for (const [why, over] of Object.entries(forgeries)) {
+    const dir = fixture(`claim-forged-${n++}`, { 'docs/A.md': '# A\n', 'docs/_wiki/handwritten.txt': 'months of work\n' });
+    const outDir = path.join(dir, 'docs', '_wiki');
+    fs.writeFileSync(path.join(outDir, BUILD_CLAIM), JSON.stringify({
+      tool: 'project-atlas', output: 'docs/_wiki', outputPath: fs.realpathSync(outDir),
+      startedAt: now(), pid: process.pid + 1, ...over,
+    }), 'utf8');
+    const { cfg, index, health } = analyse(dir, {});
+    let threw = null;
+    try { renderSite(index, health, cfg, dir); } catch (e) { threw = e; }
+    ok(threw, `${why}: must not authorise a deletion`);
+    eq(fs.readFileSync(path.join(outDir, 'handwritten.txt'), 'utf8'), 'months of work\n', `${why}: and nothing is lost`);
+  }
+
+  // The audit's own artefact, exactly as it wrote it: no `outputPath`, and a pid no kernel issues.
+  {
+    const dir = fixture('claim-audit-shape', { 'docs/A.md': '# A\n', 'docs/_wiki/handwritten.txt': 'months of work\n' });
+    fs.writeFileSync(path.join(dir, 'docs', '_wiki', BUILD_CLAIM), JSON.stringify({
+      tool: 'project-atlas', output: 'docs/_wiki', startedAt: now(), pid: 999999,
+    }), 'utf8');
+    const { cfg, index, health } = analyse(dir, {});
+    let threw = null;
+    try { renderSite(index, health, cfg, dir); } catch (e) { threw = e; }
+    ok(threw, 'the claim the audit planted must not authorise a deletion');
+    eq(fs.readFileSync(path.join(dir, 'docs', '_wiki', 'handwritten.txt'), 'utf8'), 'months of work\n');
+  }
+
+  // The symlink. `readFileSync` follows it; the claim it reads is one the repository does not contain.
+  const dir = fixture('claim-symlink', { 'docs/A.md': '# A\n', 'docs/_wiki/handwritten.txt': 'months of work\n' });
+  const outDir = path.join(dir, 'docs', '_wiki');
+  const outside = path.join(tmpRoot, 'claim-from-outside.json');
+  fs.writeFileSync(outside, JSON.stringify({
+    tool: 'project-atlas', output: 'docs/_wiki', outputPath: fs.realpathSync(outDir),
+    startedAt: new Date().toISOString(), pid: process.pid,
+  }), 'utf8');
+  fs.symlinkSync(outside, path.join(outDir, BUILD_CLAIM));
+  const { cfg, index, health } = analyse(dir, {});
+  let threw = null;
+  try { renderSite(index, health, cfg, dir); } catch (e) { threw = e; }
+  ok(threw, 'a claim that is a symlink to a file outside the repository proves nothing');
+  eq(fs.readFileSync(path.join(outDir, 'handwritten.txt'), 'utf8'), 'months of work\n');
+}, { needsPosixFilenames: true });
+
+test('paths · a dangling symlink is resolved, so the containment guards see where the bytes will land', () => {
+  /*
+   * **A-41.** `realpathOrBest` resolved "the longest existing ancestor" with `realpathSync`, which throws
+   * ENOENT for a symlink whose target does not exist. So a final component that was a dangling symlink
+   * resolved to its own lexical path, and both guards built on it compared the wrong path. `readlink` answers
+   * for a dangling link, and its answer is where the write actually goes.
+   */
+  const root = path.join(tmpRoot, 'dangling-repo');
+  fs.mkdirSync(path.join(root, 'docs', '_wiki'), { recursive: true });
+  const elsewhere = path.join(tmpRoot, 'dangling-elsewhere');
+  fs.mkdirSync(elsewhere, { recursive: true });
+
+  // 1. `confine`, whose own comment says it exists to refuse "an escape that only exists once symlinks are
+  //    followed". The write that followed created a file outside the repository.
+  const escape = path.join(root, 'docs', 'escape.txt');
+  fs.symlinkSync(path.join(elsewhere, 'authorized_keys'), escape);
+  let threw = null;
+  try { confine(root, 'docs/escape.txt', 'output'); } catch (e) { threw = e; }
+  ok(threw, 'a dangling symlink out of the repository must be refused');
+  includes(threw.message, 'outside the repository');
+
+  // 2. `assertNotPublishable`, the only thing keeping transcript-derived reports out of the published tree.
+  //    Its own comment names "a symlink whose target is inside the output directory" as the case it catches.
+  const sneak = path.join(root, 'report.txt');
+  fs.symlinkSync(path.join(root, 'docs', '_wiki', 'leak.txt'), sneak);
+  eq(isAtOrInside(path.join(root, 'docs', '_wiki'), sneak), true,
+    'a dangling link into the published directory resolves into it');
+  let threw2 = null;
+  try { assertNotPublishable(root, { output: 'docs/_wiki' }, 'report.txt'); } catch (e) { threw2 = e; }
+  ok(threw2, '--out aimed at a dangling symlink into the published directory must be refused');
+
+  // 3. Nothing that held before holds less. The audit attacked containment twelve ways and broke none of
+  //    them; this change only ever resolves further, so it can turn "inside" into "outside" and not back.
+  eq(confine(root, 'docs/_wiki', 'output'), path.join(root, 'docs', '_wiki'), 'an ordinary path still resolves');
+  let stillRefused = null;
+  try { confine(root, '../PRECIOUS', 'output'); } catch (e) { stillRefused = e; }
+  ok(stillRefused, '`../PRECIOUS` is still refused');
+  try { confine(root, '.', 'output'); stillRefused = null; } catch (e) { stillRefused = e; }
+  ok(stillRefused, 'and so is the repository itself');
+
+  // A symlink loop terminates rather than resolving forever.
+  const a = path.join(root, 'loop-a'), b = path.join(root, 'loop-b');
+  fs.symlinkSync(b, a);
+  fs.symlinkSync(a, b);
+  ok(typeof realpathOrBest(a) === 'string', 'a symlink cycle resolves to something rather than hanging');
+}, { needsPosixFilenames: true });
+
+test('kb · the derived markdown does not publish the branch names the HTML beside it strips', () => {
+  /*
+   * **A-42.** `stripLocalOnlyTree` rewrote `*.html` and `*.htm` only. Of the 197 files this repository stages
+   * for `gh-pages`, 104 were copied to the public branch without being read, 99 of them markdown — and one of
+   * those, `kb/resume.md`, printed every journal ref verbatim, which meant the names of unmerged local
+   * branches. Nine of them reached the staged tree, measured. The dashboard panel carrying the same names is
+   * marked `data-local-only` and explains at length why a branch name must not travel, and it is stripped
+   * from every published copy; the markdown beside it was not.
+   *
+   * Fixed at the source rather than with a second marker language in markdown, so the local file and the
+   * published file say the same thing and there is no copy to review and ship separately.
+   */
+  const dir = fixture('kb-branch-refs', { 'docs/A.md': '# A\n' });
+  const journalDir = path.join(dir, '.atlas', 'journal');
+  fs.mkdirSync(journalDir, { recursive: true });
+  const rec = (refs) => JSON.stringify({
+    at: '2026-08-01T10:00:00.000Z', kind: 'finding', agent: 'main',
+    contributor: 'test', text: 'x', refs,
+  });
+  fs.writeFileSync(path.join(journalDir, 'test.jsonl'), [
+    rec(['wip/unmerged-client-name', 'docs/A.md']),
+    rec(['fix/embargoed-thing@abc1234']),
+    rec(['main@deadbee']),
+  ].join('\n') + '\n', 'utf8');
+
+  const { cfg, index, health } = analyse(dir, {});
+  const r = renderSite(index, health, cfg, dir);
+  const resume = fs.readFileSync(path.join(r.outDir, 'kb', 'resume.md'), 'utf8');
+
+  for (const secret of ['wip/unmerged-client-name', 'fix/embargoed-thing']) {
+    eq(resume.includes(secret), false, `a branch name must not reach the published markdown: ${secret}`);
+  }
+  includes(resume, 'record(s) name a branch or a commit', 'the count survives, because the count leaks nothing');
+  includes(resume, '`docs/A.md`', 'and a ref that is a real file in the repository is still routed to');
+
+  // The staged tree, which is the thing that gets force-pushed — asserted over every markdown file in it,
+  // not only the one that was found to be leaking.
+  const { work } = stagePages(dir, cfg, { push: false });
+  const md = [];
+  (function walk(d) {
+    for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+      const p = path.join(d, e.name);
+      if (e.isDirectory()) { if (e.name !== '.git') walk(p); }
+      else if (/\.md$/i.test(e.name)) md.push(p);
+    }
+  })(work);
+  ok(md.length > 5, `sanity: the staged tree really does carry markdown (${md.length} files)`);
+  for (const f of md) {
+    const body = fs.readFileSync(f, 'utf8');
+    eq(body.includes('wip/unmerged-client-name'), false,
+      `${path.relative(work, f)} names a local branch in the tree that is force-pushed`);
+  }
+});
+
+test('render · the homepage measures the repository being built, not the process\'s current directory', () => {
+  /*
+   * **A-43.** `indexPage` read the working tree from `cfg.__root || process.cwd()`. `__root` is attached to a
+   * *copy* of the config made for the view context, thirty lines below the call, so `cfg` here never carried
+   * it — the fallback was not a fallback, it was the only branch that ever ran.
+   *
+   * Invisible when you build the repository you are standing in. Two repositories make it plain: built from
+   * inside `rA`, `rB`'s homepage reported rA's seven in-flight files and rA's branch name, while rB's own
+   * Executive view — built in the same run, from a context that did carry `__root` — reported nothing in
+   * flight. One build, two answers, and the wrong one on the first page anyone opens.
+   */
+  const rA = fixture('cwd-leak-a', { 'docs/A.md': '# A\n', '.gitignore': 'docs/_wiki/\n' });
+  const rB = fixture('cwd-leak-b', { 'docs/B.md': '# B\n', '.gitignore': 'docs/_wiki/\n' });
+  execFileSync('git', ['checkout', '-q', '-b', 'wip/rA-local-only'], { cwd: rA, stdio: 'ignore' });
+  for (let i = 1; i <= 7; i++) fs.writeFileSync(path.join(rA, 'docs', `flight-${i}.md`), `# f${i}\n`, 'utf8');
+  execFileSync('git', ['add', '-A'], { cwd: rA, stdio: 'ignore' });
+
+  // The build of rB, run with the process sitting in rA. `--root` is the documented way to do this.
+  const built = spawnSync(process.execPath, [CLI, 'build', '--root', rB, '--quiet'],
+    { cwd: rA, encoding: 'utf8' });
+  eq(built.status, 0, `the build of rB must succeed: ${built.stderr}`);
+
+  const home = fs.readFileSync(path.join(rB, 'docs', '_wiki', 'index.html'), 'utf8');
+  eq(home.includes('wip/rA-local-only'), false, "rB's homepage must not name rA's branch");
+  // Not asserted as zero: `atlas build` writes `worklog/` and `.atlas/` into the repository it builds, which
+  // is A-36 and is somebody else's item. Seven is rA's number and rB cannot reach it by accident.
+  const m = /<strong>(\d+)<\/strong> file\(s\) are in flight/.exec(home);
+  ok(!m || Number(m[1]) < 7, `rB's homepage must not report rA's seven files (reported ${m ? m[1] : 'none'})`);
+
+  // The control, and the reason the assertion above is not vacuous: measured from its own repository, the
+  // homepage does see the seven.
+  const ownBuild = spawnSync(process.execPath, [CLI, 'build', '--root', rA, '--quiet'], { cwd: rA, encoding: 'utf8' });
+  eq(ownBuild.status, 0, `the build of rA must succeed: ${ownBuild.stderr}`);
+  const ownHome = fs.readFileSync(path.join(rA, 'docs', '_wiki', 'index.html'), 'utf8');
+  // Asserted on the count, not on the branch name. The homepage prints the branch today, which is a separate
+  // leak of the same class as A-42 and is reported rather than fixed here; a test that required the name to
+  // be present would make removing it a failure.
+  const own = /<strong>(\d+)<\/strong> file\(s\) are in flight/.exec(ownHome);
+  ok(own && Number(own[1]) >= 7, `rA's own homepage reports its seven files (reported ${own ? own[1] : 'none'})`);
+
+  // The fallback is gone with the bug: nothing here may read the process's directory. Comment lines are
+  // skipped, as in the `num()` guard above — the note explaining the defect names the expression it removed.
+  const offenders = [];
+  fs.readFileSync(path.join(REPO_ROOT, 'scripts', 'lib', 'render.mjs'), 'utf8')
+    .split('\n').forEach((line, i) => {
+      if (/process\.cwd\(\)/.test(line) && !/^\s*[*/]/.test(line)) offenders.push(`render.mjs:${i + 1}`);
+    });
+  eq(offenders, [],
+    'a default that silently substitutes another repository cannot report the mistake it covers for');
+});
+
+test('render · the health page cannot call a signal blocking that the engine will never block', () => {
+  /*
+   * **A-44.** The page computed `isBlocking` from `(cfg.blocking || []).includes(s.id)` — the configured
+   * *request* — rather than from the finding's own `blocking` flag. The engine's rule has a second term: an
+   * operator signal cannot block, "enforced in code, not by configuration". Config validation deliberately
+   * keeps an unknown id so a config written for a newer version still loads, which is exactly how
+   * `"blocking": ["H17"]` arrives intact.
+   *
+   * The result was a page that rendered H17 in the blocking style and printed "**Blocking** — no legitimate
+   * cause." directly after H17's own text ending "ADVISORY, AND NEVER BLOCKING". The engine was right the
+   * whole way through — `blockingCount` 0, the gate silent — and the artefact a person reads said otherwise.
+   */
+  const dir = fixture('health-h17-blocking', { 'docs/A.md': '# A\n' });
+  const { cfg, index, health } = analyse(dir, { blocking: ['H17', 'H3'] });
+  eq(health.blockingCount, 0, 'sanity: the engine refuses to let an operator signal block');
+
+  const r = renderSite(index, health, cfg, dir);
+  const html = fs.readFileSync(path.join(r.outDir, 'health.html'), 'utf8');
+  eq(/class="sig block">H17</.test(html), false, 'H17 must not be drawn as a blocking signal');
+
+  const h17 = html.slice(html.indexOf('>H17<'));
+  const blurb = h17.slice(h17.indexOf('<p class="blurb">'), h17.indexOf('</p>'));
+  includes(blurb, 'ADVISORY, AND NEVER BLOCKING', 'sanity: this is H17\'s own blurb');
+  eq(blurb.includes('<strong>Blocking</strong>'), false,
+    'and the page must not contradict the sentence it is printing');
+
+  // The other direction, which is what makes this a fix rather than a blanket. H3 is a corpus signal, it is
+  // in `blocking`, and it must still say so.
+  includes(html, 'class="sig block">H3<', 'a signal that really does block is still drawn as blocking');
 });
 
 console.log(`\n${pass} passed, ${fail} failed${skipped ? `, ${skipped} skipped on ${process.platform}` : ''}\n`);

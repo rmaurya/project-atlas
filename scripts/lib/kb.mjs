@@ -100,6 +100,8 @@ import { handoffsIn, handoffAge, sharedPath, DEFAULT_STALE_AFTER } from './hando
 import { readObligations, DEFAULT_SOP_MATCH } from './sop.mjs';
 import { matchesAny } from './config.mjs';
 import { detectHost } from './host.mjs';
+import { num } from './format.mjs';
+import { isInside } from './paths.mjs';
 
 /** The subdirectory of the build output this tree owns. Cleared with everything else by `prepareOutputDir`. */
 export const KB_DIR = 'kb';
@@ -854,9 +856,13 @@ function vocabularyPage(c) {
  *
  * **Counts, kinds, timespans and refs. Never a record's text.** `journal.mjs` refuses to let the journal be
  * written anywhere publishable, and this tree is written into the publishable output directory; a page here
- * that quoted a record would route around that guard rather than break it, which is worse. Refs are paths
- * and branch names — what a session touched, never what it said — and they are the routing value, because a
- * document that appears in the trail is a document the last session was working against.
+ * that quoted a record would route around that guard rather than break it, which is worse. Refs are paths —
+ * what a session touched, never what it said — and they are the routing value, because a document that
+ * appears in the trail is a document the last session was working against.
+ *
+ * **Branch names used to be in that list and are not any more.** Same reasoning, one step further: the guard
+ * this page must not route around is not only the journal's, it is `stripLocalOnly`'s. See the refs section
+ * below.
  */
 function resumePage(c) {
   const { root, cfg, at, byPath, nameFor, findingsFor } = c;
@@ -961,14 +967,41 @@ function resumePage(c) {
         'finishes, so a record tagged to one is a finding that would otherwise have been lost.', '');
     }
 
-    // Refs are the routing value: a document that appears in the trail is one the last session was working
-    // against. Split by whether the corpus knows the path, because a branch name and a document are both
-    // legitimate refs and only one of them has a node page.
+    /*
+     * Refs are the routing value: a document that appears in the trail is one the last session was working
+     * against. Split three ways, and the third split is a leak that was live.
+     *
+     * **A branch name is local state, and this file is published.** The refs list printed every ref verbatim,
+     * so `kb/resume.md` carried the names of unmerged local branches — nine of them, measured on this
+     * repository — into the tree `stagePages` force-pushes to `gh-pages`. Two things made it invisible. The
+     * HTML beside it is careful: `dashboard.mjs` marks its branches panel `data-local-only` and explains at
+     * length why a branch name must not travel, and `stripLocalOnly` cuts that panel from every published
+     * copy. And `stripLocalOnlyTree` only ever rewrote `*.html` — of 197 staged files, 104 were copied to the
+     * public branch without being read, 99 of them markdown. So the guarded path and the unguarded path
+     * published the same facts, and only one of them was ever looked at.
+     *
+     * Not fixed with a marker in the markdown. An in-band `<!-- ... -->` region would be a second marker
+     * language whose failure mode this project has already paid for once: the HTML matcher was narrowed to an
+     * attribute because scanning for the bare name deleted paragraphs that merely *mentioned* it, silently,
+     * from the published copy only. A markdown marker would do the same to any document that documented it.
+     * The fix is that the name is never written, in any copy — which also means the local file and the
+     * published file say the same thing, so nobody reviews one and ships the other.
+     *
+     * The count and the shape survive, because they are the part that has routing value without naming
+     * anything: how much of the trail was branch work is a real fact about the last sessions, and `atlas
+     * state` — which this page already sends the reader to twice — prints the names, locally, on demand.
+     */
     const refs = new Map();
     for (const r of j.records) for (const ref of r.refs || []) refs.set(ref, (refs.get(ref) || 0) + 1);
     if (refs.size) {
       const known = [...refs.keys()].filter((r) => byPath.has(r)).sort();
-      const other = [...refs.keys()].filter((r) => !byPath.has(r)).sort();
+      // A path that exists in the working tree is a file, and files are what this page routes to. Everything
+      // else — `feat/thing`, `main@1443522`, a bare sha — is a branch or a commit, which is to say local
+      // state or history, and is counted rather than named.
+      const rest = [...refs.keys()].filter((r) => !byPath.has(r));
+      const files = rest.filter((r) => existsInRepo(root, r)).sort();
+      const vcs = rest.filter((r) => !existsInRepo(root, r));
+
       L.push('### What the trail touched', '');
       if (known.length) {
         L.push('Indexed documents named by a record — these are what the last sessions were working against.', '');
@@ -978,10 +1011,18 @@ function resumePage(c) {
         }
         L.push('');
       }
-      if (other.length) {
-        L.push('Other refs — source files, branches and commits. Not documents, so they have no node page.', '');
-        for (const p of other) L.push(`- ${code(p)} × ${refs.get(p)}`);
+      if (files.length) {
+        L.push('Other files named by a record — source, scripts, configuration. Not indexed documents, so they',
+          'have no node page.', '');
+        for (const p of files) L.push(`- ${code(p)} × ${refs.get(p)}`);
         L.push('');
+      }
+      if (vcs.length) {
+        const naming = vcs.reduce((n, r) => n + refs.get(r), 0);
+        L.push(`**${num(naming)} record(s) name a branch or a commit, across ${num(vcs.length)} distinct ref(s) — `
+          + 'not listed here.** A branch name is local state, and this file is published: it is copied verbatim '
+          + 'into the tree that is force-pushed to Pages, where the dashboard panel carrying the same names is '
+          + 'stripped out. Run `atlas state` for the names, which is the same reading, locally, on demand.', '');
       }
     }
 
@@ -1011,6 +1052,21 @@ function resumePage(c) {
  * anticipate — an unreadable directory, a permissions failure. A build must not die because an operational
  * log could not be counted, and it must not report "no journal" when the truth is "could not look".
  */
+/**
+ * Does this ref name a file that is actually in the repository?
+ *
+ * Asked of an untrusted string out of the journal, so it is asked about a path confined to the repository:
+ * `../../etc/passwd` and `/etc/passwd` both exist, and neither is a file this repository's trail touched.
+ * A ref that fails this is a branch, a commit, or a path that has since been deleted — none of which get
+ * printed, which is the safe direction for all three.
+ */
+function existsInRepo(root, ref) {
+  if (typeof ref !== 'string' || !ref || path.isAbsolute(ref)) return false;
+  const abs = path.resolve(root, ref);
+  if (!isInside(root, abs)) return false;
+  try { return fs.existsSync(abs); } catch { return false; }
+}
+
 function safeJournal(root) {
   try { return readJournal(root); } catch { return { available: false, records: [], skipped: 0, contributors: [] }; }
 }
