@@ -35,6 +35,7 @@ import { buildWikiPages, wikiPageName, isSafePageName, exportSingleFile, exportB
 // not exist yet fails at module load — which would take the whole suite down rather than one test.
 import * as healthModule from '../scripts/lib/health.mjs';
 import { readContrib, estimateHours, taskCoverage } from '../scripts/lib/contrib.mjs';
+import { num } from '../scripts/lib/format.mjs';
 import { pauseSession, readParked, verifyParked, stopSession, worktrees, agentIdOf, PARKED_FILE }
   from '../scripts/lib/session.mjs';
 import { readTokens, formatTokens, formatSessions, assertNotPublishable, transcriptDir,
@@ -7423,6 +7424,47 @@ test('session · the manifest is gitignored, because how you worked is not a fac
   includes(ignore, PARKED_FILE, 'the parked manifest must never be committed');
   eq(execFileSync('git', ['check-ignore', PARKED_FILE], { cwd: REPO_ROOT, encoding: 'utf8' }).trim(),
     PARKED_FILE, 'and git agrees');
+});
+
+/* ================================================================== locale-independent numbers (A-33) */
+
+console.log('\nnumber formatting');
+
+test('format · a grouped number does not depend on where the machine thinks it is', () => {
+  // `toLocaleString()` with no argument reads the host locale. Under en-IN — the default on this project
+  // author's own machine — 126200000 renders as "12,62,00,000". The same commit then builds different bytes
+  // in two places, which silently breaks the byte-identical rebuild the build stamp exists to assert, and
+  // breaks it in the way hardest to read: every number in the site looks like it changed.
+  eq(num(126200000), '126,200,000');
+  eq(num(0), '0', 'a measured zero is a number, not an absence');
+  eq(num(1234.6), '1,235', 'rounded, so a float cannot leak a decimal separator that also varies');
+  eq(num(null), '—', 'and a missing measurement is an em dash, never NaN');
+  eq(num(undefined), '—');
+  eq(num(Number.NaN), '—');
+
+  // The pin is the whole point: assert it against a locale that groups differently, so this fails if the
+  // implementation ever drops its explicit locale argument.
+  eq(num(126200000), (126200000).toLocaleString('en-US'));
+  ok((126200000).toLocaleString('en-IN') !== num(126200000),
+    'en-IN really does group differently — if this ever stops being true the test above proves nothing');
+});
+
+test('format · no module reintroduces a bare toLocaleString', () => {
+  // The defect returns silently and on one machine only, so the guard has to be structural rather than a
+  // convention somebody remembers. Comments are exempt: the reasoning names the thing it forbids.
+  const offenders = [];
+  for (const f of fs.readdirSync(path.join(REPO_ROOT, 'scripts', 'lib'))) {
+    if (!f.endsWith('.mjs') || f === 'format.mjs') continue;
+    const src = fs.readFileSync(path.join(REPO_ROOT, 'scripts', 'lib', f), 'utf8');
+    src.split('\n').forEach((line, i) => {
+      if (/\.toLocaleString\(\s*\)/.test(line) && !/^\s*[*/]/.test(line)) offenders.push(`${f}:${i + 1}`);
+    });
+  }
+  const cli = fs.readFileSync(path.join(REPO_ROOT, 'scripts', 'atlas.mjs'), 'utf8');
+  cli.split('\n').forEach((line, i) => {
+    if (/\.toLocaleString\(\s*\)/.test(line) && !/^\s*[*/]/.test(line)) offenders.push(`atlas.mjs:${i + 1}`);
+  });
+  eq(offenders, [], `use num() from format.mjs — a bare call reads the host locale`);
 });
 
 console.log(`\n${pass} passed, ${fail} failed${skipped ? `, ${skipped} skipped on ${process.platform}` : ''}\n`);

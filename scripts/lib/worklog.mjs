@@ -25,6 +25,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { num } from './format.mjs';
 
 /** `YYYY-MM-DD` in the machine's own timezone — the one the person reading it lives in. */
 export function dayKey(t) {
@@ -68,7 +69,7 @@ export function renderDay({ day, identity, contrib, health, plan, commits }) {
     L.push(`| | |`);
     L.push(`|---|---|`);
     L.push(`| Commits | ${commits.length}${ai ? ` · ${ai} AI-assisted` : ''} |`);
-    L.push(`| Lines | +${added.toLocaleString()} / −${removed.toLocaleString()} |`);
+    L.push(`| Lines | +${num(added)} / −${num(removed)} |`);
     if (desks.length) L.push(`| Desks | ${desks.join(', ')} |`);
     if (contrib?.quality) {
       L.push(`| Rework rate | ${contrib.quality.reworkRate}% — a file re-touched within ${contrib.quality.reworkWindowDays} days |`);

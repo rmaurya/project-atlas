@@ -38,6 +38,7 @@ import { donut, lineChart, stackedArea, sparkbars, catTokens } from './charts.mj
 // A namespace import, on purpose — `readTokenEconomics` is landing separately and a named import of an export
 // that does not exist yet is a module-load error that would take the whole build down. See `readEconomics`.
 import * as tokensModule from './tokens.mjs';
+import { num } from './format.mjs';
 
 /**
  * Ordinal progress ramps — one per theme, each validated against the surface it actually sits on.
@@ -1337,7 +1338,7 @@ function velocityChart(contrib) {
   ${hbar(weeks.map((w) => ({
     label: w.week, value: w.commits, max, tone: w.silent ? 'none' : 'high',
     hint: w.silent ? 'no commit this week'
-      : `${w.ai} AI-assisted · +${w.added.toLocaleString()} / −${w.removed.toLocaleString()}`,
+      : `${w.ai} AI-assisted · +${num(w.added)} / −${num(w.removed)}`,
   })))}
 </figure>`;
 }
@@ -1369,7 +1370,7 @@ function peopleTable(contrib) {
         <td>${escapeHtml(p.name)}<span class="sum">${p.aiAssisted} AI-assisted · ${p.first} → ${p.last}</span></td>
         <td class="num">${p.commits}</td>
         <td class="num">${p.files}</td>
-        <td class="num">+${p.added.toLocaleString()} / −${p.removed.toLocaleString()}</td>
+        <td class="num">+${num(p.added)} / −${num(p.removed)}</td>
         <td class="num">${p.days}</td>
         <td class="num">${p.estimatedHours}<abbr title="Estimated from gaps between commits, not time worked. A floor, not a timesheet.">*</abbr></td>
       </tr>`).join('')}</tbody>
@@ -1661,7 +1662,7 @@ function churnPanel(risk) {
     <p class="cap">Lines added plus removed, summed per directory — the first two path segments, so
     <code>scripts/lib</code> and <code>skills/ask</code> stay apart. ${escapeHtml(risk.ownershipNote || '')}</p></figcaption>
   ${hbar(rows.map((a) => ({
-    label: a.area, value: a.churn, display: a.churn.toLocaleString(), max, tone: 'high',
+    label: a.area, value: a.churn, display: num(a.churn), max, tone: 'high',
     hint: `${a.files} file(s) · ${a.commits} commit(s)` +
       (multi && a.busFactor ? ` · ${a.busFactor} author(s)` : ''),
   })), { stack: true })}
@@ -1703,7 +1704,7 @@ function hotspotPanel(risk) {
     label: g.path, value: g.touches, display: String(g.touches), max, tone: 'mid',
     hint: g.churn === null
       ? `binary · lines not measurable · last ${g.last}`
-      : `${g.churn.toLocaleString()} lines · ${g.perTouch}/commit · last ${g.last}`,
+      : `${num(g.churn)} lines · ${g.perTouch}/commit · last ${g.last}`,
   })), { stack: true })}
   ${rest ? `<p class="chart-note">${rest} further file(s) have been touched and are not drawn.</p>` : ''}
 </figure>`;
@@ -2539,7 +2540,7 @@ function documentsPanel(index, health, view, nameFor) {
       const flags = flagsFor(d.path);
       return `<li>
         <a href="pages/${escapeAttr(nameFor(d.path))}">${escapeHtml(d.title || d.path)}</a>
-        <span class="dm">${d.git ? d.git.date : 'undated'} · ${d.lines.toLocaleString()} lines${d.status ? ` · ${escapeHtml(d.status)}` : ''}</span>
+        <span class="dm">${d.git ? d.git.date : 'undated'} · ${num(d.lines)} lines${d.status ? ` · ${escapeHtml(d.status)}` : ''}</span>
         ${flags.length ? `<span class="dflags">${flags.map((f) =>
           `<span class="sig ${f.blocking ? 'block' : 'adv'}" title="${escapeHtml(f.detail || '')}">${f.signal}</span>`).join('')}</span>` : ''}
         <code class="dp">${escapeHtml(d.path)}</code>

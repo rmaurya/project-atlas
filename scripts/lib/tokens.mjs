@@ -34,6 +34,7 @@ import { StringDecoder } from 'node:string_decoder';
 import { isAtOrInside } from './paths.mjs';
 import { matchesAny } from './config.mjs';
 import { readContrib } from './contrib.mjs';
+import { num } from './format.mjs';
 
 export const DEFAULT_TOKENS = {
   transcriptRoot: null,          // defaults to ~/.claude/projects
@@ -299,7 +300,7 @@ export function formatTokens(k, useColor) {
   const pct = (n) => `${((n / k.billable) * 100).toFixed(1)}%`.padStart(6);
   const L = [];
 
-  L.push(c.bold(`${M(k.billable)} tokens across ${t.messages.toLocaleString()} assistant message(s)`));
+  L.push(c.bold(`${M(k.billable)} tokens across ${num(t.messages)} assistant message(s)`));
   L.push(c.dim(`${k.files} transcript(s), ${(k.bytes / 1048576).toFixed(0)} MB — local session history, not the repository`));
   L.push('');
   L.push(c.bold('Where they went'));
@@ -370,8 +371,8 @@ export function formatSessions(k, contrib, useColor) {
   const o = k.outcomes;
   const L = [];
 
-  L.push(c.bold(`${o.typedPrompts.toLocaleString()} typed prompt(s) across ${o.sessions} session(s)`));
-  L.push(c.dim(`${o.assistantTurns.toLocaleString()} assistant turns · ${o.toolResults.toLocaleString()} tool results`));
+  L.push(c.bold(`${num(o.typedPrompts)} typed prompt(s) across ${o.sessions} session(s)`));
+  L.push(c.dim(`${num(o.assistantTurns)} assistant turns · ${num(o.toolResults)} tool results`));
   L.push('');
 
   L.push(c.bold('Interaction'));
@@ -775,7 +776,7 @@ export function readTokenEconomics(root, cfg = {}) {
       `are rounded from fractional shares and will not sum exactly to the total — that is the rounding, not a gap.`);
     if (unattributedTurns) {
       const share = totals.output ? Math.round((unattributedOutput / totals.output) * 1000) / 10 : 0;
-      caveats.push(`${unattributedTurns.toLocaleString()} assistant turn(s) — ${share}% of all output — fall ` +
+      caveats.push(`${num(unattributedTurns)} assistant turn(s) — ${share}% of all output — fall ` +
         `inside no task window and are attributed to no task. The task log only covers sessions that ran with the hook installed.`);
     }
     if (tw.dropped) caveats.push(`${tw.dropped} task(s) were deleted in the harness and are excluded, which changes the 1/n denominator inside their windows.`);

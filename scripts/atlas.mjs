@@ -64,6 +64,7 @@ import { designRecord } from './lib/design.mjs';
 import { scaffold as scaffoldDesign } from './lib/scaffold.mjs';
 import { acquire as acquireBuildLock, foreignBuildWarning } from './lib/lock.mjs';
 import { renderLauncher, launcherProjects } from './lib/launcher.mjs';
+import { num } from './lib/format.mjs';
 import { startServer, spawnDetached, serverStatus, stopServer, writePid, clearPid, openInBrowser, portInUse, unmanagedServer,
          adoptableServer, portForRoot, readRegistry, registerServer, deregisterServer, DEFAULT_PORT, DEFAULT_IDLE_MS } from './lib/serve.mjs';
 
@@ -1635,7 +1636,7 @@ function doBuild(root, cfg, withGit, withReport, { stamp = false, autoDerived = 
     say(`  ${collisions.length} page-name collision(s) resolved by suffixing; both documents are written:`);
     for (const c of collisions.slice(0, 5)) say(`    ${c.renamed} → ${c.to}`);
   }
-  if (truncated) say(`  ${truncated} long document(s) indexed to the first ${(cfg.searchBodyLimit || 6000).toLocaleString()} characters for search.`);
+  if (truncated) say(`  ${truncated} long document(s) indexed to the first ${num(cfg.searchBodyLimit || 6000)} characters for search.`);
   say(plan && !plan.missing
     ? `  Dashboard: ${plan.stats.total} item(s) from ${plan.source}${plan.stats.unknown ? `, ${plan.stats.unknown} without a figure` : ''}.`
     : `  Dashboard: no planning source configured — set planning.source to chart a task list.`);
@@ -1666,7 +1667,7 @@ function fingerprint(root, cfg) {
 
 function summarise(index, cfg) {
   const L = [];
-  L.push(`${index.siteTitle} — ${index.stats.documents} documents, ${index.stats.lines.toLocaleString()} lines, ${(index.stats.bytes / 1024 / 1024).toFixed(1)} MB`);
+  L.push(`${index.siteTitle} — ${index.stats.documents} documents, ${num(index.stats.lines)} lines, ${(index.stats.bytes / 1024 / 1024).toFixed(1)} MB`);
   L.push(`${index.stats.links} internal links · ${index.stats.citations} code citations · git metadata ${index.stats.withGit ? 'on' : 'OFF'}`);
   L.push('');
   const width = Math.max(...index.clusters.map((c) => c.title.length));

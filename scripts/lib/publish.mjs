@@ -30,6 +30,7 @@ import { escapeHtml } from './markdown.mjs';
 // exactly how the brand mark reached every generated page and missed the artifact.
 import { MARK, FAVICON } from './render.mjs';
 import { compare as compareVersions } from './version.mjs';
+import { num } from './format.mjs';
 
 const MANIFEST = '.atlas-manifest.json';
 const sha = (s) => crypto.createHash('sha256').update(s, 'utf8').digest('hex').slice(0, 16);
@@ -136,7 +137,7 @@ function homePage(index, health, plan, nameOf, cfg) {
   const L = [];
   L.push(`# ${index.siteTitle}`);
   L.push('');
-  L.push(`> **This wiki is generated.** ${index.stats.documents} documents · ${index.stats.lines.toLocaleString()} lines · ` +
+  L.push(`> **This wiki is generated.** ${index.stats.documents} documents · ${num(index.stats.lines)} lines · ` +
     `${index.stats.clusters} clusters. Edit the markdown in the repository, not here.`);
   L.push('');
   if (plan && !plan.missing) {

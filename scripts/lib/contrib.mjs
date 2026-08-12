@@ -21,6 +21,7 @@
  */
 
 import { execFileSync } from 'node:child_process';
+import { num } from './format.mjs';
 
 const NUL = '\0';
 const US = '\x1f';
@@ -389,7 +390,7 @@ export function formatContrib(k, plan, useColor) {
   const L = [];
   const t = k.totals;
   L.push(c.bold(`${t.commits} commits · ${t.first} → ${t.last}`));
-  L.push(c.dim(`+${t.added.toLocaleString()} / −${t.removed.toLocaleString()} lines · ` +
+  L.push(c.dim(`+${num(t.added)} / −${num(t.removed)} lines · ` +
     `${t.aiAssisted} AI-assisted (${Math.round((t.aiAssisted / t.commits) * 100)}%)`));
   L.push('');
 

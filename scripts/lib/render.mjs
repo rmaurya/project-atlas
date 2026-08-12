@@ -26,6 +26,7 @@ import { PANELS } from './views.mjs';
 
 export { flatName } from './render-shared.mjs';
 import { flatName, pageNames, jsonForScript } from './render-shared.mjs';
+import { num } from './format.mjs';
 
 /**
  * Files every build of this tool writes into its output directory. They are the proof that the directory is
@@ -259,7 +260,7 @@ function wikiPage(index, cfg, truncated, nav, nameFor) {
   <ul class="docs">
     ${docs.map((d) => `<li>
       <a class="dt" href="pages/${escapeAttr(nameFor(d.path))}">${escapeHtml(d.title || d.path)}</a>
-      <span class="dm">${d.git ? d.git.date + ' · ' : ''}${d.lines.toLocaleString()} lines</span>
+      <span class="dm">${d.git ? d.git.date + ' · ' : ''}${num(d.lines)} lines</span>
       ${d.excerpt ? `<span class="dx">${escapeHtml(d.excerpt.slice(0, 190))}</span>` : ''}
       <code class="dp">${escapeHtml(d.path)}</code>
     </li>`).join('\n')}
@@ -276,13 +277,13 @@ function wikiPage(index, cfg, truncated, nav, nameFor) {
     nav,
     body: `
 <h1><span class="h1-proj">${escapeHtml(index.siteTitle)}</span>Wiki</h1>
-<p class="lede">${index.stats.documents} documents · ${index.stats.lines.toLocaleString()} lines ·
+<p class="lede">${index.stats.documents} documents · ${num(index.stats.lines)} lines ·
 ${index.stats.clusters} clusters. Every page is derived from the markdown in this repository — edit the source,
 never the page.</p>
 
 <div class="searchbox">
   <input id="q" type="search" placeholder="Search titles, headings and body text…" autocomplete="off" autofocus>
-  <p id="qhint" class="hint">${truncated ? `${truncated} long document(s) are indexed to the first ${(cfg.searchBodyLimit || 6000).toLocaleString()} characters.` : 'Full text of every document is indexed.'}</p>
+  <p id="qhint" class="hint">${truncated ? `${truncated} long document(s) are indexed to the first ${num(cfg.searchBodyLimit || 6000)} characters.` : 'Full text of every document is indexed.'}</p>
 </div>
 <div id="results" hidden></div>
 
@@ -513,7 +514,7 @@ function lede(index) {
 function docPage(d, bodyHtml, findings, index, cfg, toRoot, nav, nameFor) {
   const meta = [];
   if (d.git) meta.push(`<span title="${escapeHtml(d.git.subject)}">Last commit <strong>${d.git.date}</strong> <code>${d.git.hash}</code></span>`);
-  meta.push(`<span>${d.lines.toLocaleString()} lines</span>`);
+  meta.push(`<span>${num(d.lines)} lines</span>`);
   meta.push(`<span>Cluster <strong>${escapeHtml(d.cluster || '—')}</strong></span>`);
   if (d.status) meta.push(`<span>Status <strong>${escapeHtml(d.status)}</strong></span>`);
   if (d.version) meta.push(`<span>v${escapeHtml(d.version)}</span>`);
@@ -643,7 +644,7 @@ function indexPage(index, health, cfg, truncated, nav, views, plan, contrib, nam
   <ul class="docs">
     ${docs.map((d) => `<li>
       <a class="dt" href="pages/${escapeAttr(nameFor(d.path))}">${escapeHtml(d.title || d.path)}</a>
-      <span class="dm">${d.git ? d.git.date + ' · ' : ''}${d.lines.toLocaleString()} lines</span>
+      <span class="dm">${d.git ? d.git.date + ' · ' : ''}${num(d.lines)} lines</span>
       ${d.excerpt ? `<span class="dx">${escapeHtml(d.excerpt.slice(0, 190))}</span>` : ''}
       <code class="dp">${escapeHtml(d.path)}</code>
     </li>`).join('\n')}
@@ -665,7 +666,7 @@ function indexPage(index, health, cfg, truncated, nav, views, plan, contrib, nam
   ${lede(index)}
   <p class="hero-stats">
     <strong>${index.stats.documents}</strong> documents ·
-    <strong>${index.stats.lines.toLocaleString()}</strong> lines ·
+    <strong>${num(index.stats.lines)}</strong> lines ·
     <strong>${index.stats.clusters}</strong> clusters${plan && !plan.missing ? ` ·
     <strong>${plan.stats.total}</strong> open items at <strong>${plan.stats.mean ?? '—'}%</strong>` : ''}${contrib?.available ? ` ·
     <strong>${contrib.totals.commits}</strong> commits` : ''}${flightFiles ? ` ·

@@ -17,6 +17,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { num } from './format.mjs';
 
 export function communityAssets(index, health, plan, host, caps, cfg) {
   const files = new Map();
@@ -95,7 +96,7 @@ Regenerate with \`atlas community --write --force\` after the project's shape ch
 
 ## Welcome
 
-**${name}** — ${index.stats.documents} documents, ${index.stats.lines.toLocaleString()} lines, across ${index.stats.clusters} clusters: ${clusters}.
+**${name}** — ${index.stats.documents} documents, ${num(index.stats.lines)} lines, across ${index.stats.clusters} clusters: ${clusters}.
 
 This is the place for anything that is **not** a defect and **not** a concrete proposal. Those belong in
 [Issues](${host.issuesUrl}), which have templates that ask for what actually diagnoses a problem.

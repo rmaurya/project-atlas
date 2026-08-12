@@ -43,6 +43,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { readChanges, defaultBranch } from './changes.mjs';
+import { num } from './format.mjs';
 
 // Record and field separators for the one `git log` this module runs of its own. Same names and the same
 // reason as contrib.mjs: argv cannot carry a NUL, so these are git's own `%x00`/`%x1f` escapes on the way
@@ -746,13 +747,13 @@ function renderHotspots(k, c) {
   L.push(c.dim('   commits    churn  auth   last        file'));
   const uncited = new Set(k.undocumented.map((r) => r.path));
   for (const r of k.byCommits) {
-    const line = `  ${pad(r.commits, 8)} ${pad(r.churn.toLocaleString(), 8)} ${pad(r.authors, 4)}   ${r.last}  ${trim(r.path, 52)}`;
+    const line = `  ${pad(r.commits, 8)} ${pad(num(r.churn), 8)} ${pad(r.authors, 4)}   ${r.last}  ${trim(r.path, 52)}`;
     // The word is the marker; the colour repeats it. Piped to a file, "(uncited)" is still on the line.
     L.push(uncited.has(r.path) ? c.yellow(line) + c.dim('  (uncited)') : line);
   }
   L.push(c.dim(`  Top ${Math.min(k.limit, k.byCommits.length)} of ${k.files} by commit count. Ranked by churn instead:`));
   for (const r of k.byChurn.slice(0, 5)) {
-    L.push(c.dim(`    ${pad(r.churn.toLocaleString(), 8)} lines moved over ${r.commits} commit(s)  ${trim(r.path, 46)}`));
+    L.push(c.dim(`    ${pad(num(r.churn), 8)} lines moved over ${r.commits} commit(s)  ${trim(r.path, 46)}`));
   }
 
   L.push('');
@@ -945,7 +946,7 @@ function renderHygiene(k, c) {
   L.push(`  ${k.large} commit(s) touch more than ${k.largeThreshold} files.` +
     c.dim('  That threshold is a stated default, not a verdict — a rename sweep looks the same as a sprawl.'));
   for (const b of k.biggest) {
-    L.push(c.dim(`    ${pad(b.files, 4)} files  ${pad(b.churn.toLocaleString(), 8)} lines  ${b.date}  ${b.hash}  ${trim(b.subject, 44)}`));
+    L.push(c.dim(`    ${pad(b.files, 4)} files  ${pad(num(b.churn), 8)} lines  ${b.date}  ${b.hash}  ${trim(b.subject, 44)}`));
   }
   if (k.reverts) L.push(c.dim(`  ${k.reverts} revert commit(s).`));
   return L;
@@ -964,7 +965,7 @@ function renderChange(k, c) {
   for (const f of k.files.slice(0, 15)) {
     const label = f.priorCommits === 0 ? c.green('   new  ') : pad(f.priorCommits + '×', 7);
     const uncited = f.citedBy && f.citedBy.length === 0 && !/\.md$/.test(f.path);
-    L.push(`  ${label}  ${pad(f.priorChurn.toLocaleString(), 8)}   ${trim(f.path, 50)}` +
+    L.push(`  ${label}  ${pad(num(f.priorChurn), 8)}   ${trim(f.path, 50)}` +
       (uncited ? c.dim('  (no document cites it)') : ''));
   }
   if (k.files.length > 15) L.push(c.dim(`  … and ${k.files.length - 15} more changed file(s).`));

@@ -25,6 +25,7 @@ import { SIGNALS as CORPUS_SIGNALS } from './signals.mjs';
 import { designRecord, undesigned, isDesignDoc } from './design.mjs';
 import { handoffAge, handoffsIn, DEFAULT_STALE_AFTER } from './handoff.mjs';
 import { evaluate as evaluateSop, DEFAULT_SOP_MATCH, DEFAULT_REVIEW_DAYS } from './sop.mjs';
+import { num } from './format.mjs';
 
 /**
  * Everyone who has ever committed here, for H11.
@@ -511,7 +512,7 @@ export function formatReport(health, index, { verbose = false, color = true } = 
 
   const L = [];
   L.push(c.bold(`project-atlas · ${index.siteTitle}`));
-  L.push(c.dim(`${index.stats.documents} documents · ${index.stats.lines.toLocaleString()} lines · ${index.stats.clusters} clusters · ${index.stats.links} links · ${index.stats.citations} citations`));
+  L.push(c.dim(`${index.stats.documents} documents · ${num(index.stats.lines)} lines · ${index.stats.clusters} clusters · ${index.stats.links} links · ${index.stats.citations} citations`));
   L.push('');
 
   const rows = Object.values(SIGNALS).map((s) => {

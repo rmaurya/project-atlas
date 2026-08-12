@@ -25,6 +25,7 @@
  */
 
 import { execFileSync } from 'node:child_process';
+import { num } from './format.mjs';
 
 const git = (root, args) =>
   execFileSync('git', ['-C', root, ...args], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, stdio: ['ignore', 'pipe', 'ignore'] });
@@ -98,7 +99,7 @@ export function formatSurviving(k, useColor) {
   if (!k.available) return `Cannot measure surviving lines: ${k.reason}`;
 
   const L = [];
-  L.push(c.bold(`${k.lines.toLocaleString()} surviving line(s) across ${k.filesBlamed} file(s)`));
+  L.push(c.bold(`${num(k.lines)} surviving line(s) across ${k.filesBlamed} file(s)`));
   L.push('');
   for (const p of k.people) {
     L.push(`  ${String(p.share).padStart(5)}%  ${String(p.surviving).padStart(7)}  ${p.author}`);
