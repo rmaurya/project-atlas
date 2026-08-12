@@ -38,6 +38,36 @@ export const DEFAULT_CONTRIB = {
 
 /* ------------------------------------------------------------------ collection */
 
+/**
+ * A `--numstat` path column, reduced to a path that exists.
+ *
+ * Rename detection is on by default for `git log`, and when it fires the path column stops being a path.
+ * `git` writes the move inline — `ROADMAP.md => docs/ROADMAP.md` for a whole-path change, and the braced
+ * form `docs/{a => b}/note.md` when only one segment moved. Kept verbatim, that string reaches `areaOf`,
+ * which splits on `/` and takes the first segment, and the arrow and everything around it becomes a
+ * directory name. Fourteen records manufactured five directories here that have never existed, and
+ * `atlas ownership` reported all five as bus-factor-1 risks — the one output whose entire value is naming
+ * a place somebody can go and look at.
+ *
+ * **Resolved to the new name, not the old.** Every other figure derived from this reader describes the tree
+ * as it stands, and a hotspot list that names the file you would open beats one faithful to a path deleted
+ * in March. The cost is stated wherever these numbers surface: touches recorded before a rename stay filed
+ * under the old path, so a moved file reads as two shorter histories. Closing that means `--follow`, which
+ * is per-path and cannot be asked of a whole-repository log in one pass — a separate question, left open in
+ * A-30 rather than smuggled in here.
+ *
+ * Exported because this is the *only* place it may happen. `dashboard.mjs` carried a private copy while the
+ * defect was open; the other consumers — `ownership.mjs`, `kb.mjs`, `design.mjs` — never knew they needed
+ * one. Normalising at the read is what makes that true for all of them at once.
+ */
+export function unrenamePath(p) {
+  return String(p)
+    .replace(/\{([^{}]*?) => ([^{}]*?)\}/g, '$2')  // docs/{a => b}/note.md  ->  docs/b/note.md
+    .replace(/^.* => /, '')                        // ROADMAP.md => docs/R.md -> docs/R.md
+    .replace(/\/{2,}/g, '/')                       // docs/{ => sub}/a.md leaves an empty segment
+    .replace(/^\//, '');
+}
+
 export function readContrib(root, cfg) {
   const c = { ...DEFAULT_CONTRIB, ...(cfg.contrib || {}) };
   // Separators are git's own escapes, never literal control bytes — argv cannot carry a NUL.
@@ -82,7 +112,13 @@ export function readContrib(root, cfg) {
         const a = m[1] === '-' ? 0 : Number(m[1]);
         const d = m[2] === '-' ? 0 : Number(m[2]);
         added += a; removed += d;
-        files.push({ path: m[3], added: a, removed: d, binary: m[1] === '-' });
+        // `renamed` is kept because normalising here would otherwise destroy the only evidence that a
+        // rename happened. The Repository view states, as a caveat, that a file is followed by path and
+        // not by identity — a claim it can only quantify if the reader that flattens the notation also
+        // records how often it fired.
+        const raw = m[3];
+        const p = unrenamePath(raw);
+        files.push({ path: p, added: a, removed: d, binary: m[1] === '-', renamed: p !== raw });
       }
     }
 

@@ -37,8 +37,8 @@ measured against the code — the same distinction the tool preserves everywhere
 | A-23 | 100 | A-24 | 100 | M-3 | 40 |
 | A-25 | 100 | A-26 | 100 | A-27 | 100 |
 | A-28 | 100 | M-4 | 100 | A-29 | 100 |
-| C-7 | 100 | C-8 | 100 | A-30 | 10 |
-| C-9 | 100 | A-31 | 100 | | |
+| C-7 | 100 | C-8 | 100 | | |
+| C-9 | 100 | A-31 | 100 | A-30 | 100 |
 
 ---
 
@@ -817,20 +817,34 @@ documentation is clean" and "the documentation is true" are different claims, an
 first.*
 
 **A-30 · Rename notation reaches `areaOf` as though it were a path** — **P2 · Medium**
-*Open.* `git log --numstat` writes a rename as `ROADMAP.md => docs/ROADMAP.md` in the path column.
-`contrib.mjs::readContrib` keeps that column verbatim, so `areaOf` reads the arrow and everything around it as
-a directory name and manufactures areas that have never existed. Fourteen records produce five fictional ones
-here, and **`atlas ownership` ships them today as bus-factor-1 risks** — the exact output C-6 exists to make
-actionable, naming directories nobody can go and look at.
+*Shipped.* `git log --numstat` has rename detection on by default, and when it fires the path column stops
+being a path — `ROADMAP.md => docs/ROADMAP.md` whole-path, `docs/{HANDOFF.md => handoff/SHARED.md}` when a
+prefix factors out. `contrib.mjs::readContrib` kept that column verbatim, so `areaOf` split the expression on
+`/` and turned the arrow and whatever sat beside it into a directory name.
 
-Resolve in `contrib.mjs`, at the read, so every consumer is fixed at once — `ownership`, `kb.mjs` and the
-Repository view each bucket on `areaOf` and each is wrong in the same way. The local `unrename` added in
-`dashboard.mjs` for C-8 is a stopgap and should be deleted in the same change.
+*Measured on this repository:* fourteen rename records, producing five areas that have never existed —
+`ROADMAP.md => docs`, `skills/{knowledgebase => build}`, `docs/{HANDOFF.md => handoff`,
+`{references => docs/references}`, `SKILL.md => skills/knowledgebase`. The unfiltered area set was **66 where
+it should have been 62**, and the four surplus buckets diluted every share computed against the total: the
+Repository view's churn distribution, its "areas holding half the churn" tile, and `kb.mjs` routing.
 
-*The open question is whether history should follow renames at all.* Without `-M`, a moved file reads as two
-shorter histories, so a file's true churn is split across its old and new home and neither figure is the one a
-reader wants. Turning it on changes every number on two shipped pages, which is why this is a plan item rather
-than a patch.
+***A claim in the original filing was wrong, and correcting it is the point of measuring.*** That filing said
+`atlas ownership` was shipping the five as bus-factor-1 risks. It was not. C-6 excludes any area with a single
+commit — new, not concentrated — and every phantom had exactly one. The printed table reads 30 areas with the
+defect and 30 without, and no phantom ever appeared in it. The damage was real but it was to the denominators,
+not to the one report that names directories out loud. *An unverified claim about a defect is still an
+unverified claim, and this tool exists to distrust exactly that.*
+
+Fixed at the read, in `unrenamePath`, exported from `contrib.mjs` — so `ownership`, `kb.mjs`, `design.mjs` and
+the Repository view are corrected at once rather than each growing a copy of the same regex. The stopgap
+`unrename` that C-8 added to `dashboard.mjs` is deleted. Because normalising destroys the only evidence a
+rename happened, each file record now carries a `renamed` flag; the Repository view's caveat about following
+files by path rather than identity is quantified from that instead of from notation left lying in the data.
+
+*One question stays open, deliberately.* A moved file still reads as two shorter histories, because touches
+recorded before the rename remain filed under the old path. Closing that means `--follow`, which is per-path
+and cannot be asked of a whole-repository log in one pass. It would change every number on two shipped pages,
+so it is a separate decision rather than something to smuggle into a parsing fix.
 
 **A-7 · The boundary holds** — **P0 · Critical**
 *Shipped in 0.1.55.*

@@ -1242,32 +1242,6 @@ function coverageChart(contrib, plan) {
 
 /* ------------------------------------------------------------------ repository */
 
-/**
- * A `--numstat` path, with git's rename notation resolved to the file that exists afterwards.
- *
- * **`contrib.mjs` reads the path column verbatim, and for a renamed file that column is not a path.** Git
- * writes a rename two ways — `ROADMAP.md => docs/ROADMAP.md` when the whole path changed, and
- * `docs/{HANDOFF.md => handoff/SHARED.md}` when it can factor out a common prefix — and the regex there
- * captures the entire expression. `areaOf` then splits *that* on `/` and invents a directory out of whichever
- * fragment it lands on. Verified against this repository's own history: fourteen such records produce five
- * directories that have never existed, among them `ROADMAP.md => docs` and `docs/{HANDOFF.md => handoff`,
- * and `atlas ownership` is shipping them today as areas with a bus factor of one.
- *
- * Resolved here rather than in `contrib.mjs` because that module is shared — `ownership.mjs` and `kb.mjs`
- * both key on these paths — and changing what a path *is* underneath three consumers is a larger change than
- * one view should make on its way past. The defect is filed; this keeps these panels from printing a
- * directory that has never existed while it waits.
- *
- * Resolving to the **new** name rather than the old, because every other figure here is about the tree as it
- * stands: a hotspot list that names the file you would open beats one faithful to a path deleted in March.
- * The cost is stated in the caveats — touches a file collected under its old name stay filed under that name,
- * so a renamed file reads as two shorter histories.
- */
-const unrename = (p) => String(p)
-  .replace(/\{([^{}]*?) => ([^{}]*?)\}/g, '$2')    // docs/{A.md => b/C.md}  →  docs/b/C.md
-  .replace(/^.* => /, '')                          // A.md => docs/A.md      →  docs/A.md
-  .replace(/\/{2,}/g, '/')                         // docs/{ => sub}/a.md leaves an empty segment behind
-  .replace(/^\//, '');
 
 /**
  * Where the change has landed, keyed on **the tree instead of the calendar**.
@@ -1308,9 +1282,8 @@ function repoRisk(contrib) {
   for (const c of contrib.commits) {
     const day = c.date.slice(0, 10);
     for (const f of c.files) {
-      const raw = f.path;
-      const p = unrename(raw);
-      if (p !== raw) renames++;
+      const p = f.path;
+      if (f.renamed) renames++;
       const moved = f.binary ? 0 : (f.added || 0) + (f.removed || 0);
       if (f.binary) binaryTouches++; else churn += moved;
 
@@ -1339,7 +1312,7 @@ function repoRisk(contrib) {
   // against the churn rows here — leaving the authorship column blank on precisely the directories a rename
   // has passed through, which is not a category anyone would guess from a blank cell.
   const own = ownership(
-    contrib.commits.map((c) => ({ ...c, files: c.files.map((f) => ({ ...f, path: unrename(f.path) })) })),
+    contrib.commits,
     { minCommits: 1 });
   const byArea = new Map(own.map((a) => [a.area, a]));
 

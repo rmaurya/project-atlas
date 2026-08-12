@@ -3266,9 +3266,14 @@ test('dashboard · a renamed file does not invent a directory that has never exi
     { cwd: ctx.dir, stdio: 'ignore' });
 
   const contrib = readContrib(ctx.dir, ctx.cfg);
-  const raw = contrib.commits.flatMap((c) => c.files.map((f) => f.path));
-  ok(raw.some((p) => p.includes(' => ')),
+  // A-30 moved the flattening into `contrib.mjs`, so by the time a panel sees a path the arrow is already
+  // gone. The fixture is still required to have produced a rename — otherwise this test proves nothing —
+  // but the evidence is now the `renamed` flag rather than notation left lying in the path.
+  ok(contrib.commits.some((c) => c.files.some((f) => f.renamed)),
     'the fixture must actually produce a rename record, or this test proves nothing');
+  const raw = contrib.commits.flatMap((c) => c.files.map((f) => f.path));
+  eq(raw.some((p) => p.includes(' => ')), false,
+    'the reader, not the view, is what strips the notation now');
 
   const html = viewPage({ id: 'repository', title: 'R', panels: ['churn', 'hotspots'] },
     { ...ctx, contrib }, (o) => o.body);
@@ -3585,6 +3590,41 @@ test('ownership · one committer is reported as a fact about the repository, not
   const list = ownership([{ author: 'A', files: [{ path: 'src/x.js' }] }, { author: 'A', files: [{ path: 'src/y.js' }] }]);
   includes(summariseOwnership(list, 1), 'single committer');
   includes(summariseOwnership(list, 3), 'exactly one author');
+});
+
+test('contrib · a rename is read as the file that exists, not as a directory nobody can open', () => {
+  // A-30. `git log --numstat` has rename detection on by default, and when it fires the path column stops
+  // being a path: `ROADMAP.md => docs/ROADMAP.md` whole-path, `docs/{a => b}/n.md` when a prefix factors out.
+  // Kept verbatim it reaches `areaOf`, which splits on `/` and takes the first segment — so the arrow and
+  // whatever sits beside it becomes a directory. On this repository's own history fourteen such records
+  // manufactured five areas that have never existed, and `atlas ownership` shipped all five as bus-factor-1
+  // risks. Fixed at the read, so `ownership`, `kb` and the Repository view are fixed at once rather than
+  // each growing a copy of the same regex.
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'atlas-rename-'));
+  execFileSync('git', ['init', '-q', '-b', 'main', d], { stdio: 'ignore' });
+  fs.mkdirSync(path.join(d, 'docs'), { recursive: true });
+  commitMsg(d, 'ROADMAP.md', 'first\n', 'feat(plan): a roadmap');
+  fs.renameSync(path.join(d, 'ROADMAP.md'), path.join(d, 'docs', 'ROADMAP.md'));
+  execFileSync('git', ['add', '-A'], { cwd: d, stdio: 'ignore' });
+  execFileSync('git', ['-c', 'user.email=t@example.com', '-c', 'user.name=Test',
+    'commit', '-qm', 'refactor(plan): move it under docs'], { cwd: d, stdio: 'ignore' });
+
+  const c = readContrib(d, {});
+  const paths = c.commits.flatMap((x) => x.files.map((f) => f.path));
+  ok(paths.includes('docs/ROADMAP.md'), 'the rename must resolve to the path that exists afterwards');
+  eq(paths.some((p) => p.includes('=>')), false, 'no path may carry git\'s rename arrow');
+
+  // The area is the directory you can actually open — this is the assertion that fails without the fix,
+  // where `areaOf` would return `ROADMAP.md => docs`.
+  // Wrapped, not passed by reference: `areaOf(p, depth = 2)` would otherwise receive the array index
+  // as its depth, and index 0 collapses every path to the empty string.
+  const areas = new Set(paths.map((p) => areaOf(p)));
+  eq([...areas].some((a) => a.includes('=>')), false, `invented area(s): ${[...areas].join(', ')}`);
+  ok(areas.has('docs'), 'the moved file belongs to docs/');
+
+  // And the evidence survives normalisation, or the Repository view cannot quantify its own caveat.
+  ok(c.commits.some((x) => x.files.some((f) => f.renamed)), 'a rename must still be recorded as one');
+  fs.rmSync(d, { recursive: true, force: true });
 });
 
 /* ================================================================== git insight */
