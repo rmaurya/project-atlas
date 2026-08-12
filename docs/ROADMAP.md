@@ -43,8 +43,9 @@ measured against the code — the same distinction the tool preserves everywhere
 | Q-5 | 10 | A-32 | 100 | A-33 | 100 |
 | A-34 | 100 | A-35 | 100 | Q-6 | 100 |
 | A-36 | 0 | A-37 | 100 | A-38 | 100 |
-| A-39 | 100 | A-40 | 100 | A-41 | 100 |
-| A-42 | 100 | A-43 | 100 | A-44 | 100 |
+| A-40 | 100 | A-41 | 100 | A-42 | 100 |
+| A-43 | 100 | A-44 | 100 | A-45 | 100 |
+| A-46 | 100 | | | | |
 
 ---
 
@@ -968,6 +969,31 @@ thirty-two call sites across eleven modules route through it, five of them in `r
 because this defect returns silently and on one machine only, so the guard has to be structural rather than
 remembered.
 
+**A-38 · A directory named `agent-something` is not this tool's to touch** — **P0 · Critical**
+*Shipped.* `agentIdOf` matched any directory whose **basename** began `agent-`. That is a name a person is
+entitled to use, and an adversarial audit demonstrated both halves of the consequence on real directories:
+
+- **`atlas stop --force` deleted a hand-made worktree** at `../agent-portal`, on an unrelated branch, holding
+  three weeks of uncommitted work.
+- **`atlas pause` committed a `.env` containing live AWS credentials** — because a clone at
+  `~/src/agent-portal` classified as an agent, so `git add -A` ran in it, on `main`, and `--no-verify` walked
+  past the `pre-commit` hook that had just refused that file.
+
+Neither is a plausible thing to do to somebody, and both came out of four characters of regex. The path is
+the evidence now, not the last segment: the two parent directories are required, so the claim "this is ours"
+rests on a shape only the harness creates.
+
+*Two more from the same audit, same module.* `stopSession` compared its own root as a **string**, so
+`/tmp/…` and `/private/tmp/…` read as different directories and it would try to remove its own checkout —
+the only thing that stopped it was git refusing, which is a guard working by accident. It realpaths now, as
+`pauseSession` already did. And `.atlas/parked.json` was kept out of git by **this repository's own
+`.gitignore`** — the one repository where the problem cannot arise. Nothing wrote that rule into an adopting
+repo, so everybody else committed absolute home paths and agent labels, and the test asserted the rule in
+precisely the place it was already true. The state ignores itself now, scoped to one entry because
+`.atlas/journal/` is tracked and a blanket rule would silently stop it being committed ever again.
+
+*Each test is the audit's exploit rather than a paraphrase of it,* and all three fail against the old code.
+
 **A-37 · A conflicted file is one document, not one per merge stage** — **P1 · High**
 *Shipped.* `git ls-files` prints an unmerged path once for **each index stage** — 1 base, 2 ours, 3 theirs.
 Undeduped, every conflicted document was discovered three times, indexed three times, and reported as three
@@ -1185,7 +1211,7 @@ rather than as a bare `atlas spec` that does not exist. Aliases get a mention in
 line of their own: two entries describing one implementation is the same drift in miniature, and the second
 copy is the one that goes stale.
 
-**A-38 · The publish stripper failed open, silently and totally** — **P0 · Critical**
+**A-45 · The publish stripper failed open, silently and totally** — **P0 · Critical**
 *Shipped.* `stripLocalOnly` walked from a marker to the element's own closing tag. When it could not find
 one, `if (nextClose === -1) return out;` returned from the **function**, not from the loop over that one
 element — so the first marker it could not walk abandoned stripping for the **whole document** and handed
@@ -1210,7 +1236,7 @@ no longer matches, anything unwalkable throws, and every exit door calls `assert
 is about to hand over rather than trusting that a strip happened. Refusing to publish is recoverable;
 publishing the panel is not.
 
-**A-39 · The third exit door, and the one with no test** — **P0 · Critical**
+**A-46 · The third exit door, and the one with no test** — **P0 · Critical**
 *Shipped.* `stripLocalOnly` is reached from `exportSingleFile`, from `exportBundle`, and from
 `stripLocalOnlyTree`, which `stagePages` calls on the tree it **force-pushes to `gh-pages`** — the target
 this file's own module comment calls *"public and permanent-ish"*. `grep stagePages tests/run.mjs` returned
