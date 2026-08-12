@@ -6,10 +6,10 @@ _Written by `atlas worklog`. Measured from git and the corpus; no prompt text, a
 
 | | |
 |---|---|
-| Commits | 3 |
-| Lines | +4,244 / −108 |
+| Commits | 4 |
+| Lines | +4,251 / −110 |
 | Desks | rajneesh-maurya |
-| Rework rate | 81.7% — a file re-touched within 3 days |
+| Rework rate | 81.8% — a file re-touched within 3 days |
 | Reverts | 0 |
 | Documentation | 0 blocking finding(s) at end of day |
 
@@ -24,6 +24,7 @@ _Written by `atlas worklog`. Measured from git and the corpus; no prompt text, a
 - `f14ea1f` feat(kb,docs,serve): the agent-readable half of the output, and eight claims the corpus made that the code contradicts (M-4, A-29)
 - `29062b0` chore(record): the session's journal (A-29)
 - `426947a` fix(pages): the one publish path that never saw the local-only strip (A-25)
+- `4a9b054` chore(record): the journal and worklog from the publish-path fix (A-25)
 
 ---
 

@@ -143,7 +143,7 @@ declined, or whose input could not be read, is added to `unevaluated` and render
 ## 3. Slash commands (Claude Code skills)
 
 Thirteen `SKILL.md` files under `skills/`. Twelve set `disable-model-invocation: true`, which makes them
-typed-only; `skills/knowledgebase/SKILL.md` does not and is the one the model may invoke on its own.
+typed-only; `skills/build/SKILL.md` does not and is the one the model may invoke on its own.
 
 | Skill | Shells out to | Source |
 |---|---|---|
@@ -159,7 +159,7 @@ typed-only; `skills/knowledgebase/SKILL.md` does not and is the one the model ma
 | `/atlas:publish` | `atlas caps` | `skills/publish/SKILL.md:8` |
 | `/atlas:review` | `atlas changes --no-color` | `skills/review/SKILL.md:8` |
 | `/atlas:status` | `atlas scan` | `skills/status/SKILL.md:8` |
-| project-atlas (model-invoked) | nothing; instructions only | `skills/knowledgebase/SKILL.md:1-3` |
+| build (model-invoked) | nothing; instructions only | `skills/build/SKILL.md:1-3` |
 
 `atlas status` and `atlas review` are not CLI commands — no `if (cmd === 'status')` or `'review'` exists in
 `scripts/atlas.mjs`. They are slash commands only, built over `atlas scan` and `atlas changes`.

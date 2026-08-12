@@ -1701,7 +1701,7 @@ test('runtimes · every skill declares a description, so help can be generated n
  * parser and does not want to be — it is the set of rules a real YAML parser applies that this project has
  * already been bitten by, made loud.
  *
- * The bite: `skills/knowledgebase/SKILL.md` carried an unquoted description ending
+ * The bite: `skills/build/SKILL.md` carried an unquoted description ending
  * `…doc drift is suspected: stale docs, dead links…`. A plain YAML scalar may not contain ": " — the parser
  * reads it as a nested mapping, the *whole document* fails, and `name` and `description` are both dropped.
  * Nothing warns. The skill simply stops matching, and the failure is invisible because the file still looks

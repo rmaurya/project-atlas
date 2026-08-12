@@ -24,7 +24,7 @@
  *
  * **No document prose is written here. Not one sentence.**
  *
- * The founding rule (`skills/knowledgebase/SKILL.md`) is that the markdown files are the source of truth and
+ * The founding rule (`skills/build/SKILL.md`) is that the markdown files are the source of truth and
  * the derived layer owns no prose that is not itself a committed `.md` file. HTML got away with carrying
  * rendered copies because nobody mistakes a generated page for the source. **A second set of markdown files
  * holding the same sentences is precisely the fork this project exists to detect** — an agent would grep,

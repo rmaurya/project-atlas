@@ -38,7 +38,7 @@ deliverable.
   error rather than guessing at it.
 - **The block is empty or says the config is missing** — this repository has not adopted the tool. There is
   nothing to serve yet, and serving an empty output directory would produce a page that looks broken. Say
-  so and run `atlas:knowledgebase`, which does the adoption and ends here anyway.
+  so and run `atlas:build`, which does the adoption and ends here anyway.
 - **`atlas` not on PATH** (both blocks empty) — the plugin is not installed where this is running. Say that
   plainly; do not read an empty section as "nothing is running".
 

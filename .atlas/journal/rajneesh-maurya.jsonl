@@ -52,3 +52,5 @@
 {"at":"2026-08-12T00:18:12.121Z","agent":"main","kind":"progress","text":"work landed on fix/pages-bypassed-strip — now at 426947a","refs":["fix/pages-bypassed-strip@426947a"]}
 {"at":"2026-08-12T00:18:20.148Z","agent":"subagent","kind":"progress","text":"a subagent finished on fix/pages-bypassed-strip at 426947a","refs":["fix/pages-bypassed-strip@426947a"]}
 {"at":"2026-08-12T00:23:31.623Z","agent":"subagent","kind":"progress","text":"a subagent finished on fix/pages-bypassed-strip at 426947a","refs":["fix/pages-bypassed-strip@426947a"]}
+{"at":"2026-08-12T00:42:53.310Z","agent":"main","kind":"progress","text":"work landed on main — now at 4a9b054","refs":["main@4a9b054"]}
+{"at":"2026-08-12T00:42:59.350Z","agent":"subagent","kind":"progress","text":"a subagent finished on main at 4a9b054","refs":["main@4a9b054"]}

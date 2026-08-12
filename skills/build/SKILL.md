@@ -1,9 +1,9 @@
 ---
-name: project-atlas
-description: "Index, audit and generate a knowledgebase from a repository's own markdown — taxonomy, backlinks, search, dashboard, and mechanical rot detection. Use when asked to create, audit, index or reorganise documentation, write a developer manual or architecture overview, or when doc drift is suspected: stale docs, dead links, duplicate or forked documents, broken code citations, or no index at all."
+name: build
+description: "Index, audit and generate a knowledgebase from a repository's own markdown — taxonomy, backlinks, search, dashboard, agent knowledge graph, and mechanical rot detection. Use when asked to create, audit, index or reorganise documentation, write a developer manual or architecture overview, or when doc drift is suspected: stale docs, dead links, duplicate or forked documents, broken code citations, or no index at all."
 ---
 
-# project-atlas — skill instructions
+# atlas:build — skill instructions
 
 Turn a repository's scattered markdown into a navigable, verifiable knowledgebase — and keep it true.
 
