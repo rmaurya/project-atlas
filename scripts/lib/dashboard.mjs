@@ -866,7 +866,12 @@ function backlogPanel(plan, contrib, index, pageOf) {
     return out.join('/');
   };
   const resolveLink = (href) => {
-    if (/^(https?:|mailto:|tel:|#|data:)/i.test(href)) return { href, cls: '' };
+    // `data:` is deliberately absent, matching `render.mjs::resolveFrom`. Treating it as an external scheme
+    // passes it through into an href untouched, which makes any document able to embed arbitrary content in
+    // a published page. That was fixed once, in the other renderer, and this copy kept the hole — the same
+    // shape as A-37: one question, two implementations, one of them patched. The planning source feeds this
+    // one, so a `data:` link in ROADMAP.md reached the built plan view.
+    if (/^(https?:|mailto:|tel:|#)/i.test(href)) return { href, cls: '' };
     const [target, anchor] = String(href).split('#');
     if (!target) return { href, cls: '' };
     const abs = joinFrom(planDir, target);

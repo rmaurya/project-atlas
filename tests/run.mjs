@@ -8154,6 +8154,23 @@ test('scan · a conflicted path is one document, not one per merge stage', () =>
   eq(h3.length, 0, `H3 must not fire against a document duplicating itself: ${JSON.stringify(h3)}`);
 });
 
+test('render · neither renderer passes a data: URL through into a published href', () => {
+  // `render.mjs` dropped `data:` from its external-scheme list because passing it through let any document
+  // embed arbitrary content in a published page. `dashboard.mjs` kept its copy of the list, and the planning
+  // source feeds that one — so a `data:` link in ROADMAP.md reached the built plan view. One question, two
+  // implementations, one of them patched: the same shape as A-37.
+  //
+  // Pinned structurally on both, because the hole is a single token in a regex and reads as harmless.
+  for (const f of ['render.mjs', 'dashboard.mjs']) {
+    const src = fs.readFileSync(path.join(REPO_ROOT, 'scripts', 'lib', f), 'utf8');
+    for (const line of src.split('\n')) {
+      if (/\^\(https\?:/.test(line)) {
+        eq(/data:/.test(line), false, `${f}: data: must not be an allowed external scheme — ${line.trim()}`);
+      }
+    }
+  }
+});
+
 console.log(`\n${pass} passed, ${fail} failed${skipped ? `, ${skipped} skipped on ${process.platform}` : ''}\n`);
 if (fail) {
   console.log('Failures:');
