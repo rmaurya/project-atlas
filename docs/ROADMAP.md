@@ -152,6 +152,24 @@ is the corpus, `/atlas:tasks` is the plan, `/atlas:state` is the session.
 repository, and the Slash column now carries a dash with a stated reason wherever no command exposes a
 capability — an absence that is explained is not an oversight.*
 
+**C-11 · Fan independent work out, one worktree per agent** — **P1 · High**
+*The skill tells a session to do independent work in parallel, and states the constraint that makes it safe.*
+
+The instruction is cheap; the constraint is not, and it was paid for. Three subagents were run here against
+one shared working tree and one shared `HEAD`. Nothing crashed and nothing warned: they all edited at once,
+none of them committed, and the changes arrived interleaved with no record of whose was whose. Untangling it
+took a full session — a 408-line diff in one test file, split by hunk and argued back to the branch each hunk
+belonged on. The parallelism saved about an hour; the reconciliation cost a day.
+
+So the rule is written as its reason rather than as an instruction to obey: `HEAD` is per worktree, an
+uncommitted hunk has no author, the later write to a shared file wins silently, and an agent handed a tree it
+does not recognise correctly refuses to commit it. One worktree per agent removes all four, because there is
+nothing left to contend over — the same argument that produced one handoff directory per contributor.
+
+Stated with its exceptions, because a default that never says "not this time" gets applied to work with a
+genuine dependency chain and to two-file tasks where writing the briefs costs more than the parallelism saves.
+Designed in [`docs/references/autonomy.md`](references/autonomy.md).
+
 ## Track 2 — Product
 
 **P-1 · Core generation** — **P0 · Critical**
@@ -316,6 +334,28 @@ export was dead (`path.join` made `pages\A.html`, so a `startsWith('pages/')` te
 The four hook tests execute POSIX shell blocks and cannot run on Windows. They are **skipped by name and
 counted in the summary** rather than dropped — a suite that quietly runs 202 of 206 on one platform reports a
 green tick for coverage it did not have.
+
+**Q-4 · A signal that measures whether the advice was taken** — **P1 · High**
+*H17: a session that made many edits and never delegated one. Advisory, and it measures the operator.*
+
+An instruction nobody can check is a preference. C-11 tells a session to fan independent work out; H17 is the
+number that says whether it did — 40 or more edits in one main thread with no subagent turn anywhere in it.
+
+**Three properties are the whole design, and dropping any one of them makes it worse than nothing.** It is
+**never blocking**: the blocking set is reserved for claims that the repository is *wrong*, and "you should
+have parallelised" is advice about somebody's working method. Its own description states plainly that it
+**measures the operator, not the corpus** — H1–H16 are settled by reading files, this one is not, and putting
+it in the same table without saying so would be smuggling. And it reports **unevaluated, never "ok"**, when
+there is no transcript to read, which is the rule A-29 was filed for.
+
+The threshold is a stated default with its evidence in the signal's own text rather than a constant somebody
+liked the look of: 40 is the 25th percentile of the edit counts of the sessions that *did* fan out, across
+the 29 transcripts available when it was written. On that sample it fires twice, which is a note rather than
+a nag.
+
+**It does not read transcripts itself.** `atlas tokens` is the only thing that opens them — rule 1 of
+`scripts/lib/tokens.mjs`, because those files hold every prompt that passed through a session — so the
+aggregate is passed in by the caller and H17 is unevaluated until it is.
 
 
 ## Track 4 — Delivery

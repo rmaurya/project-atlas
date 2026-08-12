@@ -1,9 +1,16 @@
 /**
  * project-atlas · rot signals
  *
- * Nine mechanical checks. Every one of them is a fact about the repository, never a judgment about quality —
- * "this link points at a file that does not exist" is checkable; "this document is badly written" is not, and
- * a tool that mixes the two teaches people to distrust both.
+ * Sixteen mechanical checks over the corpus, and one that is not about the corpus at all.
+ *
+ * H1–H16 are facts about the repository, never judgments about quality — "this link points at a file that
+ * does not exist" is checkable; "this document is badly written" is not, and a tool that mixes the two
+ * teaches people to distrust both.
+ *
+ * **H17 is a different kind of claim and is labelled as one everywhere it appears.** It measures the
+ * operator, not the corpus: whether a session that did a lot of editing ever delegated any of it. That is a
+ * useful thing to notice and a dishonest thing to smuggle in next to sixteen statements about files, so it
+ * lives in `OPERATOR_SIGNALS` here rather than in the catalogue `signals.mjs` holds, and it cannot block.
  *
  * The blocking/advisory split is the load-bearing compromise. Blocking signals have no legitimate cause.
  * Advisory ones do: an archived record SHOULD cite code that has since moved. Making everything blocking is
@@ -14,7 +21,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { matchesAny, suppressionFor, compileRule } from './config.mjs';
-import { SIGNALS } from './signals.mjs';
+import { SIGNALS as CORPUS_SIGNALS } from './signals.mjs';
 import { designRecord, undesigned, isDesignDoc } from './design.mjs';
 import { handoffAge, handoffsIn, DEFAULT_STALE_AFTER } from './handoff.mjs';
 import { evaluate as evaluateSop, DEFAULT_SOP_MATCH, DEFAULT_REVIEW_DAYS } from './sop.mjs';
@@ -35,12 +42,140 @@ function gitAuthors(root) {
   } catch { return []; }
 }
 
-export { SIGNALS };
+/* ------------------------------------------------------------------ H17 · the one signal that is not about the corpus */
+
+/**
+ * **H17 measures the operator, not the corpus, and that is a different kind of claim.**
+ *
+ * H1–H16 are all statements about the repository: this link is dead, this citation names a line that does not
+ * exist, this SOP is past the review date it set itself. Every one of them can be settled by reading the
+ * files, and every one of them is a defect in the thing under version control.
+ *
+ * H17 is a statement about **how a session was run**. It reads local session transcripts, not the repository,
+ * and what it observes is a working method: a lot of editing done in one thread with nothing delegated. That
+ * is a legitimate way to work and often the right one, so H17 is **advisory and can never block** — it is not
+ * in `signals.mjs` at all, so a config that names it in `blocking` is told the id is not one this build
+ * knows. The blocking set is reserved for claims that the *repository* is wrong; "you should have
+ * parallelised" is an opinion about somebody's afternoon.
+ *
+ * **That warning is not the enforcement, and it was checked rather than assumed.** An unknown-but-well-formed
+ * signal id in `blocking` is a warning by design — so a config written for a newer project-atlas still loads
+ * — which means `"blocking": ["H17"]` survives validation and arrives here intact. `blockingFor` is what
+ * makes it harmless.
+ *
+ * Keeping it in the report anyway is deliberate. The alternative — a number nobody sees — is how the
+ * repository ran three subagents against one shared working tree and found out afterwards.
+ */
+export const DEFAULT_PARALLELISM_EDITS = 40;
+
+/**
+ * The signals that judge the operator. Held apart from `CORPUS_SIGNALS` so the distinction is enforceable
+ * rather than merely documented: `blockingFor` reads this set, and so does the catalogue split.
+ */
+export const OPERATOR_SIGNALS = {
+  H17: {
+    id: 'H17',
+    title: 'Large session, no subagent',
+    operator: true,
+    why:
+      'H17 MEASURES THE OPERATOR, NOT THE CORPUS. Every other signal here is a claim about the repository, ' +
+      'settled by reading the files. This one is a claim about how a session was run: it made ' +
+      `${DEFAULT_PARALLELISM_EDITS} or more file edits in its main thread and never delegated a single turn to ` +
+      'a subagent, so independent work that could have run at the same time ran one item after another. ' +
+      `The threshold is ${DEFAULT_PARALLELISM_EDITS} because that is the 25th percentile of the edit counts of ` +
+      'the sessions that DID fan out, measured over the 29 transcripts on the machine this was written on ' +
+      '(12, 39, 58, 89, 116, 136, 164, 235, 694, 1114 and 1650 edits): a session at 40 edits is already as ' +
+      'large as the smallest quarter of the sessions whose operator judged delegation worth its coordination ' +
+      'cost. Below it the sample is dominated by read-and-answer work — 20 of the 29 made fewer than 40 edits ' +
+      'and 9 made none at all — which is exactly the work that should not be fanned out. On that sample the ' +
+      'rule fires twice, so it is a note rather than a nag. Change it with tokens.parallelismEdits. ' +
+      'ADVISORY, AND NEVER BLOCKING — enforced in code, not by configuration: a dependency chain has to be ' +
+      'worked in order, and a task small enough ' +
+      'that coordination costs more than the parallelism is correctly done alone. This signal cannot tell ' +
+      'those apart from a missed opportunity, which is precisely why it only ever advises.',
+  },
+};
+
+/**
+ * Everything the report enumerates: the corpus catalogue, then the operator signals.
+ *
+ * Exported from here rather than added to `signals.mjs` on purpose — see `OPERATOR_SIGNALS` above. Consumers
+ * that want only corpus claims import `signals.mjs`; consumers that render the whole report import this.
+ */
+export const SIGNALS = { ...CORPUS_SIGNALS, ...OPERATOR_SIGNALS };
+
+/**
+ * Whether a finding blocks a commit.
+ *
+ * The `!OPERATOR_SIGNALS[...]` term is the **only** thing keeping an operator signal out of the blocking set,
+ * which is not what the first draft of this assumed. Config validation warns about an id it does not know and
+ * then keeps it — the right call, because a config written for a newer version must still load — so
+ * `"blocking": ["H17"]` reaches this function unaltered. The refusal has to live where the decision is made.
+ */
+function blockingFor(signal, suppressed, blocking) {
+  return blocking.has(signal) && !suppressed && !OPERATOR_SIGNALS[signal];
+}
+
+/**
+ * Which sessions edited a lot and delegated nothing — and, when that cannot be answered, why not.
+ *
+ * **The data is supplied, never fetched.** `tokens.mjs` states as its first rule that nothing reads session
+ * transcripts unless `atlas tokens` is run, because those files hold every prompt and every path that passed
+ * through a session. A health run that quietly opened them to score the operator would break that rule for
+ * the sake of an advisory note. So the caller reads them and passes the aggregate in, and when the caller
+ * passes nothing the answer is **unevaluated** — never "ok". A signal that could not run and printed ok is
+ * defect A-29, and the Not-checked section exists because of it.
+ *
+ * The contract for `sessions`, which the token layer owns:
+ *
+ *   { available: boolean, reason?: string,
+ *     sessions: [{ id: string, edits: number, subagentTurns: number }] }
+ *
+ * A bare array is accepted as shorthand for `{ available: true, sessions }`.
+ *
+ *  - `edits` counts `Edit` / `Write` / `MultiEdit` / `NotebookEdit` tool calls made in the session's MAIN
+ *    thread — the turns where `isSidechain` is not true. Work a subagent did is not charged to the operator.
+ *  - `subagentTurns` counts the turns where `isSidechain === true` that belong to the session. Zero means the
+ *    session never fanned out; anything above zero means it did, and H17 stays quiet regardless of size.
+ *
+ * A session missing either number is not guessed at. It is dropped and counted, and the count is reported.
+ */
+export function readParallelism(sessions, cfg = {}) {
+  const threshold = cfg.tokens?.parallelismEdits ?? DEFAULT_PARALLELISM_EDITS;
+  const no = (reason) => ({ available: false, reason, threshold });
+
+  if (sessions === undefined || sessions === null) {
+    return no('no session data was supplied. Session transcripts are read only by `atlas tokens` (rule 1 in ' +
+      'tokens.mjs), so `atlas health` sees them only when its caller passes the aggregate in');
+  }
+  const data = Array.isArray(sessions) ? { available: true, sessions } : sessions;
+  if (data.available === false) {
+    return no(`the transcript store could not be read${data.reason ? `: ${data.reason}` : ''}`);
+  }
+  if (!Array.isArray(data.sessions)) {
+    return no('the session data supplied carries no `sessions` array, so no session was judged');
+  }
+  if (!data.sessions.length) {
+    return no('there is no transcript for this repository to read, so no session was judged');
+  }
+
+  const usable = data.sessions.filter((s) => Number.isFinite(s?.edits) && Number.isFinite(s?.subagentTurns));
+  if (!usable.length) {
+    return no(`${data.sessions.length} session(s) were supplied and none carried both an \`edits\` and a ` +
+      '`subagentTurns` count, so none could be judged');
+  }
+  const flagged = usable
+    .filter((s) => s.edits >= threshold && s.subagentTurns === 0)
+    .map((s) => ({ id: String(s.id ?? 'unnamed session'), edits: s.edits }))
+    .sort((a, b) => b.edits - a.edits);
+
+  return { available: true, threshold, considered: usable.length, incomplete: data.sessions.length - usable.length, flagged };
+}
 
 
 const DAY = 86400000;
 
-export function runHealth(index, cfg, root) {
+export function runHealth(index, cfg, root, opts = {}) {
   const findings = [];
   const known = new Set(index.documents.map((d) => d.path));
   const add = (signal, doc, detail, extra = {}) => {
@@ -297,8 +432,30 @@ export function runHealth(index, cfg, root) {
     }
   }
 
+  /* H17 · the operator signal — see OPERATOR_SIGNALS at the top of this file for why it is kept apart.
+   *
+   * The subject is a session, not a document, so it carries `corpus: true`: that flag means "this finding has
+   * no page to link to", and H15 and H16 already use it for the same reason. The renderer prints it as text
+   * instead of minting a link to a document that was never written. */
+  const parallelism = readParallelism(opts.sessions, cfg);
+  if (!parallelism.available) {
+    unevaluated.add('H17');
+    refusedPatterns.push(`H17 was NOT evaluated — ${parallelism.reason}. No session was checked for fan-out, ` +
+      'and "not measured" is not the same claim as "nothing to report".');
+  } else {
+    if (parallelism.incomplete) {
+      refusedPatterns.push(`${parallelism.incomplete} session(s) carried no edit or subagent count and were ` +
+        `excluded from H17; ${parallelism.considered} were judged.`);
+    }
+    for (const s of parallelism.flagged) {
+      add('H17', `(session ${s.id})`,
+        `${s.edits} edit(s) in one main thread and no subagent turn — the advisory threshold is ${parallelism.threshold}`,
+        { session: s.id, edits: s.edits, threshold: parallelism.threshold, corpus: true, operator: true });
+    }
+  }
+
   const blocking = new Set(cfg.blocking || []);
-  for (const f of findings) f.blocking = blocking.has(f.signal) && !f.suppressed;
+  for (const f of findings) f.blocking = blockingFor(f.signal, f.suppressed, blocking);
 
   const active = findings.filter((f) => !f.suppressed);
   const counts = {};
@@ -355,10 +512,14 @@ export function formatReport(health, index, { verbose = false, color = true } = 
     // A signal whose configured pattern was declined has a count of zero and is not clean. Drawing it green
     // here would be exactly the failure the "Not checked" section exists to prevent, one line higher up.
     if ((health.unevaluated || []).includes(s.id)) {
-      return `  ${s.id}  ${c.yellow('   —')}  ${s.title}${c.dim('  (not evaluated — see Not checked)')}`;
+      return `  ${s.id}  ${c.yellow('   —')}  ${s.title}${c.dim('  (not evaluated — see Not checked)')}` +
+        (s.operator ? c.dim('  (measures the operator, not the corpus — advisory only)') : '');
     }
     const mark = n === 0 ? c.green('  ok') : isBlocking ? c.red(String(n).padStart(4)) : c.yellow(String(n).padStart(4));
-    return `  ${s.id}  ${mark}  ${s.title}`;
+    // An operator signal sits in the same table as sixteen statements about the repository, so the row says
+    // which kind it is. Reading "H17 · 1" off a list headed by dead links invites exactly the wrong
+    // conclusion — that something in the corpus is broken.
+    return `  ${s.id}  ${mark}  ${s.title}${s.operator ? c.dim('  (measures the operator, not the corpus — advisory only)') : ''}`;
   });
   L.push(...rows);
   L.push('');
