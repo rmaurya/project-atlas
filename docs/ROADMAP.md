@@ -37,6 +37,7 @@ measured against the code — the same distinction the tool preserves everywhere
 | A-23 | 100 | A-24 | 100 | M-3 | 40 |
 | A-25 | 100 | A-26 | 100 | A-27 | 100 |
 | A-28 | 100 | M-4 | 100 | A-29 | 100 |
+| C-7 | 100 | | | | |
 
 ---
 
@@ -79,6 +80,36 @@ directories have exactly one author, and one of them is the publishing path* nam
 An area with a single commit is excluded — it is new, not concentrated, and the first week of any project
 would otherwise bury the real risks. A second author counts however little they wrote: "meaningful
 contribution" is a judgement this cannot make.
+
+**C-7 · Git insight in the terminal** — **P2 · Medium**
+*Shipped.* `atlas git-insights`, and six slash commands over it. `contrib` already read people, agents, desks
+and churn; `changes` already read the working tree; `branch` already read where you are. What nothing read was
+the repository's own shape: which files history keeps returning to, which files move together, what is true of
+*every* branch, the rhythm, and whether the record is legible. `scripts/lib/gitinsight.mjs` computes those and
+nothing else — the conventional-subject rate, the revert rate and the weekly aggregation are read from
+`contrib.mjs` rather than counted a second time, because two answers to one question is the fork this tool
+exists to detect.
+
+*Four things it refuses to compute, each because the data cannot carry them.* **No combined risk score per
+file** — commits, churn, authors and documentation coverage ship side by side, for the reason `contrib.mjs`
+gives about people: collapsing them hides which one is driving, and the first person to dispute the total has
+nothing to argue with. **No claim about code quality** — `git log` records that a file changed, never whether
+the change was good. **No forecast** — there is no denominator for work nobody has written down, the argument
+`inflight.mjs` makes for its own missing percentage. **No coupling below a stated support floor**, and above it
+every pair still prints the raw number of commits it rests on; on a young repository "these two files change
+together 100% of the time" means they were both in one commit, twice, and the report says `ANECDOTE, NOT
+SIGNAL` in those words rather than leaving a reader to notice the sample size.
+
+*Read-only is enforced, not promised.* One `execFileSync` in the module, an allowlist of verbs over it, and a
+test that fails on a second call site. The branch report will not delete a branch **and does not print a
+command that would** — these are the commands an agent runs blind, and a read-only report whose output is a
+destructive command is read-only in name only.
+
+*Two known duplications, both deliberate and both worth closing.* The zero-fill for silent weeks exists here
+and as a private function in `dashboard.mjs`; the reverse citation index exists here and as a local `const`
+inside `kb.mjs`. Neither is exported, both modules were owned by other work in the session that wrote this,
+and re-deriving eight lines was the lesser evil against editing them. Hoisting one of each pair into a shared
+helper is the follow-up.
 
 ## Track 2 — Product
 
