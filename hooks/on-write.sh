@@ -39,7 +39,12 @@ esac
 # pid and returns. Backgrounded regardless, because an edit must never wait on a dashboard.
 ("${CLAUDE_PLUGIN_ROOT:-.}/bin/atlas" serve --quiet --no-open >/dev/null 2>&1 &)
 
-out=$("$(atlas_bin)" build --auto --quiet 2>&1)
+# **`--stamp` is what makes the rebuild visible.** Without it this hook was actively worse than doing
+# nothing: every build clears the output directory first, so a rebuild with no stamp *deletes* the
+# `build-stamp.txt` that `atlas serve` wrote. The open page then polls a file that 404s, gives up after
+# three misses, and sits there looking exactly like a live dashboard showing figures from an hour ago —
+# the precise failure this whole surface exists to remove, reintroduced by the fix for it.
+out=$("$(atlas_bin)" build --auto --quiet --stamp 2>&1)
 st=$?
 if [ $st -ne 0 ]; then
   echo "project-atlas: the site did not rebuild after $p (exit $st). It is now older than the markdown." >&2

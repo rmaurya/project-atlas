@@ -37,6 +37,7 @@ measured against the code — the same distinction the tool preserves everywhere
 | A-23 | 100 | A-24 | 100 | M-3 | 40 |
 | A-25 | 100 | A-26 | 100 | A-27 | 100 |
 | A-28 | 100 | M-4 | 100 | A-29 | 100 |
+| A-31 | 100 | | | | |
 
 ---
 
@@ -695,6 +696,20 @@ existed.*
 file browser over `.env` and `.git`; what is served is the exact set of documents the build indexed, written
 to `sources.json` and re-read per miss so a document added by the watcher resolves without a restart.
 Verified: the failing link returns 200, `package-lock.json` and `.git/config` still 404.*
+
+**A-31 · A rebuild the open page cannot see is worse than no rebuild** — **P1 · High**
+*The hooks added for A-25 ran `atlas build --auto --quiet` without `--stamp`.* Every build clears the output
+directory before writing it, so a rebuild with no stamp **deletes** the `build-stamp.txt` that `atlas serve`
+wrote and nothing replaces it. The open page polls that file, gets a 404, gives up after three misses, and
+then sits there looking exactly like a live dashboard displaying an hour-old figure.
+
+*The failure is worth stating precisely, because it is the one this whole surface exists to remove and the fix
+for it is what reintroduced it.* A dashboard that is obviously down gets reloaded. A dashboard that is silently
+frozen gets believed. Every build since the hooks landed had been quietly disarming the reload it was firing.
+
+*Both hooks now pass `--stamp`.* The general lesson is that the stamp is not a detail of `serve` — it is the
+contract between any writer of the output directory and any page holding it open, and a command that clears
+that directory is a writer whether it means to be or not.
 
 **A-27 · A dashboard people leave open should say when now is** — **P3 · Low**
 *Shipped in 0.1.66.* *Local time and UTC in the header — local for the reader, UTC because every stamp this
