@@ -897,6 +897,12 @@ export const BUNDLE_PAGES = [
   { file: 'view-product', label: 'Product' },
   { file: 'view-delivery', label: 'Delivery' },
   { file: 'view-repository', label: 'Repository' },
+  // **Every panel on this one is stripped before it gets here, and it is still listed.** The bundle's nav is
+  // built from this array, but every *page* in the bundle carries its own site nav — so leaving Economics out
+  // would not remove the link, it would leave `href="view-economics.html"` unrewritten on ten pages, pointing
+  // at a file no bundle carries. What travels is the page's provenance card, which holds no figure and states
+  // why the rest of it is absent. A stated boundary beats ten dead links.
+  { file: 'view-economics', label: 'Economics' },
   { file: 'view-architecture', label: 'Architecture' },
   { file: 'view-blueprint', label: 'Blueprint' },
   { file: 'view-developer', label: 'Developer' },

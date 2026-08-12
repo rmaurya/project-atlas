@@ -25,10 +25,13 @@ import { readPlanning, DEFAULT_PLANNING } from '../scripts/lib/planning.mjs';
 import { writeDay, contributorSlug } from '../scripts/lib/worklog.mjs';
 import { buildPrompt } from '../scripts/lib/prompt.mjs';
 import { readDeck } from '../scripts/lib/deck.mjs';
-import { RAMP, STATUS, INK, viewPage } from '../scripts/lib/dashboard.mjs';
+import { RAMP, STATUS, INK, viewPage, signalGroups } from '../scripts/lib/dashboard.mjs';
 import { CAT, CAT_MAX, donut, lineChart, sparkbars } from '../scripts/lib/charts.mjs';
 import { automationAllows } from '../scripts/lib/config.mjs';
-import { buildWikiPages, wikiPageName, isSafePageName, exportSingleFile, exportBundle, RESERVED, gitlabPagesJob, stageWiki, stripLocalOnly } from '../scripts/lib/publish.mjs';
+import { buildWikiPages, wikiPageName, isSafePageName, exportSingleFile, exportBundle, RESERVED, gitlabPagesJob, stageWiki, stripLocalOnly, BUNDLE_PAGES } from '../scripts/lib/publish.mjs';
+// A namespace import, because `OPERATOR_SIGNALS` arrives with H17 and a named import of an export that does
+// not exist yet fails at module load — which would take the whole suite down rather than one test.
+import * as healthModule from '../scripts/lib/health.mjs';
 import { readContrib, estimateHours, taskCoverage } from '../scripts/lib/contrib.mjs';
 import { readTokens, formatTokens, formatSessions, assertNotPublishable, transcriptDir } from '../scripts/lib/tokens.mjs';
 import { readChanges, fileDiff, formatChanges } from '../scripts/lib/changes.mjs';
@@ -3037,10 +3040,28 @@ const EXEC_PLAN = [
   '**K-4 · Four** — **P2 · Medium**', '*Fourth.*',
 ].join('\n');
 
-/** The pieces every test below renders a page from. */
+/**
+ * The pieces every test below renders a page from.
+ *
+ * **`__root` is set here, and leaving it off was a real defect rather than an omission.** Several panels ask
+ * git and the working tree directly — `readInflight`, `branchInventory`, `readChanges`, and now the token
+ * economics reader — and every one of them resolves its repository as `cfg.__root || process.cwd()`. Without
+ * `__root` that fallback is *the checkout the test runner happens to be sitting in*, so a page built from this
+ * fixture was reading the developer's own uncommitted work.
+ *
+ * It failed exactly the way that arrangement always fails: silently, on somebody else's machine. The nested
+ * `<section class="sect">` that `views · a panel spans because of its own outermost element` asserts on is
+ * `inflightPanel`'s session task list, which only renders when the repository being read has an open task in
+ * `.atlas/tasks-live.jsonl`. On the machine that wrote the test there was one, so it passed; on a clean
+ * checkout there is none, `flight.quiet` is true, the panel renders its one-line quiet form, and the test
+ * fails claiming its own fixture is broken. The fixture was never the problem — it was never being read.
+ *
+ * `repoCtx` below existed solely to add this line for the repository tests, which is the tell: half the view
+ * tests read their fixture and half read the developer's laptop, and nothing said which was which.
+ */
 function execCtx(name, extra = {}) {
   const dir = fixture(name, { 'docs/TASKS.md': EXEC_PLAN, 'docs/README.md': '# Docs\n', ...extra });
-  const cfg = { ...resolveConfig(dir), planning: { source: 'docs/TASKS.md' } };
+  const cfg = { ...resolveConfig(dir), planning: { source: 'docs/TASKS.md' }, __root: dir };
   const index = buildIndex(dir, cfg);
   const health = runHealth(index, cfg, dir);
   return { dir, cfg, index, health, plan: readPlanning(dir, cfg), contrib: null, nav: [] };
@@ -3239,11 +3260,15 @@ test('views · the Executive page renders full width and answers spec-to-build, 
 
 console.log('\nrepository view');
 
-/** A view context whose git root is the fixture, not the checkout the test runner happens to be sitting in. */
-function repoCtx(name, extra = {}) {
-  const ctx = execCtx(name, extra);
-  return { ...ctx, cfg: { ...ctx.cfg, __root: ctx.dir } };
-}
+/**
+ * A view context whose git root is the fixture, not the checkout the test runner happens to be sitting in.
+ *
+ * Now exactly what `execCtx` returns — `__root` moved up there once it became clear that every caller wanted
+ * it and the ones that were not asking for it were quietly reading the developer's own repository. Kept as a
+ * name because the repository tests read better calling it, and because deleting it would touch twenty call
+ * sites to say nothing new.
+ */
+const repoCtx = (name, extra = {}) => execCtx(name, extra);
 
 /** Like `commitAt`, but under a second identity — the only way to get a repository with two authors. */
 function commitAs(dir, iso, who, file, body) {
@@ -6151,6 +6176,423 @@ test('kb · code is routed back to the documents that cite it', () => {
   const routes = fs.readFileSync(path.join(outDir, 'kb', 'routes.md'), 'utf8');
   includes(routes, 'src/thing.js', 'a cited file must appear in the reverse index');
   includes(routes, 'Alpha', 'and the document that cites it');
+});
+
+/* ================================================================== the economics view (C-10, C-11) */
+
+console.log('\neconomics view');
+
+/**
+ * A reading shaped by `docs/specs/token-economics.md`, built here rather than read from `readTokenEconomics`.
+ *
+ * The reader is landing separately. Binding these tests to it would mean either waiting for it or asserting
+ * against whatever it happens to return today — and the contract is the thing both halves are supposed to
+ * meet, so the contract is what the view is tested against. When the reader arrives, a test that feeds its
+ * output through `econFixture`'s shape is the join; nothing here changes.
+ *
+ * The numbers are chosen to reproduce this repository's actual proportions, because two of them are load
+ * bearing: cache read at 99% is what makes the tier chart split, and overlapping task windows are what the
+ * `partial` column exists for. A fixture with tidy, evenly-sized tiers would pass a view that is wrong.
+ */
+function econFixture(over = {}) {
+  const days = [];
+  const rework = [];
+  for (let i = 0; i < 12; i++) {
+    if (i === 4 || i === 5) continue;                       // a real silence, for the zero-fill to fill
+    const day = `2026-06-${String(i + 1).padStart(2, '0')}`;
+    const output = 4000 + i * 250;
+    const agentOutput = i % 3 === 0 ? 900 : 0;
+    days.push({ day, input: 800, cacheWrite: 26000, cacheRead: 2_400_000, output,
+      messages: 40, agentOutput, mainOutput: output - agentOutput });
+    rework.push({ day, newWorkOutput: output - 700, reworkOutput: 700 });
+  }
+  return {
+    available: true, reason: null,
+    totals: { input: 9600, cacheWrite: 312_000, cacheRead: 28_800_000, output: 51_500, messages: 480 },
+    days, rework,
+    tasks: [
+      { id: 'C-10', subject: 'What the work cost', status: 'completed',
+        opened: '2026-06-01T09:00:00Z', closed: '2026-06-06T17:00:00Z',
+        output: 21_000, cacheRead: 4_100_000, messages: 210, partial: true },
+      { id: 'C-11', subject: 'Measure the parallelism', status: 'completed',
+        opened: '2026-06-03T09:00:00Z', closed: '2026-06-09T17:00:00Z',
+        output: 12_500, cacheRead: 2_600_000, messages: 140, partial: true },
+      { id: 'Q-4', subject: 'Flag a serial session', status: 'in_progress',
+        opened: '2026-06-11T09:00:00Z', closed: null,
+        output: 4_800, cacheRead: 900_000, messages: 60, partial: false },
+    ],
+    kinds: [
+      { kind: 'coding', output: 24_000, cacheRead: 12_000_000, writes: 300 },
+      { kind: 'testing', output: 10_000, cacheRead: 5_000_000, writes: 120 },
+      { kind: 'documentation', output: 9_000, cacheRead: 4_000_000, writes: 90 },
+      { kind: 'planning', output: 5_000, cacheRead: 2_000_000, writes: 40 },
+      { kind: 'other', output: 3_500, cacheRead: 5_800_000, writes: 0 },
+    ],
+    agents: { mainOutput: 47_900, agentOutput: 3_600, runs: 12, peakConcurrent: 3 },
+    branches: [{ branch: 'fix/acme-outage-postmortem', output: 51_500, cacheRead: 28_800_000, messages: 480 }],
+    caveats: ['Four transcript files hold records with no timestamp, and 812 such records are in no day.'],
+    cost: { available: false },
+    ...over,
+  };
+}
+
+const ECON_VIEW = DEFAULT_VIEWS.find((v) => v.id === 'economics');
+const econCtx = execCtx('econ-view');
+/** `ctx.econ` is the injection point `viewPage` reads before it would call the reader itself. */
+const econPage = (econ, panels = null) =>
+  viewPage({ ...ECON_VIEW, panels: panels || ECON_VIEW.panels }, { ...econCtx, econ }, (o) => o.body);
+/** Empty on a checkout that predates H17, which is the state this file must also pass in. */
+const OPERATOR_IDS = new Set(Object.keys(healthModule.OPERATOR_SIGNALS || {}));
+
+test('economics · every panel is stripped at BOTH exit doors, and the page still says why it is empty', () => {
+  // `exportBundle` read each page straight off disk and never called `stripLocalOnly` — same command, same
+  // promise on the tin, opposite behaviour from `exportSingleFile`. This whole view is local-only, so it is
+  // the loudest possible test of both doors: if either one regresses, a token history of somebody's machine
+  // ships in a file meant to be handed to a stranger.
+  const dir = fixture('econ-strip', {
+    'README.md': '# Front\n', 'docs/TASKS.md': EXEC_PLAN, 'docs/README.md': '# Docs\n',
+  }, { remote: 'https://github.com/acme/widget.git' });
+  const cfg = { ...resolveConfig(dir), planning: { source: 'docs/TASKS.md' } };
+  const index = buildIndex(dir, cfg);
+  renderSite(index, runHealth(index, cfg, dir), cfg, dir);
+
+  // The built page, with a reading injected the way the build will supply one.
+  const local = econPage(econFixture());
+  includes(local, 'fix/acme-outage-postmortem', 'the local page names the branch, which is the point of it');
+  includes(local, 'What each task cost', 'and carries the per-task figures');
+  // Every panel that carries a figure opts in, by id, so a renamed panel cannot quietly lose its marker.
+  for (const id of ['econ-tiles', 'econ-spend', 'econ-agents', 'econ-tasks']) {
+    ok(local.includes(`id="${id}" data-local-only`), `${id} must carry the marker`);
+  }
+  eq(local.includes('id="econ-local" data-local-only'), false,
+    'and the provenance card must NOT, or a published page is a heading over nothing');
+
+  // Door one.
+  const stripped = stripLocalOnly(local);
+  eq(stripped.includes('fix/acme-outage-postmortem'), false, 'no branch name may survive a strip');
+  eq(stripped.includes('data-local-only'), false, 'and nothing may be left half-cut');
+  eq(/28,800,000|2,400,000|51,500/.test(stripped), false, 'nor any token figure');
+  eq(stripped.includes('What each task cost'), false, 'nor the task table');
+  includes(stripped, 'Where these figures come from',
+    'but the provenance card travels, so a published copy says why it is empty rather than rendering blank');
+
+  // **The card that survives must survive whole.** `stripLocalOnly` scans for the bare substring rather than
+  // for the attribute, so printing the marker's own name in prose had it cut the surrounding element out of
+  // the published copy — leaving "carries  and is cut from every publish" on the one page whose subject is
+  // that boundary. Asserted on the sentence, because the mangling is invisible in a marker count.
+  includes(stripped, 'carries the local-only marker and is cut from every publish',
+    'the provenance sentence must reach a published page intact');
+
+  // Door two: the real file on disk, through the real bundler. The page has to exist for the bundle to carry
+  // it, and it does — the view ships in DEFAULT_VIEWS.
+  const built = fs.readFileSync(path.join(dir, cfg.output, 'view-economics.html'), 'utf8');
+  includes(built, 'data-local-only', 'the built page carries the marker for the bundler to find');
+  const bundle = exportBundle(dir, cfg);
+  eq(bundle.includes('data-local-only'), false, 'exportBundle must strip every marked panel');
+  includes(bundle, 'data-page="view-economics"',
+    'and must still carry the page, or ten nav links point at a file no bundle holds');
+
+  // Door one again, through the export the marker was invented for.
+  const single = exportSingleFile(dir, cfg, 'view-economics');
+  eq(single.includes('data-local-only'), false, 'exportSingleFile must strip it too');
+  includes(single, 'Where these figures come from', 'and keep the stated reason');
+
+  /*
+   * **The unavailable page has to be stripped too, and it is the easier one to forget.**
+   *
+   * A card with no figures on it looks like it has nothing to protect. It does: the reason a reader is given
+   * for why there is no data is a filesystem path — `No session transcripts for this repository at
+   * /Users/somebody/.claude/projects/<slug>` — which is a home directory, a username, and the absolute
+   * location of this checkout. Published, that is a worse leak than a token count.
+   */
+  const absent = econPage({ available: false,
+    reason: 'No session transcripts for this repository at /Users/somebody/.claude/projects/-Users-somebody-work-secret.' });
+  for (const id of ['econ-tiles', 'econ-spend', 'econ-agents', 'econ-tasks']) {
+    ok(absent.includes(`id="${id}" data-local-only`), `${id} must carry the marker when it has no data either`);
+  }
+  includes(absent, '/Users/somebody', 'the local page names the path, which is how a reader fixes it');
+  eq(stripLocalOnly(absent).includes('/Users/somebody'), false,
+    'and no home directory may reach a published page through an unavailability notice');
+});
+
+test('economics · four tiers, four tiles, and nowhere a blended total', () => {
+  // Cache read is 99.2% of every token in this repository and is charged at a fraction of fresh input. One
+  // "tokens used" figure ranks the cheapest rung equal with the dearest, which is the single misreading this
+  // whole view was built to prevent — so the sum must not appear, in any tile, anywhere on the page.
+  const f = econFixture();
+  const html = econPage(f);
+  const t = f.totals;
+  const blended = t.input + t.cacheWrite + t.cacheRead + t.output;
+
+  includes(html, 'output tokens');
+  includes(html, 'fresh input');
+  includes(html, 'cache write');
+  includes(html, 'cache read');
+  // **Checked in both renderings, because the tiles print the short form.** Asserting only on the grouped
+  // digits let a `tokens used` tile showing `29.2M` sail straight through — the number the whole page exists
+  // to refuse, missed because it was rounded. Every combination, long and short.
+  const short = (n) => (n >= 1e9 ? `${(n / 1e9).toFixed(1)}B` : n >= 1e6 ? `${(n / 1e6).toFixed(1)}M`
+    : n >= 1e4 ? `${Math.round(n / 1e3)}k` : n.toLocaleString('en-US'));
+  // A tier's own short form is legitimately on the page, and rounding can collide: cache read is 28.8M and so
+  // is cache read plus fresh input. Where a sum is indistinguishable from a tier once rounded, only the exact
+  // form is asserted — claiming a collision as a leak would be a test that fails for being right.
+  const legitimate = new Set([t.input, t.cacheWrite, t.cacheRead, t.output].map(short));
+  for (const n of [blended, t.input + t.cacheRead, t.cacheRead + t.cacheWrite, t.cacheRead + t.output]) {
+    eq(html.includes(n.toLocaleString('en-US')), false,
+      `a blended figure (${n.toLocaleString('en-US')}) must not appear anywhere on the page`);
+    if (!legitimate.has(short(n))) {
+      eq(html.includes(short(n)), false,
+        `nor rounded to ${short(n)} — a blended total is no more honest for being short`);
+    }
+  }
+  ok(!legitimate.has(short(blended)),
+    'the full blended total must be distinguishable once rounded, or this test has no teeth at all');
+  // And no tile may be labelled as though a sum were a thing this page reports.
+  for (const label of ['tokens used', 'total tokens', 'tokens spent']) {
+    eq(html.toLowerCase().includes(`>${label}<`), false, `no tile may be labelled "${label}"`);
+  }
+  includes(html, 'never added together', 'and the strip says so rather than leaving it to be noticed');
+
+  // The ratio goes where the total would have been, and its denominator is *everything read* — the three
+  // input rungs. Folding output in would be the blended figure arriving through the back door as a percentage,
+  // so the wrong denominator is asserted against as well as the right one.
+  const read = t.input + t.cacheWrite + t.cacheRead;
+  const share = ((t.cacheRead / read) * 100).toFixed(1);
+  const withOutput = ((t.cacheRead / (read + t.output)) * 100).toFixed(1);
+  includes(html, `${share}% of everything read`, 'the ratio replaces the total');
+  ok(share !== withOutput, 'the fixture must make the two denominators differ, or this proves nothing');
+  eq(html.includes(`${withOutput}% of everything read`), false,
+    'output is generated, not read — counting it in the denominator is the blended total in disguise');
+
+  // The value a tile shows is short enough to fit it; the exact figure is a line below, never dropped.
+  includes(html, '28.8M', 'ten digits at 30px overflow a 190px tile, so the headline is compact');
+  includes(html, t.cacheRead.toLocaleString('en-US'), 'and the exact count is still on the page');
+});
+
+test('economics · a silent day is drawn as zero and counted out loud', () => {
+  // The defect C-8 fixed on velocityChart, one granularity down. `days` carries an entry only for a day that
+  // had a session, so two quiet days vanish from the array and the day after a gap sits flush against the day
+  // before it — on a chart whose labels claim to be consecutive dates.
+  const html = econPage(econFixture());
+  includes(html, '06-05', 'the day inside the silence is on the axis');
+  includes(html, '2 of them hold no session at all and are drawn as zero rather than skipped',
+    'and the filled days are counted and stated, never slipped in');
+});
+
+test('economics · a tier two orders of magnitude above the rest gets a second chart, never a second y-axis', () => {
+  // A dual axis can be scaled to say anything and the reader cannot see the choice. Stacked honestly, the
+  // three small tiers are invisible under cache read — so the complete stack is drawn AND the same three
+  // series are drawn again without it. Same order in both, so a colour means the same tier in both: putting
+  // cache read alone in a chart would have given it slot 0, the purple that means "output" beside it.
+  const f = econFixture();
+  const dominant = econPage(f);
+  includes(dominant, 'Tokens by tier, by day', 'the historical graph the contract asks for');
+  includes(dominant, 'The same three tiers, without cache read', 'and the readable companion');
+
+  // Computed over the days actually plotted, not over the totals — a window that trimmed early days and then
+  // quoted a whole-history ratio would be describing a chart it is not drawing.
+  const sum = (of) => f.days.reduce((n, d) => n + of(d), 0);
+  const pct = ((sum((d) => d.cacheRead) / sum((d) => d.input + d.cacheWrite + d.cacheRead)) * 100).toFixed(1);
+  includes(dominant, `is ${pct}% of everything read here`, 'with the ratio that justifies the split, computed');
+
+  // Slot order is what keeps the two charts honest, so it is asserted rather than trusted.
+  const wall = dominant.slice(dominant.indexOf('Tokens by tier, by day'));
+  const second = wall.slice(wall.indexOf('The same three tiers'));
+  const legend = (s) => [...s.matchAll(/--cat-(\d)\)"><\/i>([^<]+)/g)].map((m) => `${m[1]}:${m[2]}`);
+  const a = legend(wall.slice(0, wall.indexOf('The same three tiers')));
+  const b = legend(second.slice(0, second.indexOf('</figure>')));
+  eq(a.slice(0, 3), b.slice(0, 3), 'a colour must mean the same tier in both charts');
+
+  // And a repository whose tiers are comparable gets the one chart the contract asked for, with no apology.
+  const even = econFixture();
+  even.days = even.days.map((d) => ({ ...d, cacheRead: 30_000 }));
+  const flat = econPage(even);
+  eq(flat.includes('The same three tiers, without cache read'), false,
+    'the split is decided from the data, not hardcoded');
+  includes(flat, 'No tier here dominates enough', 'and the single chart says why it is single');
+});
+
+test('economics · a task whose window overlapped another says so on its own row', () => {
+  // Windows overlap, a turn inside n of them contributes 1/n to each, and the result is a figure precise to
+  // the token and quietly approximate. The contract requires the view to show the flag; showing it only in
+  // the caption would leave a reader to work out which of seven rows it applies to.
+  const html = econPage(econFixture());
+  const rows = html.slice(html.indexOf('What each task cost')).split('<tr>').slice(2);
+  const marked = rows.filter((r) => r.includes('>shared</abbr>'));
+  eq(marked.length, 2, 'exactly the two overlapping tasks are marked');
+  ok(marked.every((r) => /C-10|C-11/.test(r)), 'and they are the two the reading flagged');
+  ok(rows.some((r) => r.includes('Q-4') && !r.includes('>shared</abbr>')),
+    'the task that overlapped nothing is not marked');
+  includes(html, '2 of these 3 share their window with another task',
+    'and the caption counts them, so the flag is not the only place it is said');
+  includes(html, 'still open', 'a task with no completion says so rather than showing a blank window');
+
+  // No overlap at all is a different statement, and it gets made.
+  const clean = econFixture();
+  clean.tasks = clean.tasks.map((t) => ({ ...t, partial: false }));
+  includes(econPage(clean), 'No two windows here overlap',
+    'and a page with no overlap states that instead of staying quiet');
+});
+
+test('economics · the page refuses a person, and says why in plain words', () => {
+  // A transcript carries no git author. Every session in the store belongs to whoever is at the machine, so a
+  // per-contributor chart is one person's own work laid out as if it were a comparison. The refusal has to be
+  // legible to a reader, not only absent from the markup.
+  const html = econPage(econFixture());
+  includes(html, 'There is no per-contributor axis on this page, and there cannot be one');
+  includes(html, 'no git identity anywhere in it');
+  includes(html, 'per agent', 'and the axes that are honest are named');
+  includes(html, 'per branch');
+
+  // Nothing on the page may present a person. The contributor panels must not be reachable from this view.
+  for (const p of ['people', 'desks', 'models']) {
+    eq(ECON_VIEW.panels.includes(p), false, `the view must not carry the ${p} panel`);
+  }
+  // And the refusal survives to the published copy, which is the one a stranger reads.
+  includes(stripLocalOnly(html), 'there cannot be one',
+    'the reason must travel, or a published page is silent about the axis it is missing');
+});
+
+test('economics · unavailable is a state with a reason, never an empty chart and never a zero', () => {
+  // "No transcripts" and "spent nothing" are different claims and must not render the same. Nor may these
+  // panels be omitted into "not shown on this page", whose stated meaning is "there is no data behind them" —
+  // a boundary reported as an oversight is the failure this whole page is written against.
+  const why = 'No session transcripts for this repository at ~/.claude/projects/x.';
+  const html = econPage({ available: false, reason: why });
+  includes(html, why, 'the reason the reader gave is printed verbatim');
+  eq(html.includes('Not shown on this page'), false, 'and no panel is omitted as if it had no data');
+  eq(/>0<\/p>|>0 tokens/.test(html), false, 'nothing is rendered as a measured zero');
+  includes(html, '—</p><p class="tl">tokens</p>', 'the tile withholds a figure with an em dash');
+
+  // No injected reading at all, which is what a build gets before `readTokenEconomics` exists: the page must
+  // name the missing contract rather than crash the build or draw zeros. `undefined` is the only value that
+  // reaches the real reader — anything else, `null` included, is taken as the reading itself.
+  includes(econPage(undefined), 'is not present in this build',
+    'a missing reader is named rather than taking the build down');
+  includes(econPage({ available: false, reason: null }),
+    'That is an absence of data, not a spend of zero',
+    'and a reader that returned no reason still gets a sentence rather than a blank card');
+  includes(econPage(null), 'That is an absence of data, not a spend of zero',
+    'as does a reading of nothing at all');
+
+  // The layout must not change with the data — a view that packs into columns when it is empty and flows when
+  // it is full is two pages wearing one name.
+  includes(html, 'class="dash-flow"');
+  includes(econPage(econFixture()), 'class="dash-flow"');
+});
+
+test('economics · peak concurrency of one is the finding, and unmeasured is not one', () => {
+  // C-11's whole point: this tool argues for fanning work out to subagents, so it has to say when that did not
+  // happen. A bare "1" is a number a reader has to interpret; the panel interprets it.
+  const serial = econFixture({ agents: { mainOutput: 51_500, agentOutput: 0, runs: 0, peakConcurrent: 1 } });
+  includes(econPage(serial), 'Never more than <strong>one agent at a time</strong>');
+  includes(econPage(serial), 'the fan-out this tool argues for did not happen');
+
+  includes(econPage(econFixture()), 'Peak concurrency <strong>3</strong>', 'and a real figure is stated plainly');
+
+  const unknown = econFixture({ agents: { mainOutput: 5, agentOutput: 5, runs: 1, peakConcurrent: null } });
+  includes(econPage(unknown), 'was not measured',
+    'not measured is its own state — it must not read as "it never happened"');
+
+  includes(econPage(econFixture()), 'a floor and not a ceiling',
+    'and the measurement states what it cannot see');
+});
+
+test('economics · the caveats are scoped to this page, and the reading\'s own are printed verbatim', () => {
+  // The Repository view established this: a card headed "what this dashboard does not show" is worth reading
+  // only if it knows which dashboard it is on. Bolting transcript caveats onto the Product view, where nothing
+  // reads a transcript, teaches a reader to skip the card everywhere.
+  const verbatim = 'Four transcript files hold records with no timestamp, and 812 such records are in no day.';
+  const here = econPage(econFixture());
+  includes(here, 'Task windows overlap');
+  includes(here, 'clearing them erases the history permanently');
+  includes(here, verbatim, 'the reading\'s own caveats are rendered as given, never summarised away');
+
+  const elsewhere = viewPage({ id: 'product', title: 'Product', panels: ['status', 'caveats'] },
+    econCtx, (o) => o.body);
+  eq(elsewhere.includes('Task windows overlap'), false,
+    'a page with no economics panel must not carry economics caveats');
+});
+
+test('economics · the day axis and the week axis are one implementation, not two', () => {
+  // The spec says to reuse the axis helpers rather than add a third time axis, and the roadmap already files
+  // the two zero-fills this project holds for silent weeks as a duplication to close. Writing a third would
+  // have made that three. Asserted on behaviour: both fill their gaps and flag them, from one function.
+  const ctx = repoCtx('econ-axis');
+  // The fixture's own init commit is stamped "now", which would stretch the axis from January to today and
+  // push the gap being asserted on out of the twelve-week window. Backdated the way the velocity test does it.
+  execFileSync('git', ['-c', 'user.email=t@example.com', '-c', 'user.name=Test',
+    'commit', '-q', '--amend', '--no-edit', '--date=2026-01-05T09:00:00Z'],
+    { cwd: ctx.dir, stdio: 'ignore', env: { ...process.env, GIT_COMMITTER_DATE: '2026-01-05T09:00:00Z' } });
+  commitAt(ctx.dir, '2026-01-05T10:00:00Z', 'a.txt', 'one');
+  commitAt(ctx.dir, '2026-01-26T10:00:00Z', 'b.txt', 'two');
+  const weekly = viewPage({ id: 'x', title: 'X', panels: ['velocity'] },
+    { ...ctx, contrib: readContrib(ctx.dir, ctx.cfg) }, (o) => o.body);
+  includes(weekly, '2026-01-12', 'the week axis still fills its silence');
+  includes(weekly, 'no commit this week');
+
+  const daily = econPage(econFixture());
+  includes(daily, '06-05', 'and the day axis fills its own, at a different step');
+  includes(daily, 'drawn as zero rather than skipped');
+});
+
+test('economics · the view ships, is reachable, and travels in the bundle', () => {
+  // Adding a view means adding it to BUNDLE_PAGES too, or every page's nav carries `view-economics.html` —
+  // a link to a file no bundle holds. The bundle test asserts no such link survives; this asserts the entry
+  // that keeps it true, from the list rather than from a hardcoded expectation.
+  ok(ECON_VIEW, 'the Economics view is in DEFAULT_VIEWS');
+  eq(ECON_VIEW.nav, true, 'and appears in the navigation');
+  for (const p of ECON_VIEW.panels) ok(PANELS[p], `panel "${p}" must be declared in PANELS`);
+  ok(navItems(DEFAULT_VIEWS, { hasDeck: false }).some((n) => n.href === 'view-economics.html'),
+    'the nav names the page');
+  ok(BUNDLE_PAGES.some((p) => p.file === 'view-economics'),
+    'and the bundle carries it, or ten nav links point at a file that does not travel');
+
+  // Three non-spanning cards is what gives this page its full width. A fourth puts it back into columns, and
+  // the chart wall inside a 360px column is one chart per row with eight-pixel tick labels.
+  const html = econPage(econFixture());
+  includes(html, 'class="dash-flow"', 'the page reads top to bottom at full width');
+  includes(html, 'class="card wall" id="econ-spend"', 'because the chart panels declare themselves full width');
+});
+
+test('signals · an operator signal is never counted as corpus rot', () => {
+  // H17 measures how a session was run, not what is wrong with the documents. `SIGNALS` is
+  // {...CORPUS_SIGNALS, ...OPERATOR_SIGNALS} and the card's count came straight off its length, so the
+  // heading "Rot signals 16" silently became "Rot signals 17" — a false statement made by adding a true
+  // signal. Dropping it would be the same failure inverted: a check that ran, invisible.
+  //
+  // **The rule is pinned on the pure function, not only on the rendered card.** Until H17 merges here the two
+  // catalogues are the same set, so a card that had gone back to counting everything would render correctly
+  // and nothing could catch it — the exact window in which this regresses, because the mistake ships with the
+  // signal and the signal ships later. A synthetic operator signal closes that window now.
+  const synthetic = { H99: { id: 'H99', title: 'Sessions that never fanned out', why: 'operator, not corpus' } };
+  const g = signalGroups({ ...SIGNALS, ...synthetic }, synthetic);
+  eq(g.corpus.some((s) => s.id === 'H99'), false, 'an operator signal is not a corpus signal');
+  eq(g.corpus.length, Object.keys(SIGNALS).length, 'and removing it leaves the corpus catalogue whole');
+  eq(g.operator.map((s) => s.id), ['H99'], 'it is kept, in its own group, rather than dropped');
+
+  // And the card renders from that split rather than from the combined catalogue.
+  const ctx = execCtx('signals-operator');
+  const html = viewPage({ id: 'x', title: 'X', panels: ['signals'] }, ctx, (o) => o.body);
+  const live = signalGroups(SIGNALS, healthModule.OPERATOR_SIGNALS || {});
+  includes(html, `<h2>Rot signals <span class="count">${live.corpus.length}</span></h2>`,
+    'the count under the rot heading is the corpus signals and only those');
+  eq((html.match(/<code>H\d+<\/code>/g) || []).length,
+    live.corpus.length + live.operator.length,
+    'every signal is listed exactly once, in one group or the other — none is hidden');
+  for (const s of live.corpus) includes(html, `<code>${s.id}</code>`, `${s.id} must be listed`);
+  eq(html.includes('Not a rot signal'), live.operator.length > 0,
+    'the second heading appears when, and only when, there is an operator signal to put under it');
+
+  if (OPERATOR_IDS.size) {
+    includes(html, 'the operator, not the corpus', 'and the page says what the difference is');
+    for (const id of OPERATOR_IDS) includes(html, `<code>${id}</code>`, `${id} is listed, not hidden`);
+    // It is also kept off the documentation-health chart, which is the same category error one card over.
+    const chart = viewPage({ id: 'x', title: 'X', panels: ['health'] }, ctx, (o) => o.body);
+    for (const id of OPERATOR_IDS) {
+      eq(chart.includes(`>${id}<`), false, `${id} is not a documentation-health finding`);
+    }
+  }
 });
 
 console.log(`\n${pass} passed, ${fail} failed${skipped ? `, ${skipped} skipped on ${process.platform}` : ''}\n`);

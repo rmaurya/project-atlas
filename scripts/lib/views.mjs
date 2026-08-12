@@ -33,6 +33,11 @@ export const PANELS = {
   churn: 'Where the change lands — lines changed per area of the tree, and how many people have ever touched each',
   hotspots: 'The files the work keeps returning to, and how far each one moves when it is touched',
   branches: 'Every local branch, how far behind the newest commit it sits, and whether it still holds anything',
+  econLocal: 'Where the token figures come from, what that costs a reader, and why there is no person on the page',
+  econTiles: 'Tokens by tier — output, fresh input, cache write, cache read — and never their sum',
+  econSpend: 'Spend over time by tier, against tasks closed, against rework, and by kind of work',
+  econAgents: 'Main agent against subagents, and the most that ever ran inside one minute',
+  econTasks: 'Per task: the window it was open, what it cost, and whether that window overlapped another',
   documents: 'The documents this role owns, with dates, status and signals',
   recent: 'Recent commits — what changed, and when',
   changes: 'What changed, and which documents cite the files you touched',
@@ -129,6 +134,41 @@ export const DEFAULT_VIEWS = [
     id: 'repository', title: 'Repository', nav: true,
     blurb: 'Where the change lands and what it has concentrated on. Not who did it or when — that is Delivery. This is the shape of the tree underneath.',
     panels: ['repoTiles', 'churn', 'hotspots', 'branches', 'inflight', 'caveats'],
+  },
+  {
+    /*
+     * **The only page in this tool whose figures are not in the repository, and the only one that never
+     * leaves the machine.**
+     *
+     * Delivery counts commits, Repository counts lines, and both are reproducible from a clone by anybody.
+     * This counts tokens out of the local session transcripts, which are none of those things — machine-local,
+     * unversioned, and holding every prompt of every session. That is why the whole page is `data-local-only`
+     * rather than one card on it, and why `econLocal` leads: a reader has to know what they are looking at
+     * before they read a number off it.
+     *
+     * **Three refusals, and each is the shape of a page somebody would otherwise have built:**
+     *
+     *  - **No blended "tokens used" headline.** Cache read is 99.2% of every token here and costs a fraction
+     *    of fresh input. One number would rank the two equal and make a cheap session look expensive, which is
+     *    the specific misreading this whole view exists to prevent. Four tiles, four tiers, no total anywhere.
+     *  - **No person on any axis.** A transcript has no git author in it; the store is one machine and one
+     *    user. Per agent, per branch and per kind of work are real axes over this data. Per contributor is one
+     *    person's own work laid out as if it were a comparison, and the page says so in plain words rather
+     *    than leaving the gap to be noticed.
+     *  - **No estimate for a session with no transcript.** Unavailable is a state with a reason on it, on the
+     *    card that would have held the figure. None of these panels is ever omitted for want of data: an
+     *    absence folded into "not shown on this page" reads as an oversight, and this one is a boundary.
+     *
+     * **The panel count is load-bearing.** Three of these do not span — `econLocal`, `econTasks`, `caveats` —
+     * which is no more than masonry has columns, so `viewPage` gives the page its full width and reads top to
+     * bottom in this order. That matters more here than on the Executive view it was written for: the charts
+     * sit in a `chart-wall` sized by `auto-fit minmax(260px, 1fr)`, and inside a 360px masonry column that
+     * resolves to one chart per row with its tick labels scaled to eight pixels. A fourth non-spanning panel
+     * would put the page back into columns and undo that, so one added here has to earn its place against it.
+     */
+    id: 'economics', title: 'Economics', nav: true,
+    blurb: 'What the work cost to produce, read from the session transcripts on this machine. Four tiers and never their sum, per agent and never per person, and stripped from every publish.',
+    panels: ['econLocal', 'econTiles', 'econSpend', 'econAgents', 'econTasks', 'caveats'],
   },
   {
     id: 'architecture', title: 'Architecture', nav: true,

@@ -23,6 +23,10 @@ import { designRecord, blueprint, undesigned, citationHealth, isDesignDoc } from
 import { areaOf, ownership, summariseOwnership } from './ownership.mjs';
 import { escapeHtml, escapeAttr, renderMarkdown } from './markdown.mjs';
 import { SIGNALS } from './health.mjs';
+// `OPERATOR_SIGNALS` arrives with H17 and is absent from older checkouts, so it is read off the namespace
+// rather than named — a named import of an export that does not exist is a module-load error, and this file
+// renders every page. See `operatorSignals()`.
+import * as healthModule from './health.mjs';
 import { taskCoverage } from './contrib.mjs';
 import { DEFAULT_PLANNING } from './planning.mjs';
 import { read as readJournalFor } from './journal.mjs';
@@ -31,6 +35,9 @@ import { readChanges } from './changes.mjs';
 import { readInflight, inflightSentence } from './inflight.mjs';
 import { flatName } from './render-shared.mjs';
 import { donut, lineChart, stackedArea, sparkbars, catTokens } from './charts.mjs';
+// A namespace import, on purpose — `readTokenEconomics` is landing separately and a named import of an export
+// that does not exist yet is a module-load error that would take the whole build down. See `readEconomics`.
+import * as tokensModule from './tokens.mjs';
 
 /**
  * Ordinal progress ramps — one per theme, each validated against the surface it actually sits on.
@@ -140,7 +147,16 @@ export function viewPage(view, ctx, shell) {
   const risk = has('repoTiles', 'churn', 'hotspots') ? repoRisk(contrib) : null;
   const branches = has('repoTiles', 'branches') ? branchInventory(cfg) : null;
 
-  const built = view.panels.map((id) => ({ id, html: panel(id, { ...ctx, view, flight, risk, branches }) }));
+  // Same reasoning again, and here it matters most: the reader walks a transcript store that runs to hundreds
+  // of megabytes on a busy repository, and six panels want the one answer. It is resolved when a panel on this
+  // page asks for it and never on a page that does not — so a build of the Overview costs nothing for a view
+  // it does not render. `ctx.econ` short-circuits it entirely, which is how the tests inject a fixture and how
+  // a caller that can await an async reader would hand one in.
+  const econ = has('econLocal', 'econTiles', 'econSpend', 'econAgents', 'econTasks')
+    ? readEconomics(cfg, ctx.econ)
+    : null;
+
+  const built = view.panels.map((id) => ({ id, html: panel(id, { ...ctx, view, flight, risk, branches, econ }) }));
   const rendered = built.filter((b) => b.html);
   const omitted = built.filter((b) => !b.html).map((b) => b.id);
 
@@ -216,7 +232,7 @@ ${omitted.length ? `<section class="card muted"><h2>Not shown on this page</h2>
 }
 
 /** Returns the panel's HTML, or null when it has nothing to say. */
-function panel(id, { index, health, plan, cfg, contrib, view, nameFor, repo, flight, risk, branches }) {
+function panel(id, { index, health, plan, cfg, contrib, view, nameFor, repo, flight, risk, branches, econ }) {
   const hasPlan = plan && !plan.missing;
   if (id === 'decisions') return decisionsPanel(index, cfg, cfg.__root, nameFor);
   const hasContrib = contrib && contrib.available;
@@ -246,6 +262,14 @@ function panel(id, { index, health, plan, cfg, contrib, view, nameFor, repo, fli
     case 'churn': return hasContrib ? churnPanel(risk) : null;
     case 'hotspots': return hasContrib ? hotspotPanel(risk) : null;
     case 'branches': return branchPanel(branches);
+    // None of these is ever omitted for want of data. "Unavailable, and here is why" is the whole subject of
+    // this page — a transcript store that is absent, unreadable or cleared is a state a reader has to be told
+    // about, and folding it into "not shown on this page" would report a boundary as an oversight.
+    case 'econLocal': return econLocalPanel(econ);
+    case 'econTiles': return econTilesPanel(econ);
+    case 'econSpend': return econSpendPanel(econ);
+    case 'econAgents': return econAgentsPanel(econ);
+    case 'econTasks': return econTasksPanel(econ);
     case 'changes': return changesPanel(cfg, index, pageOf);
     case 'documents': return documentsPanel(index, health, view, pageOf);
     case 'recent': return hasContrib ? recentPanel(contrib, plan) : null;
@@ -254,7 +278,7 @@ function panel(id, { index, health, plan, cfg, contrib, view, nameFor, repo, fli
     case 'blueprint': return blueprintPanel(index, pageOf);
     case 'undesigned': return undesignedPanel(repo, index);
     case 'citations': return citationsPanel(index, pageOf);
-    case 'caveats': return caveats(plan, health, contrib, view, risk);
+    case 'caveats': return caveats(plan, health, contrib, view, risk, econ);
     default: return null;
   }
 }
@@ -372,8 +396,17 @@ function statusChart(plan) {
 </figure>`;
 }
 
+/**
+ * **Operator signals are excluded here, for the same reason they are separated in the catalogue below.**
+ *
+ * The heading is "Documentation health" and every bar under it is a count of things wrong with the corpus. H17
+ * is a count of sessions that did not fan out to subagents — true, worth reporting, and not documentation
+ * health by any reading. Left in, a repository that never used a subagent would render a red-ish bar on the
+ * documentation health card of every page that carries it, and the fix a reader would go looking for is in a
+ * file that does not exist. The signal catalogue lists it, under its own heading, with its own count.
+ */
 function healthChart(health, cfg) {
-  const rows = Object.values(SIGNALS).map((s) => ({
+  const rows = Object.values(SIGNALS).filter((s) => !isOperatorSignal(s.id)).map((s) => ({
     id: s.id, title: s.title, count: health.counts[s.id] || 0,
     blocking: (cfg.blocking || []).includes(s.id), why: s.why,
   })).filter((r) => r.count > 0);
@@ -558,6 +591,47 @@ function countBy(items, of) {
  * A signal that could not run is neither: it says so, because a check reported as clean when it never
  * executed is the one lie this whole project is built to refuse.
  */
+/**
+ * The signals that are **not** about the corpus, and why this panel has to know the difference.
+ *
+ * `health.mjs` exports `SIGNALS` as `{...CORPUS_SIGNALS, ...OPERATOR_SIGNALS}`, and every consumer that wants
+ * "all the checks" is right to use it. This panel is not one of them: its heading says *Rot signals* and its
+ * count came straight off `Object.keys(SIGNALS).length`, so the arrival of H17 silently changed that heading
+ * from a true statement about sixteen corpus checks into a false one about seventeen. H17 reads local session
+ * transcripts and reports whether a session fanned out to subagents — a claim about **how the work was run**,
+ * not about the documents — and folding it into a rot count is exactly the kind of quiet category error the
+ * rest of this file spends its comments refusing.
+ *
+ * It is not dropped either. Dropping it would make a check that ran invisible, which is the same failure in
+ * the other direction — the one the "ok is a result, absence is not" rule exists for. It gets its own group,
+ * its own count and a sentence saying what it measures instead.
+ *
+ * Read off the module namespace with a fallback, so this file renders identically on a checkout that predates
+ * H17: there, the operator group is empty and the panel is exactly what it always was.
+ */
+const operatorSignals = () => healthModule.OPERATOR_SIGNALS || {};
+const isOperatorSignal = (id) => Object.prototype.hasOwnProperty.call(operatorSignals(), id);
+
+/**
+ * The split itself, as a pure function over two catalogues.
+ *
+ * **Exported because it cannot otherwise be tested on a checkout that has no operator signal.** A module
+ * namespace is read-only, so a test cannot inject an `OPERATOR_SIGNALS` that is not there — and on a tree
+ * predating H17 the corpus count and the total are identical, so a card that had gone back to counting
+ * everything would render byte-for-byte correctly and no assertion could tell. That is precisely the window
+ * in which this regresses unnoticed: the mistake arrives with the signal, and the signal arrives later.
+ *
+ * A pure function takes both catalogues as arguments, so a test can hand it a synthetic operator signal today
+ * and pin the rule before there is a real one to break it.
+ */
+export function signalGroups(all, operator = {}) {
+  const isOperator = (id) => Object.prototype.hasOwnProperty.call(operator, id);
+  return {
+    corpus: Object.values(all).filter((s) => !isOperator(s.id)),
+    operator: Object.values(operator),
+  };
+}
+
 function signalCataloguePanel(health, cfg) {
   const blocking = new Set(cfg.blocking || []);
   const counts = new Map();
@@ -573,10 +647,13 @@ function signalCataloguePanel(health, cfg) {
   }
   const unevaluated = new Set(health.unevaluated || []);
 
-  const rows = Object.values(SIGNALS).map((sig) => {
+  const row = (sig) => {
     const n = counts.get(sig.id) || 0;
     const sup = suppressed.get(sig.id) || 0;
-    const isBlocking = blocking.has(sig.id);
+    // An operator signal can never block, and `blockingFor` in health.mjs refuses it at the decision point
+    // even when a configuration names it. Printing a "blocks" badge here would advertise a refusal that will
+    // not happen — a promise this panel is not the one keeping.
+    const isBlocking = blocking.has(sig.id) && !isOperatorSignal(sig.id);
 
     let state, tone;
     if (unevaluated.has(sig.id)) { state = 'not checked'; tone = 'warn'; }
@@ -589,20 +666,43 @@ function signalCataloguePanel(health, cfg) {
       <td>${escapeHtml(sig.title)}${isBlocking ? ' <span class="sig-b">blocks</span>' : ''}</td>
       <td class="${tone}">${escapeHtml(state)}${sup ? ` <span class="det">+${sup} suppressed</span>` : ''}</td>
     </tr>`;
-  }).join('');
+  };
 
-  const fired = [...counts.values()].reduce((a, b) => a + b, 0);
+  const { corpus, operator } = signalGroups(SIGNALS, operatorSignals());
+  const corpusRows = corpus.map(row).join('');
+  const operatorRows = operator.map(row).join('');
+
+  // Both figures count only what the heading above them claims. `counts` holds every signal that fired, so a
+  // corpus-only denominator against an all-signals numerator would have reported more signals firing than
+  // exist — the two numbers on one line disagreeing, which is the defect this panel was written to prevent
+  // and has now committed twice.
+  const firedIn = (set) => [...counts].filter(([id]) => set.some((s) => s.id === id));
+  const corpusFired = firedIn(corpus);
+  const corpusFindings = corpusFired.reduce((a, [, n]) => a + n, 0);
+
   return `<section class="card" id="signals">
-  <h2>Rot signals <span class="count">${Object.keys(SIGNALS).length}</span></h2>
-  <p class="cap">Everything this tool checks for, including the checks that found nothing —
-    <strong>ok is a result, absence is not</strong>. A signal marked <em>blocks</em> has no legitimate cause,
-    so a commit that introduces one is refused. <em>not checked</em> means the check could not run, and is
-    never reported as clean.</p>
+  <h2>Rot signals <span class="count">${corpus.length}</span></h2>
+  <p class="cap">Everything this tool checks for <strong>in the corpus</strong>, including the checks that
+    found nothing — <strong>ok is a result, absence is not</strong>. A signal marked <em>blocks</em> has no
+    legitimate cause, so a commit that introduces one is refused. <em>not checked</em> means the check could
+    not run, and is never reported as clean.</p>
   ${openTableWrap('Rot signals')}<table class="mini-table sig-table">
     <thead><tr><th>Id</th><th>Signal</th><th>Now</th></tr></thead>
-    <tbody>${rows}</tbody>
+    <tbody>${corpusRows}</tbody>
   </table></div>
-  <p class="det">${fired} finding(s) across ${counts.size} signal(s); ${Object.keys(SIGNALS).length - counts.size} found nothing.</p>
+  <p class="det">${corpusFindings} finding(s) across ${corpusFired.length} signal(s); ${corpus.length - corpusFired.length} found nothing.</p>
+  ${operator.length ? `
+  <h3>Not a rot signal <span class="count">${operator.length}</span></h3>
+  <p class="cap">Kept apart because ${operator.length === 1 ? 'it measures' : 'these measure'} <strong>the
+    operator, not the corpus</strong>. Every signal above is a claim about the documents in this repository and
+    is fixed by editing one. ${operator.length === 1 ? 'This one reads' : 'These read'} how a session was run —
+    which is a different kind of claim, cannot be fixed by changing a file, and
+    ${operator.length === 1 ? 'can never block' : 'can never block'} a commit. Counted separately rather than
+    added to the number above, and listed rather than hidden.</p>
+  ${openTableWrap('Operator signals')}<table class="mini-table sig-table">
+    <thead><tr><th>Id</th><th>Signal</th><th>Now</th></tr></thead>
+    <tbody>${operatorRows}</tbody>
+  </table></div>` : ''}
 </section>`;
 }
 
@@ -717,19 +817,49 @@ function chartsPanel(contrib, plan, health) {
  * is exactly the one `aggregateWeeks` produced — and the filled weeks are flagged so the charts can say how
  * many they drew.
  */
-function weeklyAxis(weeks) {
-  const src = weeks || [];
+/**
+ * The zero-fill itself, over any ISO-day key at any step.
+ *
+ * **Extracted rather than copied, because the token series is per *day* and the commit series is per week.**
+ * The economics view needed the identical treatment one granularity down, and the alternative was a second
+ * function with the same body and a different constant in it — which is how `gitinsight.mjs` and this file
+ * already ended up holding two zero-fills for silent weeks, a duplication the roadmap files as a follow-up.
+ * Writing a third was not going to improve on that.
+ *
+ * `silent: true` on every filled row, never on a row that came from the data, so a caller can count what it
+ * drew and say so. The blank supplies the numeric fields; the key is written over it last so a blank cannot
+ * accidentally carry a stale date.
+ *
+ * **The cap is not decoration.** The loop walks from the first key to the last and stops when it reaches it,
+ * which is only guaranteed to terminate if both ends parse and the step divides the span. A malformed key
+ * from a snapshot file would otherwise spin the build forever, and a hang is the worst failure mode here
+ * because it looks like nothing at all. Ten years of days is far past any series this tool plots.
+ */
+const AXIS_MAX = 3700;
+
+function fillAxis(rows, { key, stepDays, blank }) {
+  const src = rows || [];
   if (src.length < 2) return src;
-  const by = new Map(src.map((w) => [w.week, w]));
-  const last = src[src.length - 1].week;
+  const first = src[0][key], last = src[src.length - 1][key];
+  const start = new Date(`${first}T00:00:00Z`);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(new Date(`${last}T00:00:00Z`).getTime())) return src;
+
+  const by = new Map(src.map((r) => [r[key], r]));
   const out = [];
-  // Every key comes from `isoWeekStart`, so both ends are a Monday and a 7-day step lands on Mondays.
-  for (const d = new Date(`${src[0].week}T00:00:00Z`); ; d.setUTCDate(d.getUTCDate() + 7)) {
-    const week = d.toISOString().slice(0, 10);
-    out.push(by.get(week) || { week, commits: 0, added: 0, removed: 0, ai: 0, authors: 0, silent: true });
-    if (week >= last) break;
+  for (const d = start; out.length < AXIS_MAX; d.setUTCDate(d.getUTCDate() + stepDays)) {
+    const at = d.toISOString().slice(0, 10);
+    out.push(by.get(at) || { ...blank, [key]: at, silent: true });
+    if (at >= last) break;
   }
   return out;
+}
+
+// Every key comes from `isoWeekStart`, so both ends are a Monday and a 7-day step lands on Mondays.
+function weeklyAxis(weeks) {
+  return fillAxis(weeks, {
+    key: 'week', stepDays: 7,
+    blank: { commits: 0, added: 0, removed: 0, ai: 0, authors: 0 },
+  });
 }
 
 function decisionsPanel(index, cfg, root, pageOf) {
@@ -1037,11 +1167,53 @@ function noPlanning(cfg) {
  * would be the most misleading thing on it. The panel's own note says a dashboard that silently omits reads
  * as one that found nothing; that has to be true of the panel too.
  */
-function caveats(plan, health, contrib, view = null, risk = null) {
+function caveats(plan, health, contrib, view = null, risk = null, econ = null) {
   const notes = [...(plan && !plan.missing ? plan.notes : []), ...health.notChecked,
                  ...(contrib?.available ? contrib.caveats.map((c) => c.replace(/\*\*/g, '')) : [])];
 
   const shows = (id) => !!view?.panels?.includes(id);
+
+  /*
+   * **The Economics page's blind spots, on the Economics page and nowhere else.**
+   *
+   * Scoped the way the Repository view's are, and for the reason that view established: a card headed "what
+   * this dashboard does not show" is only worth reading if it knows which dashboard it is on. Bolting these
+   * onto every page would put four paragraphs about transcript attribution under the Product view, where no
+   * panel reads a transcript — and a reader who learns to skip the card on eight pages will skip it on the
+   * ninth, which is the one where it matters most.
+   *
+   * The reading's own `caveats` are appended verbatim rather than folded in. They come from the layer that did
+   * the measuring and knows what it had to skip; summarising them here would be this page deciding which of
+   * another module's admissions were worth repeating.
+   */
+  if (shows('econTiles') || shows('econSpend') || shows('econAgents') || shows('econTasks')) {
+    notes.push('Every figure on this page comes from session transcripts on this machine. They are not in the ' +
+      'repository, not shared and not versioned, so nothing here can be reproduced from a clone, and clearing ' +
+      'them erases the history permanently — there is no earlier copy anywhere.');
+    notes.push('There is no per-contributor axis and there cannot be one. A transcript carries no git author, ' +
+      'so every session in the store is the same single user; splitting one person\'s own work across a chart ' +
+      'of people would present a self-portrait as a comparison.');
+    notes.push('The four token tiers are never summed. Cache read dominates every real session and is charged ' +
+      'at a fraction of fresh input, so a single blended figure would rank the cheapest rung equal with the ' +
+      'dearest and make a cheap session read as an expensive one.');
+    notes.push('Task windows overlap, so a turn open inside several tasks is divided between them and no ' +
+      'single task figure is exact. Rows whose window overlapped another are marked; a task closed long after ' +
+      'its work stopped still absorbs every turn in between, because the window is what the task list records.');
+    notes.push('A kind of work is decided from the paths a turn wrote, so thinking, reading and conversation ' +
+      'fall into "other" rather than into the kind of work they were serving. A long turn that wrote nothing ' +
+      'is invisible to that breakdown and fully counted everywhere else on the page.');
+    notes.push('New work against rework borrows its verdict from the contribution analysis rather than ' +
+      'defining a second one, so it inherits that measure exactly: a file re-touched inside the configured ' +
+      'window, which cannot tell a fix from a deliberate second pass.');
+    notes.push('Peak concurrency counts distinct sessions with a subagent turn inside one minute. It is a ' +
+      'floor: an agent that spent its minute thinking, or whose turns fell either side of a boundary, is not ' +
+      'counted, so a low figure is evidence the fan-out did not happen rather than proof it could not.');
+    if (!econ?.cost?.available) {
+      notes.push('No figure appears in currency. Rates are not recorded in a transcript and they change, so a ' +
+        'price nobody can reproduce would be worse than the token counts everybody can.');
+    }
+    for (const c of econ?.caveats || []) notes.push(String(c).replace(/\*\*/g, ''));
+  }
   if (risk && (shows('churn') || shows('hotspots') || shows('repoTiles'))) {
     notes.push('Churn and touch counts read only non-merge commits, because that is what the contribution ' +
       'analysis collects. Work that reached the trunk through a merge commit is outside every figure on those panels.');
@@ -1615,6 +1787,538 @@ function branchPanel(b) {
     b.mergeKnown && !b.unmergedCount
       ? `Nothing here is unfinished — every branch is fully merged into ${escapeHtml(b.main)} and could be deleted.`
       : b.mergeKnown ? `${b.unmergedCount} branch(es) hold commits ${escapeHtml(b.main)} does not.` : ''}</p>
+</section>`;
+}
+
+/* ------------------------------------------------------------------ economics */
+
+/**
+ * ## What the work cost, and the four ways a page like this lies
+ *
+ * `docs/specs/token-economics.md` is the contract these panels render; `readTokenEconomics` produces it.
+ * Everything below is presentation, and the presentation is where this subject goes wrong:
+ *
+ *  1. **A blended "tokens used" headline.** Cache read is 99.2% of every token in this repository and is
+ *     charged at a fraction of fresh input. Summing the four tiers into one number makes the cheapest thing a
+ *     session does the loudest thing on the page, and a cheap session look expensive. The tiles print four
+ *     figures and never a total, and the historical chart splits the axis rather than flattening three tiers
+ *     into a sliver beside the fourth.
+ *  2. **A person on the x-axis.** A transcript has no git author in it. It is one machine, one user, and
+ *     charting it per contributor would present one person as a cohort — a number that looks like a
+ *     comparison and can only ever be a self-portrait. The page says this in its first card, in plain words,
+ *     rather than leaving the absence to be noticed.
+ *  3. **A total that double-counts.** Task windows overlap; a turn inside *n* of them contributes `1/n` to
+ *     each, and every task whose window overlapped another is flagged. The flag is a column, not a footnote.
+ *  4. **An empty chart where a reason belongs.** No transcripts, an unreadable store, a reader that has not
+ *     shipped yet — each renders as a stated reason on the card that would have held the figure.
+ *
+ * ## Every panel here is `data-local-only`, and one card deliberately is not
+ *
+ * The source is `~/.claude/projects/**.jsonl`: machine-local, unversioned, gone if cleared, and holding every
+ * prompt of every session. Counts derived from it are still counts about *this machine*, so they are stripped
+ * at both exit doors — `exportSingleFile` and `exportBundle` — exactly as the in-flight and branch panels are.
+ *
+ * That leaves a problem the other local-only panels never had: they are one card on a page of eight, and this
+ * is the whole page. Stripped, an Economics view would publish as a heading over nothing, which reads as a
+ * broken build rather than as a boundary being kept. So `econLocalPanel` carries **no figure at all** — only
+ * the provenance and the refusals — and travels, so the published page states why it is empty. A statement
+ * about a set is not the set; the branch panel already draws that line in the other direction.
+ *
+ * **Nothing rendered by these panels may contain the marker's own name as text.** `stripLocalOnly` scans for
+ * the bare substring and then deletes the element containing it — it does not require the attribute form — so
+ * a card that documented the mechanism by printing `data-local-only` inside a `<code>` span had that span cut
+ * out of the *published* copy, leaving "every other card on this page carries  and is cut from every publish".
+ * Found here because this is the first page whose subject is the boundary itself. The prose says "the
+ * local-only marker" instead; the stripper's substring match is filed as a defect where it belongs.
+ */
+
+/** The window the day charts show. Anything trimmed is counted and named in the caption, never dropped. */
+const ECON_DAYS = 60;
+
+/** Cache read above this share of everything read gets its own axis instead of flattening the other tiers. */
+const CACHE_DOMINANT = 0.8;
+
+const dayAxis = (days) => fillAxis(days, {
+  key: 'day', stepDays: 1,
+  blank: { input: 0, cacheWrite: 0, cacheRead: 0, output: 0, messages: 0, agentOutput: 0, mainOutput: 0 },
+});
+
+/**
+ * A token count, grouped the same way on every machine.
+ *
+ * **The locale is pinned, and it has to be.** Bare `toLocaleString()` reads the host's locale: on this
+ * machine, set to `en-IN`, 1,262,000,000 renders `12,62,00,000`. Every other figure on this site is grouped by
+ * the same call and therefore already differs between two developers' checkouts of the same commit — which
+ * quietly breaks the byte-identical rebuild `render.mjs` reads the build stamp off `git log` to protect, and
+ * would make a Pages branch churn on nothing but who ran the build. Filed rather than fixed across the file:
+ * changing the existing calls would move the bytes of four other views on the way past.
+ *
+ * A missing figure is an em dash, never `0` — the rule the whole page is built on, applied to a cell.
+ */
+const tok = (n) => (Number.isFinite(n) ? Math.round(n).toLocaleString('en-US') : '—');
+
+/**
+ * The same count, short enough to be a headline.
+ *
+ * **A tile is 190px wide at its narrowest and its value is set at 30px.** `1,262,000,000` is eleven glyphs and
+ * wants 177px inside a 164px box — measured, and it was clipped mid-digit with no scrollbar and no sign that
+ * anything was missing, which is the worst way for a number to be wrong. Cache read runs to ten figures on any
+ * repository with a few weeks of sessions in it, so this is the ordinary case rather than an edge one.
+ *
+ * **The exact figure is not thrown away, it moves down a line.** `donut` already works this way — the compact
+ * total in the ring, every slice's full value in the legend beneath — so a reader who wants the digits has
+ * them a centimetre lower rather than in a tooltip they cannot reach. All four tiles use the short form even
+ * where the long one would fit, because a strip where one tile says `44,700` and its neighbour says `126.2M`
+ * invites the two to be compared by length.
+ */
+const tokShort = (n) => (!Number.isFinite(n) ? '—'
+  : n >= 1e9 ? `${(n / 1e9).toFixed(1)}B`
+    : n >= 1e6 ? `${(n / 1e6).toFixed(1)}M`
+      : n >= 1e4 ? `${Math.round(n / 1e3)}k`
+        : tok(n));
+
+/**
+ * The economics reading, resolved once per page.
+ *
+ * **A namespace import, and a `typeof` check on the function.** `readTokenEconomics` is being written in a
+ * sibling worktree against the same specification, and a named import of an export that does not exist yet is
+ * a module-load `SyntaxError` — which would take down every page of the build, not just this one, on any
+ * checkout where the two halves have not met. The namespace form degrades to a stated reason instead.
+ *
+ * **A thenable is refused rather than awaited.** `viewPage` is synchronous because `renderSite` writes its
+ * result straight to disk, and `readTokens` — the module's existing reader — is `async` because it streams
+ * transcripts through `readline`. If the new reader follows it, this page cannot await it from here. Rendering
+ * `[object Promise]`, or silently drawing zeros, are both worse than saying which contract was not met. A
+ * caller that *can* await — `render.mjs`, which owns the build — supplies `ctx.econ` and this never runs.
+ */
+function readEconomics(cfg, injected) {
+  if (injected !== undefined) return injected;
+  const read = tokensModule.readTokenEconomics;
+  if (typeof read !== 'function') {
+    return { available: false, reason: 'The token-economics reader is not present in this build, so nothing was measured. This page reports what `readTokenEconomics` returns and never estimates in its absence.' };
+  }
+  let out;
+  try {
+    out = read(cfg.__root || process.cwd(), cfg);
+  } catch (err) {
+    return { available: false, reason: `The session transcripts could not be read — ${String(err?.message || err)}. That is not the same as "nothing was spent": no measurement was made.` };
+  }
+  if (out && typeof out.then === 'function') {
+    return { available: false, reason: 'The token-economics reader is asynchronous and this page is rendered synchronously, so no figure could be resolved. Nothing is estimated in its place.' };
+  }
+  return out || { available: false, reason: 'The token-economics reader returned nothing at all.' };
+}
+
+/** Why this page has no figures on it, on the card that says so. Never an empty chart. */
+function econReason(econ) {
+  return econ?.reason
+    || 'No session transcripts were found for this repository, so there is nothing to account for. That is an absence of data, not a spend of zero.';
+}
+
+/**
+ * `wall`, so the page keeps one layout in both states.
+ *
+ * The chart panels span when they have charts in them. Rendered as plain cards when they do not, the page
+ * crosses `viewPage`'s masonry threshold and a repository with no transcripts gets a three-column packing
+ * while one with transcripts gets a full-width flow — the same view, laid out two ways, decided by whether the
+ * data happened to be there. Spanning either way keeps the arrangement a property of the page.
+ */
+function econEmpty(id, title, econ) {
+  return `<figure class="card muted wall" id="${escapeAttr(id)}" data-local-only="1">
+  <figcaption><h2>${escapeHtml(title)}</h2></figcaption>
+  <p class="empty"><span class="dot" style="background:${st('warning')}"></span> ${escapeHtml(econReason(econ))}</p>
+</figure>`;
+}
+
+/**
+ * The provenance card — the one thing on this page that survives a publish, and the only one carrying no
+ * figure.
+ *
+ * It leads the view because both of its statements have to be read before any number below it is. The first
+ * is where the data comes from and what that costs a reader: none of it is reproducible from a clone, and a
+ * teammate running the same command gets their own answer or none at all. The second is the axis that is
+ * missing and why, said in the words a person would use rather than left as a gap somebody has to notice.
+ */
+function econLocalPanel(econ) {
+  /*
+   * **The reason is deliberately NOT printed here, and that is the one subtle thing about this card.**
+   *
+   * Every other panel on the page prints `econ.reason` in full, because every other panel is stripped before
+   * anything leaves the machine. This card travels. And a reason is not the harmless half of this data: the
+   * reader's own unavailability message is a filesystem path — "No session transcripts for this repository at
+   * /Users/somebody/.claude/projects/-Users-somebody-work-acme-migration" — which is a home directory, a
+   * username, and the absolute location of the checkout, all of it published to say that there was nothing to
+   * publish. Worse than leaking a token count, and it would have shipped precisely because a card with no
+   * figures on it looks like it has nothing to protect.
+   *
+   * So the state travels and the detail does not — the same line the branch panel draws when it publishes
+   * "28 local branches" and none of their names. The full reason is one card down, on the machine that can
+   * act on it.
+   */
+  const state = econ?.available
+    ? '<span class="ok">Measured on this machine.</span>'
+    : '<span class="warn">Not measured here.</span> The card below states why, on the machine that can do'
+      + ' something about it — the reason names a path on that machine, so it is not repeated here.';
+  return `
+<section class="card" id="econ-local">
+  <h2>Where these figures come from</h2>
+  <p class="cap">Read from the <strong>Claude Code session transcripts on this machine</strong>, under
+  <code>~/.claude/projects</code>. They are not part of this repository: not committed, not shared, not
+  versioned, and gone the moment they are cleared. Nothing on this page can be reproduced from a clone, and a
+  colleague who runs the same build gets their own answer or none at all. ${state}</p>
+  <p class="cap"><strong>There is no per-contributor axis on this page, and there cannot be one.</strong>
+  A transcript records a machine, not an author — there is no git identity anywhere in it, and every session
+  in the store belongs to whoever is sitting at this computer. Charting that per person would take one
+  person's own work, split it across a bar chart, and hand it back as if it were a comparison between
+  colleagues. The honest axes are <strong>per agent</strong>, <strong>per branch</strong> and
+  <strong>per kind of work</strong>, and those are what is drawn below.</p>
+  <p class="det">Every other card on this page carries the local-only marker and is cut from every publish and
+  every standalone export. This one has no figure on it, so it travels — a published copy of this page says
+  why it is empty instead of rendering as a heading over nothing.</p>
+</section>`;
+}
+
+/**
+ * Four tiers, four tiles, and no fifth tile holding their sum.
+ *
+ * The sum is the number everybody asks for and it is the one number that cannot be honest: the four rungs are
+ * priced an order of magnitude apart, so adding them weights the cheapest at par with the dearest. What the
+ * strip gives instead is the ratio — cache read as a share of everything read — which is the figure that
+ * actually explains why the total would have been misleading, stated where the total would have gone.
+ */
+function econTilesPanel(econ) {
+  if (!econ?.available) {
+    return `<section class="wall" id="econ-tiles" data-local-only="1">
+  <section class="tiles">${tile('—', 'tokens', econReason(econ), 'warning')}</section>
+</section>`;
+  }
+  const t = econ.totals || {};
+  const read = (t.input || 0) + (t.cacheWrite || 0) + (t.cacheRead || 0);
+  const share = read ? (t.cacheRead || 0) / read : null;
+
+  return `
+<section class="wall" id="econ-tiles" data-local-only="1">
+  <section class="tiles">
+    ${tile(tokShort(t.output), 'output tokens', `${tok(t.output)}, generated across ${tok(t.messages)} assistant turn(s)`)}
+    ${tile(tokShort(t.input), 'fresh input', `${tok(t.input)} — context that had never been seen before`)}
+    ${tile(tokShort(t.cacheWrite), 'cache write', `${tok(t.cacheWrite)} — the expensive rung, paid once so it can be re-read cheaply`)}
+    ${tile(tokShort(t.cacheRead), 'cache read',
+      share === null ? `${tok(t.cacheRead)} — nothing else was read at all`
+        : `${tok(t.cacheRead)} — ${(share * 100).toFixed(1)}% of everything read, and charged at a fraction of fresh input`)}
+  </section>
+  <p class="cap sect"><strong>These four are never added together, and there is no total anywhere on this
+  page.</strong> A turn re-reads its whole context, so cache read dominates every real session and costs a
+  small fraction of the rung above it. One blended figure would make the cheapest thing a session does the
+  largest number on the screen — which is exactly what makes a cheap session look expensive.${
+    econ.cost?.available ? '' : ' No figure in currency is shown: rates are not in a transcript, they change, and a price nobody can reproduce is worse than a count everybody can.'}</p>
+</section>`;
+}
+
+/**
+ * The four spend charts, in one wall.
+ *
+ * **A wall rather than four cards, and that is a layout decision with a measurement behind it.** A masonry
+ * column on this site resolves to about 360px; `.chart` scales its 460-unit viewBox down to fit, which takes
+ * the 10px tick labels with it to under 8px and puts a day axis under a magnifying glass. `chart-wall` is
+ * `auto-fit minmax(260px, 1fr)` at full page width — four across at 1600px, two at 1024, one at 390 — which is
+ * the shape these small multiples were drawn for.
+ *
+ * **Silent days are drawn as zero and counted aloud.** `velocityChart` shipped for months plotting a sparse
+ * array by index, so a fortnight of nothing closed into a single step while the labels still claimed to be
+ * consecutive. A transcript store is complete over its own span in exactly the way git history is: a day with
+ * no record is a day that was looked at and had no session in it, which is a measurement rather than a hole.
+ */
+function econSpendPanel(econ) {
+  if (!econ?.available) return econEmpty('econ-spend', 'What the work cost', econ);
+
+  const axis = dayAxis(econ.days || []);
+  const days = axis.slice(-ECON_DAYS);
+  const trimmed = axis.length - days.length;
+  const quiet = days.filter((d) => d.silent).length;
+  const labels = days.map((d) => String(d.day).slice(5));
+
+  const window = `${days.length} day(s)${trimmed ? `, the most recent of ${axis.length} — the earlier ${trimmed} are omitted for width, not because they were empty` : ''}.`;
+  const silence = quiet
+    ? ` ${quiet} of them hold no session at all and are drawn as zero rather than skipped — the transcript store is complete over its own span, so an empty day is one that was looked at.`
+    : '';
+
+  const figs = [];
+
+  if (labels.length >= 2) {
+    /*
+     * **The whole stack first, and then the same stack with its dominant tier lifted off.**
+     *
+     * Cache read is 99.2% of everything read in this repository. Drawn honestly, the historical graph is one
+     * band with three invisible slivers underneath — true, and useless for the three tiers a reader came to
+     * compare. The wrong repairs are both worse: a second y-axis can be scaled to say anything and the reader
+     * cannot see the choice, and a log scale turns "two orders of magnitude apart" into "a bit taller".
+     *
+     * So the first chart is the complete stack, unaltered, and the second is *the same series in the same
+     * order* with the dominant tier removed. **Same order matters**: `stackedArea` assigns hues by position,
+     * so keeping output/fresh input/cache write at slots 0, 1 and 2 in both charts means a colour means the
+     * same tier in both. Drawing the small tiers in one chart and the big one alone in another — the obvious
+     * arrangement — would have put "cache read" in slot 0, the same purple that means "output" beside it.
+     *
+     * The split is decided from the data, not hardcoded: a repository whose tiers are within sight of each
+     * other gets one chart and no apology for it.
+     */
+    const tier = (k) => days.map((d) => d[k] || 0);
+    const totalRead = days.reduce((n, d) => n + (d.input || 0) + (d.cacheWrite || 0) + (d.cacheRead || 0), 0);
+    const cacheRead = days.reduce((n, d) => n + (d.cacheRead || 0), 0);
+    const split = totalRead > 0 && cacheRead / totalRead >= CACHE_DOMINANT;
+    const lead = [
+      { label: 'output', values: tier('output') },
+      { label: 'fresh input', values: tier('input') },
+      { label: 'cache write', values: tier('cacheWrite') },
+    ];
+
+    figs.push(stackedArea({
+      title: 'Tokens by tier, by day', labels, unit: ' tokens',
+      series: [...lead, { label: 'cache read', values: tier('cacheRead') }],
+      note: (split
+        ? `Cache read is ${((cacheRead / totalRead) * 100).toFixed(1)}% of everything read here, so it is very nearly the whole of this picture — which is the finding, not a fault in the chart. The other three are drawn again beside it at a scale they can be read at.`
+        : 'Stacked, because the question is what the spend is made of rather than how much of it there was. No tier here dominates enough to hide the others, so this is the whole picture and there is no companion chart beside it.') + silence,
+    }));
+
+    if (split) {
+      figs.push(stackedArea({
+        title: 'The same three tiers, without cache read', labels, unit: ' tokens',
+        series: lead,
+        note: 'The chart beside this one with its largest band lifted off — same three series, same order, so a colour means the same tier in both. Not a second axis on the same chart: the y-scale here is this stack\'s own, and the two heights are not comparable.',
+      }));
+    }
+
+    /*
+     * **Spend against tasks closed: two charts on one axis, and running totals rather than daily counts.**
+     *
+     * Two decisions, each avoiding a way this comparison is usually made badly.
+     *
+     * *Two charts, never one with two y-axes.* Tokens and task counts share nothing but the day they fell on.
+     * Overlaid, the two scales are the author's to pick and invisible to the reader — which is how the same
+     * numbers get made to argue that spend tracks delivery, or that it does not. Same labels, same order, side
+     * by side: the comparison is the reader's to make.
+     *
+     * *Cumulative, because a daily count of closures is almost always zero or one.* Plotted per day it is a
+     * row of unit spikes over an axis whose only gridlines are 0 and 1 — a picture with no shape in it, and
+     * one that reads as noise rather than as delivery. A running total is not invented data: it is the same
+     * measured closures, summed, and the slope is the thing a reader is actually looking for. The spend series
+     * is cumulative for the same reason, so the two are read the same way.
+     *
+     * Output is the spend measure here, never a blended total, for the reason the tile strip gives.
+     */
+    const closedOn = new Map();
+    for (const t of econ.tasks || []) {
+      if (!t?.closed) continue;
+      const d = String(t.closed).slice(0, 10);
+      closedOn.set(d, (closedOn.get(d) || 0) + 1);
+    }
+    const running = (of) => { let n = 0; return days.map((d) => (n += of(d))); };
+
+    figs.push(lineChart({
+      title: 'Output tokens, cumulative', labels, unit: ' tokens',
+      series: [{ label: 'output', values: running((d) => d.output || 0) }],
+      note: 'A running total over the same days as the charts above, so its slope can be read against the closures beside it. Output rather than any blended figure — what was produced, not what was re-read.',
+    }));
+    figs.push(lineChart({
+      title: 'Tasks closed, cumulative', labels, unit: ' tasks',
+      series: [{ label: 'closed', values: running((d) => closedOn.get(d.day) || 0) }],
+      note: closedOn.size
+        ? 'The same axis as the spend beside it and deliberately a separate chart: the two have no common scale, and one pair of axes over both would let the picture argue either way. A flat stretch is days on which nothing was marked complete — which is a fact about the task list, not about the work.'
+        : 'No task in this window records a completion, so the total never leaves zero. That is the task list saying nothing was closed, not a failure to measure it.',
+    }));
+
+    const rework = dayAxis(econ.rework || []).filter((r) => r.day >= days[0].day);
+    figs.push(rework.length >= 2
+      ? stackedArea({
+          title: 'New work against rework, by day', labels: rework.map((r) => String(r.day).slice(5)),
+          unit: ' tokens',
+          series: [
+            { label: 'new work', values: rework.map((r) => r.newWorkOutput || 0) },
+            { label: 'rework', values: rework.map((r) => r.reworkOutput || 0) },
+          ],
+          // No backticks in a chart note: `donut`, `lineChart` and `stackedArea` all escape their note as
+          // text, so markdown punctuation reaches the page as literal characters. Prose here, code spans in
+          // the captions above, which are rendered as markup.
+          note: 'Rework is not defined here. It is the verdict the contribution analysis already computes from git — a file re-touched within its configured window — joined to the token series by day, so this page and the Delivery page cannot disagree about what the word means.',
+        })
+      : `<figure class="chart"><figcaption>New work against rework, by day</figcaption>
+        <p class="empty">Fewer than two days carry a rework verdict, so there is no series to plot yet.</p></figure>`);
+  }
+
+  /*
+   * **The branch axis, which the contract names and the page would otherwise only promise.**
+   *
+   * The provenance card says the honest axes here are per agent, per branch and per kind of work. Two of those
+   * were drawn and the third was a claim — and a page that lists an axis it does not show is doing the thing
+   * this whole view is written against.
+   *
+   * Branch names are the reason this card is `data-local-only` twice over. `fix/acme-outage-postmortem` is
+   * derived, useful, and frequently the name of a customer; the branch panel on the Repository view makes
+   * exactly this argument and is cut at both exit doors for it. Everything on this page is cut already, so
+   * this costs nothing extra — but it is the second place a reader would not think to look for the breach, so
+   * it is worth saying out loud where it sits.
+   */
+  const branches = (econ.branches || []).filter((b) => Number.isFinite(b.output))
+    .sort((a, b) => b.output - a.output);
+  if (branches.length) {
+    const shown = branches.slice(0, RISK_ROWS);
+    const rest = branches.length - shown.length;
+    figs.push(`<figure class="chart"><figcaption>Which line of work</figcaption>
+      ${hbar(shown.map((b) => ({
+        label: b.branch, value: b.output, display: tok(b.output),
+        max: Math.max(...shown.map((x) => x.output), 1), tone: 'mid',
+        hint: `${tok(b.messages)} turn(s)${Number.isFinite(b.cacheRead) ? ` · ${tok(b.cacheRead)} cache read` : ''}`,
+      })), { stack: true })}
+      <p class="chart-note">${rest ? `${rest} further branch(es) fall below these and are not drawn. ` : ''}Read
+      from the branch each turn recorded, which is a fact about where the work was happening and not about who
+      was doing it. <strong>Branch names never leave this machine</strong> — this card is cut from every
+      publish and every standalone export, for the same reason the branch inventory on the Repository view
+      is.</p></figure>`);
+  }
+
+  const kinds = (econ.kinds || []).filter((k) => Number.isFinite(k.output)).sort((a, b) => b.output - a.output);
+  figs.push(kinds.length
+    ? `<figure class="chart"><figcaption>Kind of work</figcaption>
+      ${hbar(kinds.map((k) => ({
+        label: k.kind, value: k.output, display: tok(k.output),
+        max: Math.max(...kinds.map((x) => x.output), 1), tone: 'high',
+        hint: `${tok(k.writes)} write(s)${Number.isFinite(k.cacheRead) ? ` · ${tok(k.cacheRead)} cache read` : ''}`,
+      })), { stack: true })}
+      <p class="chart-note">Classified from the paths a turn wrote, through the taxonomy already in
+      <code>project-atlas.config.json</code> — the same rules the rest of this tool clusters by. A turn that
+      wrote to two kinds splits evenly between them; a turn that wrote nothing is <code>other</code>, which is
+      thinking, reading and conversation rather than an unclassified remainder. The paths themselves are read
+      to decide the bucket and kept nowhere.</p></figure>`
+    : `<figure class="chart"><figcaption>Kind of work</figcaption>
+      <p class="empty">No turn in this history wrote a file, so there is nothing to classify.</p></figure>`);
+
+  return `
+<section class="card wall" id="econ-spend" data-local-only="1">
+  <h2>What the work cost</h2>
+  <p class="cap">${escapeHtml(window)} Every figure is a token count from the transcripts on this machine.
+  <strong>Not a measure of difficulty or of worth</strong> — a hard problem and a typo cost what they cost, and
+  neither the size of a spend nor the shape of it says whether the work was any good.</p>
+  <div class="chart-wall">${figs.join('')}</div>
+</section>`;
+}
+
+/**
+ * **C-11's panel: the tool argues for parallelism, so it has to measure whether any happened.**
+ *
+ * Serial work is the default failure mode of a coding agent, and until this panel existed nothing in this
+ * project ever said so out loud with a number attached. `isSidechain` marks a subagent turn, and that one flag
+ * carries the whole measurement: how much of the output came from a fan-out, how many runs there were, and the
+ * most that ever ran inside a single minute.
+ *
+ * **Peak concurrency of one is the finding, not a blank.** A repository whose every session ran on the main
+ * agent has a real, reportable answer — the fan-out never happened — and it is worth more than the split
+ * beside it, so it is stated in those words rather than printed as a `1` a reader has to interpret. `null` is
+ * different and says so: nothing was measured.
+ */
+function econAgentsPanel(econ) {
+  if (!econ?.available) return econEmpty('econ-agents', 'Main agent against subagents', econ);
+  const a = econ.agents;
+  if (!a) return econEmpty('econ-agents', 'Main agent against subagents',
+    { reason: 'The reading carries no agent breakdown, so the main-versus-subagent split could not be made.' });
+
+  const figs = [donut({
+    title: 'Output by agent', unit: ' tokens',
+    slices: [
+      { label: 'main agent', value: a.mainOutput },
+      { label: 'subagents', value: a.agentOutput },
+    ],
+    note: 'A subagent turn is one the transcript marks isSidechain. Output rather than a blended total, for the reason the tiles give.',
+  })];
+
+  const axis = dayAxis(econ.days || []);
+  const days = axis.slice(-ECON_DAYS);
+  if (days.length >= 2 && days.some((d) => (d.agentOutput || 0) > 0)) {
+    figs.push(stackedArea({
+      title: 'Main and subagent output, by day', unit: ' tokens',
+      labels: days.map((d) => String(d.day).slice(5)),
+      series: [
+        { label: 'main agent', values: days.map((d) => d.mainOutput || 0) },
+        { label: 'subagents', values: days.map((d) => d.agentOutput || 0) },
+      ],
+      note: 'Whether the habit stuck, rather than whether it ever happened once.',
+    }));
+  }
+
+  const peak = a.peakConcurrent;
+  const verdict = !Number.isFinite(peak)
+    ? `<span class="warn">Peak concurrency was not measured, so nothing here says whether the work ran in parallel.</span>`
+    : peak <= 1
+      ? `<span class="warn">Never more than <strong>one agent at a time</strong>.</span> Every session in this
+         history ran serially — the fan-out this tool argues for did not happen, which is the finding this panel
+         exists to make impossible to miss.`
+      : `<span class="ok">Peak concurrency <strong>${peak}</strong>.</span> That many distinct sessions had a
+         subagent turn inside one minute — the most parallelism this repository has ever actually reached.`;
+
+  return `
+<section class="card wall" id="econ-agents" data-local-only="1">
+  <h2>Main agent against subagents</h2>
+  <p class="cap">${verdict}${Number.isFinite(a.runs) ? ` ${tok(a.runs)} subagent run(s) in all.` : ''}</p>
+  <div class="chart-wall">${figs.join('')}</div>
+  <p class="chart-note">Concurrency is counted as distinct sessions carrying a subagent turn inside the same
+  minute, which is a floor and not a ceiling: an agent that spent its minute thinking, or one whose turns
+  landed either side of a minute boundary, is invisible to it. A low number here is evidence the fan-out did
+  not happen; it is not proof that it could not have.</p>
+</section>`;
+}
+
+/**
+ * Per task — and the column the whole attribution rule exists for.
+ *
+ * A task is open from its `create` record to the `update` that completes it, and several are open at once
+ * every working day. A turn inside *n* open windows contributes `1/n` to each, which keeps the column from
+ * summing to more than was ever spent; what it cannot do is make any single row exact. **So every task whose
+ * window overlapped another says so on its own row**, because the alternative is a figure that is precise to
+ * the token and quietly approximate, which is the worst of both.
+ *
+ * Rows are not ranked into a league table. They are ordered by when the work opened, which is the order it
+ * happened in — a cost per task is a fact about a task, not a score for whoever closed it, and this page has
+ * already said there is nobody to attribute it to.
+ */
+function econTasksPanel(econ) {
+  if (!econ?.available) return econEmpty('econ-tasks', 'What each task cost', econ);
+  const tasks = econ.tasks || [];
+  if (!tasks.length) {
+    return `<section class="card muted" id="econ-tasks" data-local-only="1">
+  <h2>What each task cost</h2>
+  <p class="empty">No task window overlaps this history, so no turn could be attributed to one. The spend is
+  still counted in every chart above — it is the join to a task that is missing, not the tokens.</p>
+</section>`;
+  }
+
+  const rows = [...tasks].sort((a, b) => String(a.opened || '').localeCompare(String(b.opened || '')));
+  const partial = rows.filter((t) => t.partial).length;
+
+  return `
+<section class="card" id="econ-tasks" data-local-only="1">
+  <h2>What each task cost <span class="count">${rows.length}</span></h2>
+  <p class="cap">Assistant turns whose timestamp falls inside a task's window, attributed to it. <strong>Windows
+  overlap</strong> — several tasks are open at once — so a turn inside ${'n'} of them gives <code>1/n</code> to
+  each and no total is counted twice. ${partial
+    ? `<strong>${partial} of these ${rows.length} share their window with another task</strong> and are marked; their
+       individual figures are a division of a shared spend, not a measurement of that task alone.`
+    : 'No two windows here overlap, so every figure below belongs to one task only.'}</p>
+  ${openTableWrap('Token spend per task')}
+    <table class="mini-table">
+      <thead><tr><th>Task</th><th>Window</th><th class="num">Output</th>
+        <th class="num">Cache read</th><th class="num">Turns</th></tr></thead>
+      <tbody>${rows.map((t) => `<tr>
+        <td>${escapeHtml(t.subject || t.id || 'untitled')}
+          <span class="sum">${escapeHtml(String(t.id || ''))}${t.status ? ` · ${escapeHtml(String(t.status))}` : ''}</span></td>
+        <td>${escapeHtml(String(t.opened || '—').slice(0, 10))} → ${escapeHtml(t.closed ? String(t.closed).slice(0, 10) : 'still open')}
+          ${t.partial ? '<span class="ref"><abbr title="Shared window: this task was open at the same time as another, so its share of every overlapping turn is 1/n. The figures on this row are a division of a shared spend, not a measurement of this task alone.">shared</abbr></span>' : ''}</td>
+        <td class="num">${tok(t.output)}</td>
+        <td class="num">${tok(t.cacheRead)}</td>
+        <td class="num">${tok(t.messages)}</td>
+      </tr>`).join('')}</tbody>
+    </table>
+  </div>
+  <p class="det">Ordered by when each task opened, and deliberately not ranked. A cost per task is a fact about
+  a piece of work, not a score for whoever did it — and there is nobody on this page to attribute it to.</p>
 </section>`;
 }
 
