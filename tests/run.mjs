@@ -59,6 +59,8 @@ import { handle as mcpHandle, TOOLS as MCP_TOOLS, PROTOCOL_VERSION as MCP_VERSIO
          connectionStatus, formatConnection, runningServers } from '../scripts/lib/mcp.mjs';
 import { runTask, TASKS } from '../scripts/lib/task.mjs';
 import { manifestUrl, checkForUpdate, fetchLatest, readCache, writeCache, isFresh } from '../scripts/lib/update.mjs';
+import { readGitInsight, formatGitInsight, hotspots, coupling, branchHealth, cadence, hygiene,
+         fillWeeks, DEFAULT_GITINSIGHT, GITINSIGHT_SECTIONS } from '../scripts/lib/gitinsight.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const CLI = path.join(HERE, '..', 'scripts', 'atlas.mjs');
@@ -3407,6 +3409,234 @@ test('ownership · one committer is reported as a fact about the repository, not
   const list = ownership([{ author: 'A', files: [{ path: 'src/x.js' }] }, { author: 'A', files: [{ path: 'src/y.js' }] }]);
   includes(summariseOwnership(list, 1), 'single committer');
   includes(summariseOwnership(list, 3), 'exactly one author');
+});
+
+/* ================================================================== git insight */
+
+console.log('\ngit insight');
+
+/** Commit with an exact message, so a body and its trailers can be told apart. */
+function commitMsg(dir, file, body, message) {
+  fs.writeFileSync(path.join(dir, file), body, 'utf8');
+  execFileSync('git', ['add', '-A'], { cwd: dir, stdio: 'ignore' });
+  execFileSync('git', ['-c', 'user.email=t@example.com', '-c', 'user.name=Test', 'commit', '-qm', message],
+    { cwd: dir, stdio: 'ignore' });
+}
+
+const gitIn = (dir, ...args) =>
+  execFileSync('git', args, { cwd: dir, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+
+test('git insight · a silent week is filled with zero, and the fill is counted', () => {
+  // `contrib.mjs::aggregateWeeks` emits no entry for a week with no commits, so a fortnight of silence
+  // disappears from the array and the next week sits flush against the last. Anything reading the series by
+  // index then draws two months of nothing as one step — the single thing a rhythm measure must not do.
+  // Filled with zero rather than unknown, because git is complete over its own range: a week with no entry
+  // is a week that was examined and had none, which is a measurement.
+  const sparse = [
+    { week: '2026-01-05', commits: 4, added: 1, removed: 0, ai: 0, authors: 1 },
+    { week: '2026-02-02', commits: 6, added: 1, removed: 0, ai: 0, authors: 1 },
+  ];
+  const { weeks, filled } = fillWeeks(sparse);
+  eq(weeks.length, 5, 'four weeks separate the two commits, so the axis is five wide');
+  eq(filled, 3, 'the count of fabricated weeks is reported, never hidden');
+  eq(weeks.map((w) => w.commits), [4, 0, 0, 0, 6], 'a silent week is zero — not null, not absent');
+  ok(weeks.filter((w) => w.silent).every((w) => w.commits === 0), 'a filled week is flagged as filled');
+  eq(fillWeeks([sparse[0]]).filled, 0, 'a single week has no gap to fill and none is invented');
+});
+
+test('git insight · a large commit contributes no coupling pairs, and the exclusion is counted', () => {
+  // One commit touching forty files contributes 780 pairs, every one of them co-occurring exactly once. A
+  // rename sweep or a generated-output refresh would be the loudest signal on the page, and it would mean
+  // nothing. Excluded wholesale — and the number excluded is reported, because a silent filter is a lie
+  // about the window.
+  const many = Array.from({ length: 30 }, (_, i) => ({ path: `sweep/f${i}.js`, added: 1, removed: 0 }));
+  const contrib = {
+    available: true,
+    commits: [
+      { date: '2026-01-01T00:00:00Z', files: many },
+      { date: '2026-01-02T00:00:00Z', files: [{ path: 'a.js' }, { path: 'b.js' }] },
+      { date: '2026-01-03T00:00:00Z', files: [{ path: 'a.js' }, { path: 'b.js' }] },
+      { date: '2026-01-04T00:00:00Z', files: [{ path: 'a.js' }, { path: 'b.js' }] },
+      { date: '2026-01-05T00:00:00Z', files: [{ path: 'solo.js' }] },
+    ],
+  };
+  const k = coupling(contrib, { root: null });
+  eq(k.excludedLarge, 1, 'the sweep is excluded and counted');
+  eq(k.excludedSingle, 1, 'a one-file commit has no pair to contribute, and is counted too');
+  eq(k.basis, 3, 'the window is the usable commits, and it is stated');
+  eq(k.pairs.length, 1, 'only the pair that recurs survives the support floor');
+  ok(!k.pairs.some((p) => p.a.startsWith('sweep/')), 'no pair may come from the excluded commit');
+});
+
+test('git insight · on a young repository coupling is anecdote, and says so in the output', () => {
+  // "These two files change together 100% of the time" over three commits is a coincidence with a percentage
+  // attached. The support count travels with every pair, and below the stated basis floor the report leads
+  // with the word ANECDOTE rather than leaving the reader to notice the sample size.
+  const contrib = {
+    available: true,
+    commits: Array.from({ length: 3 }, (_, i) => ({
+      date: `2026-01-0${i + 1}T00:00:00Z`, files: [{ path: 'a.js' }, { path: 'b.js' }],
+    })),
+  };
+  const k = coupling(contrib, { root: null });
+  eq(k.anecdotal, true, `3 usable commits is below the floor of ${k.minBasis}`);
+  eq(k.pairs[0].support, 3, 'the raw count is carried, not just the percentage');
+  const out = formatGitInsight({ available: true, section: 'coupling', sections: { coupling: k } }, false);
+  includes(out, 'ANECDOTE, NOT SIGNAL', 'the caveat is in the output, not in a docblock nobody reads');
+  includes(out, 'over 3 shared commit(s)', 'the support count is printed beside the percentage');
+});
+
+test('git insight · a branch that never diverged is at-main, not spent', () => {
+  // `git for-each-ref --merged main` answers "reachable from main", which is trivially true of a branch
+  // created ten seconds ago with nothing on it. The first draft therefore listed a sibling session's brand
+  // new working branch as *merged, nothing unique on it* — accurate, and reading as "delete this" beside
+  // twenty-six genuinely finished branches. `behind` is what separates the two.
+  const dir = fixture('gi-branches', { 'docs/A.md': '# A\n' });
+  const main = gitIn(dir, 'rev-parse', '--abbrev-ref', 'HEAD');
+  gitIn(dir, 'switch', '-q', '-c', 'feat/landed');
+  commitMsg(dir, 'docs/B.md', '# B\n', 'feat: landed work');
+  gitIn(dir, 'switch', '-q', main);
+  gitIn(dir, 'merge', '-q', '--no-ff', '-m', 'merge', 'feat/landed');
+  gitIn(dir, 'switch', '-q', '-c', 'feat/fresh');
+  gitIn(dir, 'switch', '-q', main);
+  gitIn(dir, 'switch', '-q', '-c', 'feat/open');
+  commitMsg(dir, 'docs/C.md', '# C\n', 'feat: unlanded work');
+  gitIn(dir, 'switch', '-q', main);
+
+  const k = branchHealth(dir, { branching: { main } });
+  ok(k.available, 'the survey must run on an ordinary repository');
+  const state = (n) => k.branches.find((b) => b.name === n);
+  eq(state('feat/fresh').ahead, 0);
+  eq(state('feat/fresh').behind, 0);
+  eq(k.atMain.map((b) => b.name), ['feat/fresh'], 'a branch sitting on the trunk commit is new, not finished');
+  eq(k.spent.map((b) => b.name), ['feat/landed'], 'merged AND behind is the branch whose work landed');
+  eq(k.unmerged.map((b) => b.name), ['feat/open'], 'a branch with unmerged commits is open');
+  ok(!k.spent.some((b) => b.name === 'feat/fresh'), 'the fresh branch must never be offered as safe to lose');
+});
+
+test('git insight · an unmeasured ahead/behind stays null and renders as ?, never 0', () => {
+  // "0 ahead" for a branch nobody measured is how work gets thrown away. The cap on the ahead/behind pass is
+  // real and is stated; what it must never do is fill the gap with a number.
+  const dir = fixture('gi-cap', { 'docs/A.md': '# A\n' });
+  const main = gitIn(dir, 'rev-parse', '--abbrev-ref', 'HEAD');
+  for (const n of ['feat/one', 'feat/two']) {
+    gitIn(dir, 'switch', '-q', '-c', n);
+    commitMsg(dir, `docs/${n.slice(5)}.md`, '# x\n', `feat: ${n}`);
+    gitIn(dir, 'switch', '-q', main);
+  }
+  const k = branchHealth(dir, { branching: { main } }, { ...DEFAULT_GITINSIGHT, branchDetailCap: 1 });
+  eq(k.detailed, 1, 'the cap applied');
+  ok(k.undetailed >= 1, 'and the number left unread is reported rather than dropped');
+  const unread = k.branches.filter((b) => b.ahead === null);
+  ok(unread.length >= 1, 'a branch past the cap keeps null, not zero');
+  const out = formatGitInsight({ available: true, section: 'branches', sections: { branches: k } }, false);
+  includes(out, '?', 'an unread figure renders as a question mark');
+  includes(out, 'unread (? = never measured, not zero)', 'and the legend says what the mark means');
+  ok(!k.spent.some((b) => b.ahead === null), 'nothing unread may be called spent — the claim is that deleting it loses nothing');
+});
+
+test('git insight · trailers alone are not a commit body', () => {
+  // Every commit in this repository ends with Co-Authored-By: and Desk:. A naive "is %b non-empty" check
+  // therefore reports 100% of commits as explained, in exactly the repository that mandates those trailers —
+  // a perfect score produced by a convention unrelated to what is being measured.
+  const dir = fixture('gi-bodies', { 'docs/A.md': '# A\n' });
+  commitMsg(dir, 'docs/B.md', '# B\n', 'feat: subject only');
+  commitMsg(dir, 'docs/C.md', '# C\n', 'feat: trailers only\n\nCo-Authored-By: Someone <s@example.com>\nDesk: test');
+  commitMsg(dir, 'docs/D.md', '# D\n', 'feat: real body\n\nWhy this happened.\n\nCo-Authored-By: Someone <s@example.com>');
+
+  const cfg = resolveConfig(dir);
+  const k = hygiene(dir, readContrib(dir, cfg), { plan: null });
+  ok(k.available, 'hygiene must read an ordinary repository');
+  eq(k.bodiesRead, 4, 'the initial commit plus three');
+  eq(k.noBody, 3, 'the trailer-only commit counts as having no body, alongside the two bare subjects');
+  eq(k.namingPlanItem, null, 'with no planning source the strict figure is unread, not zero');
+  const out = formatGitInsight({ available: true, section: 'hygiene', sections: { hygiene: k } }, false);
+  includes(out, 'trailers alone do not count as a body');
+  includes(out, '1 of 4', 'every rate prints its denominator');
+});
+
+test('git insight · a busy file no document cites is named, and markdown is excluded from that list', () => {
+  // An orphaned .md is `atlas health`'s finding, under its own name; a second name for one finding is the
+  // forked document this whole tool hunts for. A .md outside the index was excluded by the config on purpose,
+  // so asking why the corpus does not document it is asking a question already answered — the generated daily
+  // worklog is the case that made it obvious.
+  // `notes/**` is excluded from the corpus by the config, so `notes/journal.md` is markdown that is NOT a
+  // document — which is the case the extension test exists for. A .md file that IS indexed is already covered
+  // by `isDocument`, so a fixture built only from indexed markdown proves nothing.
+  const dir = fixture('gi-hotspots', {
+    'project-atlas.config.json': JSON.stringify({ exclude: ['notes/**'] }),
+    'docs/A.md': '# A\n\nThe engine lives at src/engine.js:10.\n',
+    'src/engine.js': 'x\n',
+    'src/quiet.js': 'y\n',
+    'notes/journal.md': '# Journal\n',
+  });
+  commitMsg(dir, 'src/quiet.js', 'y2\n', 'fix: quiet');
+  commitMsg(dir, 'src/quiet.js', 'y3\n', 'fix: quiet again');
+  commitMsg(dir, 'notes/journal.md', '# Journal\n\nmore\n', 'chore: journal');
+  commitMsg(dir, 'notes/journal.md', '# Journal\n\nmore still\n', 'chore: journal again');
+
+  const cfg = resolveConfig(dir);
+  const index = buildIndex(dir, cfg);
+  const k = hotspots(readContrib(dir, cfg), { index, root: dir });
+  const named = k.undocumented.map((r) => r.path);
+  ok(named.includes('src/quiet.js'), `a busy uncited code file must be named — got ${JSON.stringify(named)}`);
+  ok(!named.includes('src/engine.js'), 'a file a document cites is documented');
+  ok(!named.some((p) => p.endsWith('.md')), `markdown is health.mjs's finding, not this one — got ${JSON.stringify(named)}`);
+  eq(k.undocumentedTotal, k.undocumented.length >= 1 ? k.undocumentedTotal : 0);
+  ok(k.byCommits.every((r) => fs.existsSync(path.join(dir, r.path))), 'a deleted path is history, not current risk');
+
+  // Without an index the question was never asked, and the answer is unread rather than "undocumented".
+  const blind = hotspots(readContrib(dir, cfg), { index: null, root: dir });
+  eq(blind.indexed, false);
+  eq(blind.undocumentedTotal, null, 'no corpus means no finding, not an empty one');
+  eq(blind.byCommits[0].citedBy, null, 'unread is null, never an empty array');
+});
+
+test('git insight · --no-color is the coloured report with the escapes removed, and nothing else', () => {
+  // Colour carries state and severity here, and it is never the only carrier: every red line also holds a
+  // word, every threshold prints a number, every rate prints its denominator. The proof is mechanical —
+  // strip the escapes from the coloured render and it must equal the plain one byte for byte. A reader
+  // piping to a file is not a degraded reader.
+  const dir = fixture('gi-color', { 'docs/A.md': '# A\n\nsrc/engine.js:1\n', 'src/engine.js': 'x\n' });
+  commitMsg(dir, 'src/engine.js', 'y\n', 'fix: touch it');
+  const cfg = resolveConfig(dir);
+  const k = readGitInsight(dir, cfg, {
+    contrib: readContrib(dir, cfg), index: buildIndex(dir, cfg), plan: null, section: 'all',
+  });
+  const painted = formatGitInsight(k, true);
+  const plain = formatGitInsight(k, false);
+  ok(/\x1b\[/.test(painted), 'the coloured render must actually emit ANSI, or this proves nothing');
+  eq(/\x1b\[/.test(plain), false, '--no-color must emit no escape at all');
+  eq(painted.replace(/\x1b\[[0-9;]*m/g, ''), plain,
+    'removing the escapes must leave the plain report exactly — anything else is meaning carried by colour alone');
+});
+
+test('git insight · nothing under this command can mutate a repository', () => {
+  // These are the commands an agent runs without asking, so the boundary is enforced by what the module can
+  // do rather than by a warning in prose. One helper wraps every git call, and its verbs are an allowlist.
+  const src = fs.readFileSync(path.join(REPO_ROOT, 'scripts', 'lib', 'gitinsight.mjs'), 'utf8');
+  eq((src.match(/execFileSync\(/g) || []).length, 1,
+    'exactly one execFileSync — a second call site is a second place the allowlist does not cover');
+  const verbs = [...src.matchAll(/\bgit\(root,\s*\[\s*'([a-z][a-z-]*)'/g)].map((m) => m[1]);
+  ok(verbs.length >= 4, `expected the module to call git several times, saw ${verbs.length}`);
+  const READ_ONLY = new Set(['for-each-ref', 'rev-parse', 'rev-list', 'log', 'merge-base', 'ls-files', 'show']);
+  for (const v of verbs) ok(READ_ONLY.has(v), `\`git ${v}\` is not on the read-only allowlist`);
+
+  // And the *output* must not hand a runnable command to whatever is reading it. Asserted on the render
+  // rather than on the source, because the source says so in a comment and a grep cannot tell the two apart —
+  // which is how the first version of this test failed on the sentence explaining the rule.
+  const dir = fixture('gi-readonly', { 'docs/A.md': '# A\n' });
+  const main = gitIn(dir, 'rev-parse', '--abbrev-ref', 'HEAD');
+  gitIn(dir, 'switch', '-q', '-c', 'feat/done');
+  commitMsg(dir, 'docs/B.md', '# B\n', 'feat: work');
+  gitIn(dir, 'switch', '-q', main);
+  gitIn(dir, 'merge', '-q', '--no-ff', '-m', 'merge', 'feat/done');
+  const k = branchHealth(dir, { branching: { main } });
+  eq(k.spent.map((b) => b.name), ['feat/done'], 'the fixture must actually produce a spent branch');
+  const out = formatGitInsight({ available: true, section: 'branches', sections: { branches: k } }, false);
+  includes(out, 'will not do it', 'the report says plainly that it refuses');
+  eq(/\bgit\s+(branch|push|checkout|switch|fetch|reset|clean|gc|prune|remote|config)\b/.test(out), false,
+    `the branch report offered a runnable git command:\n${out}`);
 });
 
 /* ================================================================== the day, written down */

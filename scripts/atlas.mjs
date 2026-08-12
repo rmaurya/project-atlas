@@ -15,6 +15,7 @@
  *   atlas note     append one continuity record — what was decided or touched, never what was said
  *   atlas state    what a resuming session reads first, reconstructed from the journal
  *   atlas contrib  who did what, from git: people, agents, desks, hours, outcomes
+ *   atlas git-insights  hotspots, coupling, branch health, cadence, hygiene — read-only, mutates nothing
  *   atlas health   report rot signals         (--verbose | --verbose=all)  exit 1 on blocking
  *   atlas build    generate the static site (index, dashboard, deck, health)
  *   atlas watch [--serve]      rebuild on change; --serve hosts it live at http://127.0.0.1:4173
@@ -43,6 +44,7 @@ import { communityAssets, writeCommunity } from './lib/community.mjs';
 import { branchStatus, createBranch, formatBranch, TYPES } from './lib/branch.mjs';
 import { readTokens, formatTokens, formatSessions, transcriptDir, assertNotPublishable } from './lib/tokens.mjs';
 import { readChanges, formatChanges, fileDiff } from './lib/changes.mjs';
+import { readGitInsight, formatGitInsight, GITINSIGHT_SECTIONS } from './lib/gitinsight.mjs';
 import { formatVersion, updateNotice, isPluginCache } from './lib/version.mjs';
 import { specVerdict, idsIn } from './lib/spec.mjs';
 import { checkForUpdate, readCache } from './lib/update.mjs';
@@ -881,6 +883,49 @@ async function main() {
     return;
   }
 
+  /*
+   * `atlas git-insights [section]` — the questions about history that `contrib`, `changes` and `branch`
+   * between them do not answer.
+   *
+   * **Read-only, and deliberately safe to run blind.** Nothing under this command fetches, checks out, prunes,
+   * deletes or writes a config value, and the branch report does not even print a `git branch -d` for someone
+   * to paste — see gitinsight.mjs. These are the commands an agent runs without asking, so the boundary is
+   * enforced by what the module can do rather than by a warning nobody reads.
+   *
+   * One section at a time, as a positional rather than a flag, because that is what the slash commands want:
+   * Claude Code refuses to auto-approve a compound command, so every `!` block is a single invocation and each
+   * skill needs exactly one section rendered whole rather than a full report it has to filter.
+   *
+   * The index is built once and passed in, which is what makes the corpus cross-reference — a busy file no
+   * document cites — possible at all. `--no-index` skips it for a repository with no config or a caller who
+   * wants git and nothing else, and the report says the cross-reference was not run rather than reporting
+   * every file as undocumented.
+   */
+  if (cmd === 'git-insights' || cmd === 'git-insight') {
+    const section = positionals[0] || 'all';
+    if (section !== 'all' && !GITINSIGHT_SECTIONS.includes(section)) {
+      console.error(`Unknown section "${section}". Use one of: ${GITINSIGHT_SECTIONS.join(', ')} — or none for all of them.`);
+      process.exitCode = 2;
+      return;
+    }
+    // `hotspots` and `change` are the only sections that read the corpus; the rest are pure git, and building
+    // an index for `atlas git-insights cadence` would be seconds of work thrown away.
+    const wantsIndex = !flag('no-index') && (section === 'all' || section === 'hotspots' || section === 'change');
+    const index = wantsIndex ? buildIndex(root, cfg, { withGit }) : null;
+    const k = readGitInsight(root, cfg, {
+      contrib: readContrib(root, cfg),
+      index,
+      plan: readPlanning(root, cfg),
+      section,
+    });
+    if (flag('json')) { console.log(JSON.stringify(k, null, 2)); return; }
+    say(formatGitInsight(k, color));
+    // Exit 1 only when there was nothing to read. Findings here are observations, not defects — a repository
+    // with forty hotspots is not failing a check, and making this gate a build would teach people to skip it.
+    if (!k.available) process.exitCode = 1;
+    return;
+  }
+
   // `--gate` is the commit hook's entry point. It reports only when it has something to refuse, because a hook
   // that prints on every commit is a hook people disable. Exit 1 means blocking findings; the hook maps that
   // to its own exit 2, which is the only code that stops a tool call.
@@ -1537,6 +1582,8 @@ function usage() {
   atlas note <kind> "<text>"  append one record to the journal — survives a killed session
   atlas state [--json]       what a resuming session reads first: where you are, what was recorded
   atlas contrib [--json]     who did what, from git history alone
+  atlas git-insights [sect]  what git history says that nothing else here reads — strictly read-only
+                             sections: hotspots, coupling, branches, cadence, hygiene, change
   atlas health [--verbose]   report rot signals; exit 1 if any blocking signal fires
   atlas build                generate the static site (index, dashboard, deck, health)
   atlas watch [--serve]      rebuild on change; --serve hosts it live at http://127.0.0.1:4173
