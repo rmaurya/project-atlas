@@ -1739,12 +1739,28 @@ function init(root, configPath) {
   for (const [d, n] of top) say(`    ${String(n).padStart(4)}  ${d}`);
 }
 
+/**
+ * The command surface, as a person navigates it.
+ *
+ * **Every dispatched command appears here, and a test fails when one does not.** (A-35) This list had drifted
+ * to 27 of 38 — `tasks`, `serve`, `config`, `plan`, `worklog`, `ownership` and `surviving` were all real,
+ * dispatched, documented elsewhere, and invisible to anyone who typed `atlas help`. A short list is honest
+ * about being short; a list that silently lags the code is worse, because it reads as complete and people
+ * stop looking. `tests/run.mjs` derives the dispatch table from this file's own source and compares.
+ *
+ * Aliases get a mention in the alias block rather than a line of their own: two entries describing one
+ * implementation is the same drift in miniature, and the second copy is the one that goes stale.
+ */
 function usage() {
   console.log(`project-atlas — a derived, auditable knowledgebase over your repository's documentation.
 
+  atlas help                 this list (also what a bare \`atlas\` prints)
   atlas version              which build is answering, where it lives, and whether it is behind
   atlas init                 write ${CONFIG_NAME}, detecting this repository's layout
+  atlas config [--json]      the resolved configuration — the file merged over the defaults, which is what runs
   atlas scan  [--json]       build and summarise the index
+  atlas tasks [word]         the planning document with progress bars; a word filters it
+  atlas plan [slug]          the route for the change in your tree — branch, item, version; --apply cuts the branch
   atlas branch [type slug]   branch state, or create type/short-slug carrying your changes
   atlas caps                 which host features are on (wiki/pages/issues/discussions)
   atlas community [--write]  scaffolding for the features this host actually supports
@@ -1761,11 +1777,20 @@ function usage() {
   atlas handoff              the derived half of a handoff, as a prompt — writes nothing
   atlas note <kind> "<text>"  append one record to the journal — survives a killed session
   atlas state [--json]       what a resuming session reads first: where you are, what was recorded
+  atlas worklog [--day D]    write today's entry from git and the plan; --stdout to see it without writing
   atlas contrib [--json]     who did what, from git history alone
+  atlas ownership [--json]   bus factor per area — how many people have ever touched it
+  atlas surviving [--json]   whose written lines are still in the tree, by \`git blame\` rather than by commit
   atlas git-insights [sect]  what git history says that nothing else here reads — strictly read-only
                              sections: hotspots, coupling, branches, cadence, hygiene, change
   atlas health [--verbose]   report rot signals; exit 1 if any blocking signal fires
+  atlas spec --gate          the commit gate: refuse a staged change whose message names no plan item.
+                             Reads the message on stdin and prints nothing when it passes. Bare \`atlas spec\`
+                             is not a command — \`--gate\` is the whole of it.
   atlas build                generate the static site (index, dashboard, deck, health)
+  atlas serve                build, then run the live dashboard detached and open it
+    --status | --stop        what is running here | end it now
+    --list | --launcher      every atlas dashboard on this machine | write a page linking them all
   atlas watch [--serve]      rebuild on change; --serve hosts it live at http://127.0.0.1:4173
   atlas all                  scan + health + build
   atlas pause [--dry-run]    checkpoint every agent worktree to a wip/agent-* ref, and record the session
@@ -1776,6 +1801,10 @@ function usage() {
     --target pages           the full site to a gh-pages branch (dashboard + deck survive)
     --target export          one self-contained HTML file (--page dashboard|index|health)
     --ci                     (GitLab, pages) write the .gitlab-ci.yml job instead — Pages is an artifact there
+
+Aliases
+  atlas capabilities         = atlas caps
+  atlas git-insight          = atlas git-insights
 
 Flags
   --root <dir>       repository root (default: git toplevel, else cwd)

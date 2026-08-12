@@ -14,14 +14,14 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { globToRegExp, resolveConfig, DEFAULT_CLUSTERS, DEFAULT_CONFIG, clusterFor, unsafeRegexReason, AUTOMATION_KEYS } from '../scripts/lib/config.mjs';
 import { buildIndex } from '../scripts/lib/scan.mjs';
 import { runHealth, formatReport, SIGNALS, OPERATOR_SIGNALS, readParallelism,
          DEFAULT_PARALLELISM_EDITS, CORPUS_SIGNALS as HEALTH_CORPUS_SIGNALS } from '../scripts/lib/health.mjs';
 import { SIGNALS as CORPUS_SIGNALS } from '../scripts/lib/signals.mjs';
-import { renderSite } from '../scripts/lib/render.mjs';
+import { renderSite, BUILD_CLAIM, BUILD_MARKERS } from '../scripts/lib/render.mjs';
 import { renderMarkdown, inline } from '../scripts/lib/markdown.mjs';
 import { readPlanning, DEFAULT_PLANNING } from '../scripts/lib/planning.mjs';
 import { writeDay, contributorSlug } from '../scripts/lib/worklog.mjs';
@@ -7946,6 +7946,170 @@ test('publish · a page that names the local-only marker in prose survives both 
   includes(bundle, 'is cut from every published copy of this site',
     'the sentence from docs/MARKER.md must reach the bundle whole');
   includes(bundle, 'The data-local-only marker', 'and so must the document title that names it');
+});
+
+/* ================================================================== the command surface (A-35) */
+
+/**
+ * **Synchronous, like everything appended below the drain.** `pendingAsync` is emptied thousands of lines
+ * above; an `async` case here would be constructed, never awaited, and reported as a pass it never earned.
+ */
+
+console.log('\ncommand surface');
+
+/** Every command name the CLI actually dispatches on, read out of its own source. */
+function dispatchedCommands() {
+  const src = fs.readFileSync(path.join(REPO_ROOT, 'scripts', 'atlas.mjs'), 'utf8');
+  return [...new Set([...src.matchAll(/cmd\s*===\s*'([a-z-]+)'/g)].map((m) => m[1]))].sort();
+}
+
+/** The `usage()` body — the block a person actually reads. Sliced from the function, not the whole file. */
+function usageBlock() {
+  const src = fs.readFileSync(path.join(REPO_ROOT, 'scripts', 'atlas.mjs'), 'utf8');
+  const i = src.indexOf('function usage()');
+  ok(i !== -1, 'usage() must exist — it is the surface every other assertion here is about');
+  return src.slice(i);
+}
+
+/**
+ * A name is *mentioned* if some line says `atlas <name>` and the name ends there. The trailing boundary is
+ * the point: without it `atlas git-insights` reads as a mention of `git-insight`, and the alias that needs
+ * saying out loud is exactly the one that would go unsaid.
+ */
+const mentionsCommand = (text, name) => new RegExp(`atlas ${name}(?![a-z-])`).test(text);
+
+test('usage · every dispatched command appears in the list', () => {
+  // The list had drifted to 27 of 38. `tasks`, `serve`, `config`, `plan`, `worklog`, `ownership`,
+  // `surviving`, `help` and both aliases were dispatched, real, and invisible to anyone who typed
+  // `atlas help` — while `atlas spec` was in neither place and is not a command at all.
+  //
+  // Drift like this is not caught by using the tool, because the people who know a command exists never
+  // read the list. It has to be structural: the dispatch table is derived from the source, so a new
+  // `if (cmd === 'x')` fails this the moment it lands without a line.
+  const u = usageBlock();
+  const missing = dispatchedCommands().filter((c) => !mentionsCommand(u, c));
+  eq(missing, [], 'these commands dispatch but usage() never names them — add a line, or an alias mention');
+});
+
+test('usage · the list never names a command that does not dispatch', () => {
+  // The other direction, and the reason `atlas spec` is written as `atlas spec --gate`. A list that promises
+  // a command the CLI answers with "Unknown command" and exit 2 is worse than one that omits it: the reader
+  // trusts it, runs it, and concludes the install is broken.
+  const dispatched = new Set(dispatchedCommands());
+  const listed = [...new Set([...usageBlock().matchAll(/^\s*atlas ([a-z-]+)/gm)].map((m) => m[1]))].sort();
+  ok(listed.length > 20, 'sanity: the list was found and parsed');
+  eq(listed.filter((c) => !dispatched.has(c)), [],
+    'usage() names these, and `cmd === ...` never matches them — they exit 2 with "Unknown command"');
+});
+
+test('usage · bare `atlas spec` is not a command, and the list says so rather than promising one', () => {
+  // Established by running it, not by reading the dispatch: `spec` is reached only as `spec --gate`, the
+  // commit hook's entry point. Bare `atlas spec` falls through to the unknown-command branch.
+  const r = spawnSync(process.execPath, [CLI, 'spec', '--root', REPO_ROOT], { encoding: 'utf8' });
+  eq(r.status, 2, 'bare `atlas spec` exits 2');
+  includes(r.stderr, 'Unknown command: spec');
+  includes(usageBlock(), 'atlas spec --gate');
+});
+
+/* ================================================================== an interrupted build is recoverable (A-34) */
+
+console.log('\noutput directory · interrupted builds');
+
+/**
+ * A build that dies between `prepareOutputDir` and the completion markers, for real.
+ *
+ * The child patches `fs.writeFileSync` to SIGKILL itself the instant the first marker is about to be
+ * written, which is precisely where the incident happened: pages on disk, markers not. `SIGKILL` because
+ * anything catchable would let a `finally` tidy up, and the whole point is that nothing tidied up.
+ *
+ * Run through `spawnSync`, so this case stays synchronous like everything below the drain.
+ */
+function buildAndDieBeforeMarkers(dir) {
+  const lib = (f) => JSON.stringify(pathToFileURL(path.join(REPO_ROOT, 'scripts', 'lib', f)).href);
+  const script = path.join(tmpRoot, 'kill-mid-build.mjs');
+  fs.writeFileSync(script, `
+import fs from 'node:fs';
+import { resolveConfig } from ${lib('config.mjs')};
+import { buildIndex } from ${lib('scan.mjs')};
+import { runHealth } from ${lib('health.mjs')};
+import { renderSite } from ${lib('render.mjs')};
+
+const dir = process.argv[2];
+const real = fs.writeFileSync;
+fs.writeFileSync = function (p, ...rest) {
+  if (/[\\\\/]\\.gitattributes$/.test(String(p))) process.kill(process.pid, 'SIGKILL');
+  return real.call(fs, p, ...rest);
+};
+const cfg = resolveConfig(dir);
+const index = buildIndex(dir, cfg);
+renderSite(index, runHealth(index, cfg, dir), cfg, dir);
+`, 'utf8');
+  return spawnSync(process.execPath, [script, dir], { encoding: 'utf8' });
+}
+
+test('build · a build killed before its markers land is recognised as its own wreckage, not as someone else\'s data', () => {
+  // The real incident. An interrupted build left docs/_wiki populated and unmarked, every subsequent build
+  // refused it, and the repository was unbuildable until a human ran `rm -rf docs/_wiki`.
+  const dir = fixture('out-interrupted', { 'docs/A.md': '# A\n', 'docs/B.md': '# B\n' });
+  const outDir = path.join(dir, 'docs', '_wiki');
+
+  const killed = buildAndDieBeforeMarkers(dir);
+  eq(killed.signal, 'SIGKILL', 'the child really was killed mid-build, not allowed to finish');
+
+  // The exact state that used to wedge the tool: content, no completion markers.
+  const after = fs.readdirSync(outDir);
+  ok(after.length > 2, 'the interrupted build left real content behind');
+  for (const m of BUILD_MARKERS) eq(after.includes(m), false, `${m} must not have been written yet`);
+  ok(after.includes(BUILD_CLAIM), 'but the claim it staked before writing anything is there');
+
+  // And now the thing that used to be impossible.
+  const { cfg, index, health } = analyse(dir, {});
+  const r = renderSite(index, health, cfg, dir);
+  ok(fs.existsSync(path.join(r.outDir, 'index.html')), 'the build recovers rather than refusing');
+  for (const m of BUILD_MARKERS) ok(fs.existsSync(path.join(r.outDir, m)), `${m} is written by the finished build`);
+});
+
+test('build · a finished build leaves no claim, so "interrupted" and "done" stay distinguishable', () => {
+  // If the claim survived a successful build it would mean nothing: every directory this tool ever wrote
+  // would carry permission to delete it, and the file would stop being evidence of anything. It is also the
+  // second non-deterministic byte in a tree whose byte-identical rebuild is a checkable claim.
+  const dir = fixture('out-claim-released', { 'docs/A.md': '# A\n' });
+  const { cfg, index, health } = analyse(dir, {});
+  const r = renderSite(index, health, cfg, dir);
+  eq(fs.existsSync(path.join(r.outDir, BUILD_CLAIM)), false, 'the claim is released when the markers land');
+});
+
+test('build · a directory the tool has never owned is still refused, and told exactly what to do', () => {
+  // The discrimination must be one-way. Recognising our own wreckage must not make an unowned directory
+  // deletable — `{"output":"."}` and `{"output":"docs"}` are the two failures this guard was built for, and
+  // both cost more than any number of refused builds.
+  const dir = fixture('out-occupied-still', { 'docs/A.md': '# A\n', 'docs/handwritten.txt': 'months of work\n' });
+  const { cfg, index, health } = analyse(dir, { output: 'docs' });
+  let threw = null;
+  try { renderSite(index, health, cfg, dir); } catch (e) { threw = e; }
+  ok(threw, 'no claim and no markers means refuse — that has not changed');
+  includes(threw.message, 'Refusing to delete');
+  eq(fs.readFileSync(path.join(dir, 'docs', 'handwritten.txt'), 'utf8'), 'months of work\n');
+
+  // Refusing is only half of it. The old message named no directory to remove and no key to change, so the
+  // operator's next move was a guess — and the guess that ends this state is `rm -rf`, which is the one
+  // command nobody should be guessing at.
+  includes(threw.message, `rm -rf ${path.join(dir, 'docs')}`, 'the message spells out the recovery command');
+  includes(threw.message, 'project-atlas.config.json', 'and names the file whose `output` key is the likelier fix');
+  includes(threw.message, BUILD_CLAIM, 'and says what evidence it looked for and did not find');
+});
+
+test('build · a claim from some other directory does not authorise deleting this one', () => {
+  // The claim is checked, not merely counted. A file with the right name and the wrong contents is exactly
+  // what an attacker — or a careless `cp -r` — would leave, and the guard must not fold to a filename.
+  const dir = fixture('out-forged-claim', { 'docs/A.md': '# A\n', 'docs/handwritten.txt': 'months of work\n' });
+  fs.writeFileSync(path.join(dir, 'docs', BUILD_CLAIM),
+    JSON.stringify({ tool: 'project-atlas', output: 'somewhere/else', startedAt: '2026-01-01T00:00:00Z' }), 'utf8');
+  const { cfg, index, health } = analyse(dir, { output: 'docs' });
+  let threw = null;
+  try { renderSite(index, health, cfg, dir); } catch (e) { threw = e; }
+  ok(threw, 'a claim naming a different output directory proves nothing about this one');
+  eq(fs.readFileSync(path.join(dir, 'docs', 'handwritten.txt'), 'utf8'), 'months of work\n');
 });
 
 console.log(`\n${pass} passed, ${fail} failed${skipped ? `, ${skipped} skipped on ${process.platform}` : ''}\n`);

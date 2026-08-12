@@ -5,6 +5,7 @@
   "exclude": [
     "node_modules/**",
     ".git/**",
+    ".claude/**",
     "**/_wiki/**",
     "LICENSE",
     "plugins/**",

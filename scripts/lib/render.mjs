@@ -29,10 +29,50 @@ import { flatName, pageNames, jsonForScript } from './render-shared.mjs';
 import { num } from './format.mjs';
 
 /**
- * Files every build of this tool writes into its output directory. They are the proof that the directory is
- * ours to delete — see `prepareOutputDir`.
+ * Files every **completed** build of this tool writes into its output directory. They are the proof that a
+ * finished build owned the directory — see `prepareOutputDir`. They are written near the end, which is
+ * exactly why they cannot be the only proof: see `BUILD_CLAIM`.
  */
-const BUILD_MARKERS = ['README.md', '.gitattributes'];
+export const BUILD_MARKERS = ['README.md', '.gitattributes'];
+
+/**
+ * The claim a build stakes on its output directory **before** it writes anything into it, and removes once
+ * the completion markers are down. (A-34)
+ *
+ * `BUILD_MARKERS` answer "did a build finish here". Nothing answered "did a build *start* here", and the
+ * window between those two questions is the whole of a build. A build killed inside that window left the
+ * directory populated and unmarked — which is byte-for-byte what somebody else's data looks like — so the
+ * provenance guard refused every subsequent build and the repository was unbuildable until a human ran
+ * `rm -rf` on it by hand.
+ *
+ * The claim closes the window without opening the guard: it is written by this tool, into a directory this
+ * tool had just proved was its own to clear, and it says so on its face. A directory carrying a valid claim
+ * is this tool's own wreckage. A directory carrying neither claim nor markers has never been ours, and is
+ * still refused.
+ *
+ * It is deleted on success, which matters twice: a finished build's output stays byte-identical between
+ * rebuilds (the claim carries a timestamp and a pid, and would be the second non-deterministic file in a
+ * tree whose determinism is a checkable claim), and the *presence* of the file stays meaningful — it means
+ * "a build is running here or died here", never "a build once ran here".
+ */
+export const BUILD_CLAIM = '.atlas-build-claim.json';
+
+/**
+ * Is this a claim staked by this tool, on this directory?
+ *
+ * Checked rather than trusted, because the whole value of the guard is that it does not delete on the
+ * strength of a filename. The recorded `output` is the path **relative to the repository root**, so a
+ * checkout that moved on disk still recognises its own interrupted build, while a claim copied out of some
+ * other directory does not authorise deleting this one.
+ */
+function readClaim(outDir, root) {
+  try {
+    const c = JSON.parse(fs.readFileSync(path.join(outDir, BUILD_CLAIM), 'utf8'));
+    if (c?.tool !== 'project-atlas' || !c.startedAt) return null;
+    const rel = path.relative(root, outDir).split(path.sep).join('/');
+    return c.output === rel ? c : null;
+  } catch { return null; }
+}
 
 /**
  * The output directory is **deleted recursively** on every build, and until this existed the path came
@@ -44,9 +84,14 @@ const BUILD_MARKERS = ['README.md', '.gitattributes'];
  *
  *  1. **Containment.** The directory must resolve to somewhere strictly inside the repository — checked
  *     through `realpath` on both sides, so a symlinked `output` cannot point the deletion elsewhere.
- *  2. **Provenance.** A directory that already holds files but carries none of this tool's markers was written
- *     by someone else. `docs/` is a plausible typo for `docs/_wiki`, and the difference between those two is a
- *     day's work. An empty directory, or a missing one, is fine — there is nothing to lose.
+ *  2. **Provenance.** A directory that already holds files but carries no evidence this tool wrote them was
+ *     written by someone else. `docs/` is a plausible typo for `docs/_wiki`, and the difference between those
+ *     two is a day's work. An empty directory, or a missing one, is fine — there is nothing to lose.
+ *
+ * **Neither guard is relaxed here; the second one was taught to read a second kind of evidence.** (A-34) A
+ * completed build proves ownership with `BUILD_MARKERS`; a build that started and never finished proves it
+ * with `BUILD_CLAIM`. Anything else still refuses, because deleting a directory you are not certain you own
+ * is unrecoverable and refusing to build is not.
  */
 function prepareOutputDir(root, cfg) {
   const outDir = confine(root, cfg.output, 'output', cfg.__configPath);
@@ -55,17 +100,49 @@ function prepareOutputDir(root, cfg) {
     const stat = fs.lstatSync(outDir);
     if (!stat.isDirectory()) throw new Error(`output resolves to ${outDir}, which is not a directory.`);
     const entries = fs.readdirSync(outDir);
-    const ours = BUILD_MARKERS.every((m) => entries.includes(m));
-    if (entries.length && !ours) {
+    const finished = BUILD_MARKERS.every((m) => entries.includes(m));
+    const interrupted = !finished && !!readClaim(outDir, root);
+    if (entries.length && !finished && !interrupted) {
+      const rel = path.relative(root, outDir).split(path.sep).join('/') || '.';
       throw new Error(
-        `Refusing to delete ${outDir}: it contains ${entries.length} entr${entries.length === 1 ? 'y' : 'ies'} ` +
-        `but none of the files a project-atlas build leaves behind (${BUILD_MARKERS.join(', ')}).\n` +
-        `  The build clears its output directory completely, so this would destroy work that is not derived.\n` +
-        `  Point \`output\` at a directory of its own, or delete this one by hand if it really is generated.`);
+        `Refusing to delete ${outDir}: it holds ${num(entries.length)} entr${entries.length === 1 ? 'y' : 'ies'}, ` +
+        `none of the files a completed project-atlas build leaves behind (${BUILD_MARKERS.join(', ')}), ` +
+        `and no ${BUILD_CLAIM} from a build that was interrupted.\n` +
+        `  A build clears its output directory completely, so this would destroy work that is not derived.\n` +
+        `  Do one of these:\n` +
+        `    • If \`output\` is pointing at the wrong place, change it in ` +
+        `${cfg.__configPath ? path.relative(root, cfg.__configPath) : 'project-atlas.config.json'} — ` +
+        `give the build a directory of its own, e.g. "output": "docs/_wiki". Nothing is deleted by fixing this.\n` +
+        `    • If everything in ${rel} really is generated and you want it gone, delete it yourself:\n` +
+        `        rm -rf ${outDir}\n` +
+        `      then build again. This tool will not run that for you — it cannot prove the directory is its own.`);
     }
     fs.rmSync(outDir, { recursive: true, force: true });
   }
+
+  // The claim goes down before a single generated byte does, so there is no instant at which this directory
+  // is populated and unattributable. Written after the clear, not before it: a claim written before the
+  // `rmSync` would be deleted by it, and a claim written into a directory that was refused would hand the
+  // next build permission the guard had just withheld.
+  fs.mkdirSync(outDir, { recursive: true });
+  fs.writeFileSync(path.join(outDir, BUILD_CLAIM), JSON.stringify({
+    tool: 'project-atlas',
+    output: path.relative(root, outDir).split(path.sep).join('/'),
+    startedAt: new Date().toISOString(),
+    pid: process.pid,
+    note: 'A build is writing this directory, or died writing it. Everything here is derived and safe to delete.',
+  }, null, 2) + '\n', 'utf8');
+
   return outDir;
+}
+
+/**
+ * Release the claim. Called only once the completion markers are on disk, so the two states are never both
+ * true and never both false: while a build is in flight the claim is the proof, and afterwards the markers
+ * are. (A-34)
+ */
+function releaseOutputDir(outDir) {
+  fs.rmSync(path.join(outDir, BUILD_CLAIM), { force: true });
 }
 
 export function renderSite(index, health, cfg, root) {
@@ -229,6 +306,12 @@ export function renderSite(index, health, cfg, root) {
     codeFiles: repo.files.length ? repo.code : null,
     nameFor,
   });
+
+  // The build finished. The completion markers are down, so the claim has nothing left to say — and leaving
+  // it would make "interrupted" indistinguishable from "done", which is the distinction it exists to draw.
+  // Anything that throws above this line leaves the claim in place deliberately: that is the wreckage the
+  // next build has to be able to recognise as its own. (A-34)
+  releaseOutputDir(outDir);
 
   return { outDir, pages: written.size, truncated, plan, deck, collisions, kb };
 }
