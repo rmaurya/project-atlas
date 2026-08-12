@@ -550,11 +550,25 @@ export function exportBundle(root, cfg, pages = null, about = {}) {
     : [];
   const all = [...nav.map((p) => ({ ...p, from: `${p.file}.html` })), ...docs];
 
+  /**
+   * **Every page is read through the stripper, and this is the only place any page is read.**
+   *
+   * `exportSingleFile` has stripped `data-local-only` since the incident that created the marker — a
+   * standalone export handed to someone with a private task list and every uncommitted path in it. This
+   * function is the *other* export, the one `--target export` reaches with `which === 'all'`, and it never
+   * stripped anything: it read each page straight off disk, so the in-flight panel travelled in the bundle
+   * on all five views that carry it. Same command, same promise on the tin, opposite behaviour.
+   *
+   * Read twice — once to count colliding ids, once to build the section — and the strip has to happen on
+   * both or the id census counts ids belonging to markup that will not be in the output, and prefixes
+   * survivors against collisions that no longer exist. One helper, so the two passes cannot drift.
+   */
+  const readPage = (p) => stripLocalOnly(fs.readFileSync(path.join(outDir, p.from), 'utf8'));
+
   // Ids carried by more than one page. Chrome is deduplicated; the rest are prefixed.
   const seen = new Map();
   for (const p of all) {
-    const html = fs.readFileSync(path.join(outDir, p.from), 'utf8');
-    for (const id of new Set([...html.matchAll(/id="([\w-]+)"/g)].map((m) => m[1]))) {
+    for (const id of new Set([...readPage(p).matchAll(/id="([\w-]+)"/g)].map((m) => m[1]))) {
       seen.set(id, (seen.get(id) || 0) + 1);
     }
   }
@@ -563,7 +577,7 @@ export function exportBundle(root, cfg, pages = null, about = {}) {
   const known = new Set(all.map((p) => p.file));
 
   const sections = all.map((p, i) => {
-    let html = fs.readFileSync(path.join(outDir, p.from), 'utf8');
+    let html = readPage(p);
     const body = /<main>([\s\S]*?)<\/main>/.exec(html);
     const scripts = [...html.matchAll(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/g)].map((m) => m[1]);
     let inner = body ? body[1] : '';
@@ -882,6 +896,7 @@ export const BUNDLE_PAGES = [
   { file: 'view-qc', label: 'Quality' },
   { file: 'view-product', label: 'Product' },
   { file: 'view-delivery', label: 'Delivery' },
+  { file: 'view-repository', label: 'Repository' },
   { file: 'view-architecture', label: 'Architecture' },
   { file: 'view-blueprint', label: 'Blueprint' },
   { file: 'view-developer', label: 'Developer' },

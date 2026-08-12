@@ -29,6 +29,10 @@ export const PANELS = {
   people: 'Per-author commits, files, churn, days, estimated hours',
   desks: 'Per-desk attribution from the Desk: trailer',
   coverage: 'Spec-to-build — items named by a commit',
+  repoTiles: 'Repository scale — files under change, how few areas hold half the churn, branches, sole-author areas',
+  churn: 'Where the change lands — lines changed per area of the tree, and how many people have ever touched each',
+  hotspots: 'The files the work keeps returning to, and how far each one moves when it is touched',
+  branches: 'Every local branch, how far behind the newest commit it sits, and whether it still holds anything',
   documents: 'The documents this role owns, with dates, status and signals',
   recent: 'Recent commits — what changed, and when',
   changes: 'What changed, and which documents cite the files you touched',
@@ -91,6 +95,40 @@ export const DEFAULT_VIEWS = [
     blurb: 'Throughput and where it is concentrated. Rhythm, not value — a commit count measures neither difficulty nor worth.',
     clusters: ['planning', 'operations'],
     panels: ['deliveryTiles', 'inflight', 'charts', 'velocity', 'worklog', 'recent', 'people', 'desks', 'status', 'documents', 'caveats'],
+  },
+  {
+    /*
+     * **Delivery and this page read the same `git log` and never ask it the same question.**
+     *
+     * That distinction was the whole argument for building this rather than renaming Delivery, so it is
+     * written down where the next person will find it. Delivery's unit of analysis is *the commit and the
+     * person*: how many, by whom, in which week, with which model assisting. Every panel on it — the tiles,
+     * velocity, models, people, desks, coverage, recent — aggregates commits over **time and identity**.
+     *
+     * Not one of them ever names a path. Walk that page end to end and you cannot learn that `scripts/lib`
+     * has absorbed 43% of every line this repository has ever changed, that `tests/run.mjs` is a single file
+     * carrying more churn than every directory in the tree bar one, or that two of forty areas hold half of
+     * everything. Those are facts about **where the work landed**, and where is a different axis from when
+     * and who — orthogonal, not a filter. A reader who wants to know what is fragile is asking a spatial
+     * question, and this tool had no page that answered one.
+     *
+     * **What was deliberately not built here, and why, because the omissions carry as much of the argument:**
+     *
+     *  - **No weekly chart.** Delivery already owns the time axis three times over, and a third rendering of
+     *    the same series under a new heading is exactly the duplicated page this view had to justify not
+     *    being. The one real defect on that axis — `velocityChart` plotting `contrib.weeks` by index, so a
+     *    silent fortnight closed up into one step — was fixed in place on Delivery instead. Fixing the page
+     *    that owns the question beats drawing it again on the page that does not.
+     *  - **No surviving-lines panel.** `surviving.mjs` is opt-in *because* blaming every line of every file
+     *    runs to minutes on a large repository, and a build that hangs is a build nobody runs twice. A figure
+     *    good enough for a command someone chose to type is not thereby good enough for every `atlas watch`.
+     *  - **No ranking of anybody.** Files and directories are ranked here; people are not, anywhere, and the
+     *    authorship figure on the churn panel is a count of who *could* be asked about an area rather than a
+     *    measure of who did the most to it.
+     */
+    id: 'repository', title: 'Repository', nav: true,
+    blurb: 'Where the change lands and what it has concentrated on. Not who did it or when — that is Delivery. This is the shape of the tree underneath.',
+    panels: ['repoTiles', 'churn', 'hotspots', 'branches', 'inflight', 'caveats'],
   },
   {
     id: 'architecture', title: 'Architecture', nav: true,
