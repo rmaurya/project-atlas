@@ -28,7 +28,7 @@ import { writeDay, contributorSlug } from '../scripts/lib/worklog.mjs';
 import { buildPrompt } from '../scripts/lib/prompt.mjs';
 import { readDeck } from '../scripts/lib/deck.mjs';
 import { RAMP, STATUS, INK, viewPage, signalGroups } from '../scripts/lib/dashboard.mjs';
-import { CAT, CAT_MAX, donut, lineChart, sparkbars } from '../scripts/lib/charts.mjs';
+import { CAT, CAT_MAX, donut, lineChart, stackedArea, sparkbars } from '../scripts/lib/charts.mjs';
 import { automationAllows } from '../scripts/lib/config.mjs';
 import { buildWikiPages, wikiPageName, isSafePageName, exportSingleFile, exportBundle, RESERVED, gitlabPagesJob, stageWiki, stripLocalOnly, BUNDLE_PAGES } from '../scripts/lib/publish.mjs';
 // A namespace import, because `OPERATOR_SIGNALS` arrives with H17 and a named import of an export that does
@@ -7789,6 +7789,163 @@ test('economics · rule 1 in the module header names the build, because the buil
 
   const dash = fs.readFileSync(path.join(REPO_ROOT, 'scripts', 'lib', 'dashboard.mjs'), 'utf8');
   ok(/readTokenEconomics/.test(dash), 'if this ever stops being true, the header above is wrong again');
+});
+
+/* ================================================================== chart axes, publish marker (Q-6) */
+
+/**
+ * **Synchronous, like everything appended below the drain.** `pendingAsync` is emptied thousands of lines
+ * above, so an `async` case here would be constructed, never awaited, and counted as a pass it never ran for.
+ *
+ * Three shipped defects, each asserted on the property rather than on the symptom: an axis label that fits
+ * inside the picture, a gridline that is drawn where its own label says it is, and a marker that is an
+ * attribute rather than a word.
+ */
+
+console.log('\nchart axes and the publish marker');
+
+/** Text nodes in an SVG, with the attributes needed to work out where the glyphs actually land. */
+const svgText = (svg) => [...svg.matchAll(/<text class="c-tick" x="([\d.]+)" y="([\d.]+)" text-anchor="(\w+)">([^<]*)<\/text>/g)]
+  .map((m) => ({ x: Number(m[1]), y: Number(m[2]), anchor: m[3], label: m[4] }));
+
+/**
+ * The horizontal extent of a label, in user units.
+ *
+ * There is no text measurement without a layout engine, so this is an estimate — and deliberately a
+ * *conservative* one. `.c-tick` is 10px; digits and hyphens in the system sans stack run about 6.2px at that
+ * size, and 6.0 is used here so the test cannot fail on a rounding difference between one machine's idea of a
+ * font and another's. Under-estimating is the safe direction: it can only let a real overhang pass, never
+ * invent one, and the overhang this guards is 14px.
+ */
+const extent = ({ x, anchor, label }) => {
+  const wide = label.length * 6.0;
+  if (anchor === 'end') return [x - wide, x];
+  if (anchor === 'start') return [x, x + wide];
+  return [x - wide / 2, x + wide / 2];
+};
+
+test('charts · every axis label is drawn inside the viewBox, including the last one', () => {
+  // `lineChart` and `stackedArea` centred the final x label on `w - pad.r` — ten pixels from the edge of the
+  // picture — so half of a five-character date hung outside the viewBox and was clipped. It affected every
+  // time chart the tool draws, the shipped Commits-per-week chart on the Delivery page included; it was
+  // reported against the economics view only because that is where somebody happened to look.
+  //
+  // Asserted as "no label leaves the box" rather than "the last label is anchored end", so the fix is free to
+  // change and the property is not.
+  const w = 460, labels = ['07-01', '07-08', '07-15', '07-22', '07-29', '08-05'];
+  const charts = {
+    lineChart: lineChart({ title: 'weekly', labels, series: [{ label: 'commits', values: [4, 11, 6, 9, 2, 8] }] }),
+    stackedArea: stackedArea({ title: 'weekly', labels, series: [{ label: 'added', values: [40, 11, 60, 9, 2, 80] }] }),
+  };
+  for (const [name, html] of Object.entries(charts)) {
+    const ticks = svgText(html);
+    ok(ticks.some((t) => t.label === '08-05'), `${name}: the last label must be drawn at all`);
+    for (const t of ticks) {
+      const [left, right] = extent(t);
+      ok(right <= w, `${name}: "${t.label}" runs to ${right.toFixed(1)}, past the ${w}px viewBox — it is clipped`);
+      ok(left >= 0, `${name}: "${t.label}" starts at ${left.toFixed(1)}, off the left of the viewBox`);
+    }
+  }
+});
+
+test('charts · no two gridlines carry the same label, and none names a height it is not at', () => {
+  // Gridlines at [0, 0.5, 1] of a maximum of 1 render as "0, 1, 1": `nice` states whole numbers below 1000,
+  // so the middle line — genuinely at 0.5 — claims to be the same line as the top one. The same rounding
+  // mislabels every odd maximum more quietly: at 7 the middle line sits at 3.5 and says 4, and a reader
+  // measuring a point against it is out by half a unit with nothing to suggest it. The economics view avoided
+  // this by going cumulative. Every other small series still met it.
+  const h = 170, pad = { t: 10, b: 22 };
+  // Invert the y scale the chart drew with: y(v) = h - pad.b - (v / max) * (h - pad.t - pad.b), and the label
+  // is set 3px below its line.
+  const valueAt = (yText, max) => ((h - pad.b - (yText - 3)) / (h - pad.t - pad.b)) * max;
+
+  for (const max of [1, 2, 3, 7, 17, 100]) {
+    for (const [name, draw] of [['lineChart', lineChart], ['stackedArea', stackedArea]]) {
+      const html = draw({ title: 'x', labels: ['a', 'b', 'c'], series: [{ label: 'y', values: [max, 0, max] }] });
+      const yTicks = svgText(html).filter((t) => t.anchor === 'end' && t.x < 34);   // the y axis sits left of pad.l
+      ok(yTicks.length >= 2, `${name} @ ${max}: an axis needs at least two gridlines`);
+
+      const labels = yTicks.map((t) => t.label);
+      eq(labels.length, new Set(labels).size,
+        `${name} @ ${max}: two gridlines at two heights carry the same label (${labels.join(', ')})`);
+
+      for (const t of yTicks) {
+        const drawn = valueAt(t.y, max);
+        ok(Math.abs(drawn - Number(t.label)) < 0.05,
+          `${name} @ ${max}: a gridline labelled ${t.label} is drawn at ${drawn.toFixed(2)}`);
+      }
+      ok(labels.includes('0'), `${name} @ ${max}: the baseline is always stated`);
+    }
+  }
+});
+
+test('publish · a page that names the local-only marker in prose survives both exit doors intact', () => {
+  /*
+   * **The dangerous one, and the one nobody was checking.** `stripLocalOnly` scanned for the bare substring
+   * `data-local-only`, so an element containing those characters *as text* was cut out of the published copy —
+   * silently, from the artefact handed to other people, and not from the copy the author is looking at. The
+   * roadmap's own sentence, "The view carries `data-local-only`, the same guarantee as…", published as "The
+   * view carries , the same guarantee as…". A previous agent hit it writing a caption about the marker and
+   * reworded around it rather than fixing it.
+   *
+   * Every existing case here asserts that the private panel is *gone*. This one asserts that the public
+   * paragraph is *still there*, which is the half that fails open — and it asserts both in the same test,
+   * because a stripper that keeps prose by keeping everything would pass either half alone.
+   *
+   * Written against the real files on disk, through both real exports, rather than against the matcher: the
+   * matcher being right is not the guarantee, the two exit doors being right is.
+   */
+  const dir = fixture('local-only-prose', {
+    'README.md': '# Front\n\n[The marker](docs/MARKER.md)\n',
+    'docs/MARKER.md': '# The data-local-only marker\n\nA panel that carries `data-local-only` is cut from '
+      + 'every published copy of this site.\n',
+  }, { remote: 'https://github.com/acme/widget.git' });
+  const cfg = resolveConfig(dir);
+  const index = buildIndex(dir, cfg);
+  renderSite(index, runHealth(index, cfg, dir), cfg, dir);
+
+  /*
+   * A genuinely marked element and a paragraph naming the marker, written into a built page as the renderers
+   * write them: the marker as `data-local-only="1"` on a start tag, the prose as text. Injected rather than
+   * relied upon, because which panels a fixture's dashboard happens to render depends on the working tree,
+   * and a test whose subject is a private panel must not be a test of whether one was there today.
+   *
+   * The marked section contains a nested `<section>` and names the marker in its own text, so this also holds
+   * the depth-counting walk to its promise: cut to the element's own closing tag, not the first inner one.
+   */
+  const page = path.join(dir, cfg.output, 'dashboard.html');
+  fs.writeFileSync(page, fs.readFileSync(page, 'utf8').replace('<main>', `<main>
+<section class="card" id="prose-card"><h2>What data-local-only means</h2>
+  <p>Any panel marked <code>data-local-only</code> is cut from every published copy.</p>
+  <p title="the data-local-only attribute">And an attribute value naming it is a value, not a marker.</p></section>
+<section class="card" id="secret-card" data-local-only="1"><h2>Work in flight</h2>
+  <section><p>/Users/somebody/private/UNCOMMITTED-9k7.md</p></section>
+  <p>This panel is <code>data-local-only</code> and must not travel.</p></section>
+`), 'utf8');
+
+  for (const [door, html] of [['exportSingleFile', exportSingleFile(dir, cfg, 'dashboard')],
+                              ['exportBundle', exportBundle(dir, cfg)]]) {
+    // Still stripped. The whole element, not merely its marker, and not merely down to the first inner close.
+    eq(html.includes('UNCOMMITTED-9k7'), false, `${door}: no private path may reach a file made to be handed over`);
+    eq(html.includes('id="secret-card"'), false, `${door}: the marked panel must be gone entirely`);
+    eq(html.includes('Work in flight'), false, `${door}: gone, not merely unmarked`);
+    eq(/data-local-only\s*=/.test(html), false, `${door}: no marker attribute may survive`);
+
+    // And the prose about it is untouched. Asserted on the whole sentence, because the mangling this catches
+    // is invisible in a marker count — it removes the element and leaves the words either side of it.
+    includes(html, 'Any panel marked <code>data-local-only</code> is cut from every published copy.',
+      `${door}: a paragraph that merely names the marker must publish intact`);
+    includes(html, 'What data-local-only means', `${door}: including in a heading`);
+    includes(html, 'And an attribute value naming it is a value, not a marker.',
+      `${door}: and a marker named inside an attribute value is not a marker`);
+  }
+
+  // The corpus half of the same claim: the document explaining the marker is the document most likely to be
+  // eaten by it, and the bundle carries every document page.
+  const bundle = exportBundle(dir, cfg);
+  includes(bundle, 'is cut from every published copy of this site',
+    'the sentence from docs/MARKER.md must reach the bundle whole');
+  includes(bundle, 'The data-local-only marker', 'and so must the document title that names it');
 });
 
 console.log(`\n${pass} passed, ${fail} failed${skipped ? `, ${skipped} skipped on ${process.platform}` : ''}\n`);
