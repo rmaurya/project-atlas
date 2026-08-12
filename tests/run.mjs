@@ -7467,6 +7467,69 @@ test('format · no module reintroduces a bare toLocaleString', () => {
   eq(offenders, [], `use num() from format.mjs — a bare call reads the host locale`);
 });
 
+/* ================================================================== the command surface (A-35) */
+
+/**
+ * **Synchronous, like everything appended below the drain.** `pendingAsync` is emptied thousands of lines
+ * above; an `async` case here would be constructed, never awaited, and reported as a pass it never earned.
+ */
+
+console.log('\ncommand surface');
+
+/** Every command name the CLI actually dispatches on, read out of its own source. */
+function dispatchedCommands() {
+  const src = fs.readFileSync(path.join(REPO_ROOT, 'scripts', 'atlas.mjs'), 'utf8');
+  return [...new Set([...src.matchAll(/cmd\s*===\s*'([a-z-]+)'/g)].map((m) => m[1]))].sort();
+}
+
+/** The `usage()` body — the block a person actually reads. Sliced from the function, not the whole file. */
+function usageBlock() {
+  const src = fs.readFileSync(path.join(REPO_ROOT, 'scripts', 'atlas.mjs'), 'utf8');
+  const i = src.indexOf('function usage()');
+  ok(i !== -1, 'usage() must exist — it is the surface every other assertion here is about');
+  return src.slice(i);
+}
+
+/**
+ * A name is *mentioned* if some line says `atlas <name>` and the name ends there. The trailing boundary is
+ * the point: without it `atlas git-insights` reads as a mention of `git-insight`, and the alias that needs
+ * saying out loud is exactly the one that would go unsaid.
+ */
+const mentionsCommand = (text, name) => new RegExp(`atlas ${name}(?![a-z-])`).test(text);
+
+test('usage · every dispatched command appears in the list', () => {
+  // The list had drifted to 27 of 38. `tasks`, `serve`, `config`, `plan`, `worklog`, `ownership`,
+  // `surviving`, `help` and both aliases were dispatched, real, and invisible to anyone who typed
+  // `atlas help` — while `atlas spec` was in neither place and is not a command at all.
+  //
+  // Drift like this is not caught by using the tool, because the people who know a command exists never
+  // read the list. It has to be structural: the dispatch table is derived from the source, so a new
+  // `if (cmd === 'x')` fails this the moment it lands without a line.
+  const u = usageBlock();
+  const missing = dispatchedCommands().filter((c) => !mentionsCommand(u, c));
+  eq(missing, [], 'these commands dispatch but usage() never names them — add a line, or an alias mention');
+});
+
+test('usage · the list never names a command that does not dispatch', () => {
+  // The other direction, and the reason `atlas spec` is written as `atlas spec --gate`. A list that promises
+  // a command the CLI answers with "Unknown command" and exit 2 is worse than one that omits it: the reader
+  // trusts it, runs it, and concludes the install is broken.
+  const dispatched = new Set(dispatchedCommands());
+  const listed = [...new Set([...usageBlock().matchAll(/^\s*atlas ([a-z-]+)/gm)].map((m) => m[1]))].sort();
+  ok(listed.length > 20, 'sanity: the list was found and parsed');
+  eq(listed.filter((c) => !dispatched.has(c)), [],
+    'usage() names these, and `cmd === ...` never matches them — they exit 2 with "Unknown command"');
+});
+
+test('usage · bare `atlas spec` is not a command, and the list says so rather than promising one', () => {
+  // Established by running it, not by reading the dispatch: `spec` is reached only as `spec --gate`, the
+  // commit hook's entry point. Bare `atlas spec` falls through to the unknown-command branch.
+  const r = spawnSync(process.execPath, [CLI, 'spec', '--root', REPO_ROOT], { encoding: 'utf8' });
+  eq(r.status, 2, 'bare `atlas spec` exits 2');
+  includes(r.stderr, 'Unknown command: spec');
+  includes(usageBlock(), 'atlas spec --gate');
+});
+
 console.log(`\n${pass} passed, ${fail} failed${skipped ? `, ${skipped} skipped on ${process.platform}` : ''}\n`);
 if (fail) {
   console.log('Failures:');

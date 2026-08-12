@@ -41,6 +41,7 @@ measured against the code — the same distinction the tool preserves everywhere
 | C-9 | 100 | A-31 | 100 | A-30 | 100 |
 | C-10 | 45 | C-11 | 10 | Q-4 | 10 |
 | Q-5 | 10 | A-32 | 0 | | |
+| A-35 | 100 | | | | |
 
 ---
 
@@ -980,6 +981,27 @@ idle timer exists to bound — but a 30-minute bound is not the same as being ab
 Status should probe the derived port as well as the pidfile, and report the disagreement plainly: something
 is serving here and this repository did not record starting it. A tool that says "not running" about a
 running process teaches people to stop believing it.*
+
+**A-35 · The command list must not lag the commands** — **P2 · Medium**
+
+*`usage()` listed 27 of 38 dispatched commands.* `tasks`, `serve`, `config`, `plan`, `worklog`, `ownership`,
+`surviving` and `help` were all real, all dispatched, all documented elsewhere in this repository, and
+invisible to anyone who typed `atlas help`. The two aliases — `capabilities` for `caps`, `git-insight` for
+`git-insights` — were unmentioned. Meanwhile `atlas spec` appeared in neither place and **is not a command**:
+`spec` is reached only as `spec --gate`, the commit hook's entry point, and bare `atlas spec` exits 2 with
+"Unknown command".
+
+*A list that silently lags the code is worse than a short one, because it reads as complete and people stop
+looking.* This is also drift that using the tool never catches: whoever knows a command exists never reads
+the list, and whoever reads the list does not know what is missing from it.
+
+*So the list is now checked structurally, in both directions.* `tests/run.mjs` derives the dispatch table from
+`scripts/atlas.mjs`'s own source and fails when a dispatched command is absent from `usage()` — a new
+`if (cmd === 'x')` cannot land without a line. The reverse assertion fails when the list promises a command
+the CLI would answer with "Unknown command", which is how `atlas spec --gate` came to be written out in full
+rather than as a bare `atlas spec` that does not exist. Aliases get a mention in an alias block rather than a
+line of their own: two entries describing one implementation is the same drift in miniature, and the second
+copy is the one that goes stale.
 
 ## Track 7 — Specification and consistency
 
