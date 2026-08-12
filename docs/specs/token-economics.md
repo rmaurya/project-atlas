@@ -10,6 +10,13 @@ turns out to be almost all of the output, and — the one that mattered most —
 the wrong place, so every subagent token in the store was invisible.** Nothing was changed silently; the whole
 point of writing this first was that a divergence would be visible.
 
+**Amended again, to close the two gaps the first pass left open and reported.** The per-turn classification
+rule is replaced by a **contiguous-run** rule with a gap threshold measured from the data (`other`: 83.4% →
+7.2%); task attribution gains the same run rule where coverage is genuinely recoverable and reports the
+remainder with its shape as well as its size (unattributed: 62.5% → 59.5%, all of it before the task log
+begins); and the module's rule 1 — *"nothing reads transcripts unless `atlas tokens` is run"* — is rewritten,
+because this specification put the attribution on a page and the build has read the store ever since.
+
 ## Why this exists separately from `atlas tokens`
 
 `atlas tokens` already answers *how much*. Every question left is a **join**, and a join needs an agreed
@@ -42,6 +49,18 @@ Three rules, and no reading of this data may break them.
    already enforces on both exit doors — `exportSingleFile` and `exportBundle`.
 3. **The snapshot is opt-in and counts-only.** `atlas tokens --snapshot`, gated on `tokens.snapshot` in
    config, writes `.atlas/tokens.jsonl`. Nothing writes it implicitly, and no build writes it.
+
+**Amended — who reads the store, now that C-10 has landed.** `tokens.mjs` opened with the rule *"nothing reads
+transcripts unless `atlas tokens` is run"*, and this specification made that false the moment it put the
+attribution on a page: `dashboard.mjs` calls `readTokenEconomics` when a panel on the page asks for it, so a
+build that renders the Economics view reads the store, and `atlas watch` builds on every save. The rule in the
+module header has been rewritten to say that, because a rule nobody can check is not a rule. Nothing else
+opens the store — not `scan`, not `health` (H17 is handed an aggregate by its caller and reads nothing
+itself), not a hook, not `serve`, and not a build of a site whose views do not include Economics. Two
+properties keep it safe to be true: the read is one-way and counts-only, and it is **free when there is
+nothing to read** — `hasTranscripts()` answers with one `statSync`, and the reader returns
+unavailable-with-a-reason before it lists a file, opens the task log or shells out to git. With a store
+present, one streaming pass over 88 MB costs about 1.2 s, paid once per build rather than once per panel.
 
 ## What the transcript gives us
 
@@ -140,6 +159,37 @@ Windows **overlap** — several tasks are open at once — so a turn attributed 
 `1/n` to each, and any task whose window overlapped another is marked `partial: true`. The view must show
 that flag. A total that silently double-counts is the failure this rule exists to prevent.
 
+**Amended — the same run rule applies here, and the gap that remains is reported rather than closed.**
+Measured on this repository's own store, **62.5% of all output fell inside no task window**. That figure is
+honest and it stays visible; the fix is not to widen windows until everything is inside one, because a window
+that swallows the work of a different task is worse than an admitted gap.
+
+What *is* recoverable is a turn seconds away from a turn that is inside a window — the same run, the same
+work, on the wrong side of a `create` record written a moment late. So a turn in no window takes the windows
+of the nearest attributed turn **in its own run**, by the identical rule and the identical gap used for the
+kind of work. One mechanism, two predicates: two implementations of one rule is the drift this tool exists to
+detect. On this store that recovered **2.2% of output across 168 turns**, and the unattributed share fell from
+**62.5% to 59.5%** — a real improvement, and nowhere near a disappearance.
+
+The remainder is now reported with its **shape as well as its size**, because "63% is unattributed" does not
+say whether the hook misses sessions at random or simply was not installed yet, and those need different
+fixes. Here, **100% of the unattributed output predates the first record in `.atlas/tasks-live.jsonl`**: it is
+a start date, not a leak, and it is not recoverable from this source at all. Two further caveats were added
+for the same reason — both are about reading the per-task table honestly rather than about improving it:
+
+- **Windows too narrow to hold a turn.** The hook writes the whole task list the first time it sees one, so a
+  list that already existed arrives as a burst of `create` and `completed` records sharing a single instant.
+  **9 of the 11 windows here are one second wide or less.** They can contain no turn, so they report zero, and
+  that zero must not be read as a task that cost nothing.
+- **Windows still open.** A task with no `completed` record has no closing edge, so it takes its share of
+  every later turn. That is correct — the task genuinely is still open — but its figure is a running total
+  rather than a final cost, and the report says so.
+
+The **journal** was considered as a second source of windows and rejected. `.atlas/journal/*.jsonl` carries
+`at`, `agent` and `kind`, but a journal entry is a *point event*, not an interval; turning one into a window
+would be inventing precisely the thing the caveat exists to report. It also begins later than the earliest
+transcript here, so it would not have covered the gap it was reached for.
+
 **Per kind.** Classify by the paths written during the turn, through the taxonomy already in
 `project-atlas.config.json`:
 
@@ -172,13 +222,62 @@ a real write and is not this repository's source. `other` therefore reads as *no
 in that turn*, which covers both cases honestly, and the count of out-of-repository writes is stated in the
 caveats.
 
-**Amended, and unresolved — `other` is almost all of the output.** Measured over this repository's own
-transcripts: 4,809 assistant turns produced 3.66M output tokens, of which **3.59M (98%) fall in `other`**,
-because the overwhelming majority of turns read, search, reason or run a command and write no file at all.
-The rule as specified is implemented and honest, but the panel it feeds will be one enormous bar and four
-slivers, and "kind of work" will not be measuring what the item wanted it to measure. The fix is a change to
-the rule, not to the code — attributing a turn to the kinds written by the *contiguous run* or *task window*
-it belongs to, rather than by that single turn — and it needs a decision before the chart is drawn.
+**Amended — `other` was almost all of the output, and the rule was what was wrong.** Measured over this
+repository's own transcripts when the per-turn rule was first implemented: 4,809 assistant turns produced
+3.66M output tokens, of which **3.59M (98%) fell in `other`**, because the overwhelming majority of turns read,
+search, reason or run a command and write no file at all. Re-measured on a larger store before the fix, the
+figure was **83.4% of 5.08M**. Either way the panel would have been one enormous bar and four slivers, and
+`other` had come to mean *did not happen to write a file this turn* — a fact about the shape of a transcript,
+not about the work. **Resolved by amending the rule, not the code.**
+
+**The rule is now the contiguous run.** A turn is attributed to the kinds written by the *run* it belongs to:
+
+- A **run** is a maximal stretch of consecutive turns *within one transcript* whose neighbours are less than
+  `tokens.sittingGapMinutes` apart. A silence longer than that is a different sitting and nothing is inherited
+  across it. Per transcript, not per store: a subagent's thread of work is its own, and interleaving it with
+  its parent's by wall clock would let one speak for the other.
+- Inside a run, a turn that wrote nothing takes the kinds of the **nearest** writing turn, forwards or
+  backwards, ties to the earlier one so the answer does not depend on iteration order. Nearest rather than
+  previous because the reading and reasoning that *precede* a write are that write's work as much as the
+  verification that follows; a forward fill alone would leave the head of every run in `other` for no better
+  reason than that it came first. Nearest is also what makes "a run ends when the kind changes" fall out
+  instead of needing a second rule: between two writes of different kinds the boundary lands midway.
+- A turn that wrote two kinds still splits evenly between them, as before.
+- **`other` is a run in which no file inside this repository was written at all.** That is the only honest
+  `other`, and it is what the word now means everywhere it appears.
+
+**The gap is five minutes, and it is measured rather than chosen** — the same discipline as H17's 40-edit
+threshold, which is stated with its percentile and its sample. Over the **8,319 gaps between consecutive
+assistant turns** in this repository's own store (26 transcripts, 88 MB, four days):
+
+| | |
+|---|---|
+| median gap | **6.2 s** |
+| under 30 s | 88.1% |
+| under 60 s | 94.1% |
+| p99 | 3.5 min |
+| **5 min** | **p99.4 — 53 of 8,319 gaps exceed it** |
+| over 10 min | 25 gaps |
+| over 30 min | 8 gaps |
+| the largest six | 48 min, 2.0 h, 3.4 h, 5.3 h, 8.6 h, 12.0 h |
+
+Five minutes is where the curve has flattened and what remains above it is recognisably a break rather than a
+pause. The neighbours were measured on the same store, by the share of output left in `other`:
+
+| Gap | `other` | Why not this one |
+|---|---|---|
+| 2 min | 23.4% | Cuts 198 gaps. An ordinary long tool call — a test run, a build, a large read — ends a run that plainly did not end, so the threshold measures the machine's latency rather than the operator's attention. |
+| **5 min** | **7.7%** | — |
+| 30 min | 4.3% | Buys the last three points by letting one write account for work done half an hour either side of it. The data does not support that claim. |
+
+Override with `tokens.sittingGapMinutes`. The figure in force is printed in the caveats together with the
+number of runs it produced *in the store being read*, so a repository whose rhythm differs can see that it
+does. The share of output that was **inherited rather than written in the turn itself** is also stated, and
+the `writes` column continues to count actual writes only — so "how much was written" and "what the writing
+cost" stay separable.
+
+*Measured after the change, on the same store:* `other` fell from **83.4% to 7.2%** of output (545 turns in
+runs that wrote nothing), and the four named kinds carry the rest.
 
 **New work vs rework.** Do not invent a second definition. `contrib.mjs` already computes rework as *a file
 re-touched within 3 days*; join its per-day verdict to the per-day token series. Two answers to one question
@@ -230,6 +329,7 @@ would escape.
 | `tokens.snapshot` | `false` | The gate. Without it `--snapshot` refuses and says which setting would allow it. |
 | `tokens.snapshotFile` | `.atlas/tokens.jsonl` | Refused if it resolves inside the published output directory. |
 | `tokens.testGlobs` | conventional test layouts | What counts as `testing` for the per-kind split. |
+| `tokens.sittingGapMinutes` | `5` | How long a silence ends a run. Measured, not chosen — see the attribution rules. |
 
 ## Charts
 
