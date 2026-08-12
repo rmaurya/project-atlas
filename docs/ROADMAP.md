@@ -39,6 +39,7 @@ measured against the code — the same distinction the tool preserves everywhere
 | A-28 | 100 | M-4 | 100 | A-29 | 100 |
 | C-7 | 100 | C-8 | 100 | | |
 | C-9 | 100 | A-31 | 100 | A-30 | 100 |
+| C-10 | 0 | C-11 | 0 | Q-4 | 0 |
 
 ---
 
@@ -151,6 +152,38 @@ is the corpus, `/atlas:tasks` is the plan, `/atlas:state` is the session.
 *`docs/FEATURES.md` was re-verified against `skills/` on the day of this change by running every command in the
 repository, and the Slash column now carries a dash with a stated reason wherever no command exposes a
 capability — an absence that is explained is not an oversight.*
+
+**C-10 · What the work cost, not just what it produced** — **P1 · High**
+
+*`atlas tokens` reads the local session transcripts and reports totals, cache tiers, models, days and
+tool-call counts. It is terminal-only: no panel, no chart, no attribution.* Every question worth asking of
+that data is a **join**, and none of them is answered today — what a task cost, what a day of rework cost
+against a day of new work, what planning cost against coding, and how much of any of it ran in a subagent.
+
+*The joins are available.* A transcript record carries `timestamp`, the full `usage` block, `gitBranch` and
+`isSidechain`. `.atlas/tasks-live.jsonl` carries `create`/`update` with `at` and `status`; the journal carries
+`at`, `agent` and `kind`. Token spend intersected with a task window is spend per task. Files written inside
+that window, routed through the taxonomy this tool already configures, is spend per **kind** of work.
+
+***Two things it must not claim.*** **Not per contributor.** Transcripts are machine-local and single-user;
+there is no git author in them. The honest axis is per **agent** and per **branch**, and the view says so
+rather than presenting one person as a cohort. **Not a cost.** No rates ship, prices change, and a figure in
+dollars that nobody can reproduce is worse than a token count everybody can.
+
+*Local by default, snapshot on request.* The view carries `data-local-only`, the same guarantee as the
+in-flight panel — it renders on the machine that has the transcripts and is stripped from every publish and
+export. `atlas tokens --snapshot`, gated on `tokens.snapshot`, writes a counts-only rollup to
+`.atlas/tokens.jsonl` for a repository that wants the history to survive a cleared transcript and reach a
+clone. No prompt text, no paths, ever, on either path.
+
+**C-11 · Atlas argues for parallelism, and then measures whether it happened** — **P2 · Medium**
+
+*Serial work is the default failure mode of a coding agent, and nothing in this tool has ever said so.*
+Three places, because instruction alone has not worked: `skills/build/SKILL.md` tells a session to fan
+independent work out to subagents **one worktree per agent** — three agents sharing one tree cost a full
+session to untangle, and that lesson belongs where it is read; a panel shows the main-versus-subagent split
+and peak concurrency from `isSidechain`, so the habit is visible and not merely asserted; and Q-4 flags its
+absence.
 
 ## Track 2 — Product
 
@@ -317,6 +350,15 @@ The four hook tests execute POSIX shell blocks and cannot run on Windows. They a
 counted in the summary** rather than dropped — a suite that quietly runs 202 of 206 on one platform reports a
 green tick for coverage it did not have.
 
+**Q-4 · H17 · Serial work that could have fanned out** — **P3 · Low**
+
+*Advisory, never blocking, and openly a different kind of claim than the other sixteen.* H1–H16 measure the
+corpus: a link, a citation, a title, a design artifact. **H17 measures the operator** — a session with many
+edits and no subagent — and that distinction is stated in the signal's own description rather than left for a
+reader to discover. It cannot block a commit, because "you should have parallelised" is advice and the
+blocking set is reserved for claims about the repository being wrong.
+
+*It is unevaluated, not "ok", when no transcript is present* — the Not-checked discipline A-29 was filed for.
 
 ## Track 4 — Delivery
 
