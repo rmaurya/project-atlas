@@ -30,7 +30,9 @@ import { CAT, CAT_MAX, donut, lineChart, sparkbars } from '../scripts/lib/charts
 import { automationAllows } from '../scripts/lib/config.mjs';
 import { buildWikiPages, wikiPageName, isSafePageName, exportSingleFile, exportBundle, RESERVED, gitlabPagesJob, stageWiki, stripLocalOnly } from '../scripts/lib/publish.mjs';
 import { readContrib, estimateHours, taskCoverage } from '../scripts/lib/contrib.mjs';
-import { readTokens, formatTokens, formatSessions, assertNotPublishable, transcriptDir } from '../scripts/lib/tokens.mjs';
+import { readTokens, formatTokens, formatSessions, assertNotPublishable, transcriptDir,
+         readTokenEconomics, formatEconomics, writeTokenSnapshot, snapshotLine, classifyWrite,
+         taskWindows, overlapWindows, transcriptFiles, WORK_KINDS } from '../scripts/lib/tokens.mjs';
 import { readChanges, fileDiff, formatChanges } from '../scripts/lib/changes.mjs';
 import { readInflight, inflightSentence } from '../scripts/lib/inflight.mjs';
 import { branchStatus, createBranch, TYPES } from '../scripts/lib/branch.mjs';
@@ -6151,6 +6153,399 @@ test('kb · code is routed back to the documents that cite it', () => {
   const routes = fs.readFileSync(path.join(outDir, 'kb', 'routes.md'), 'utf8');
   includes(routes, 'src/thing.js', 'a cited file must appear in the reverse index');
   includes(routes, 'Alpha', 'and the document that cites it');
+});
+
+/* ================================================================== token economics (C-10) */
+
+/**
+ * **Every case here is synchronous, deliberately.** `pendingAsync` is drained far above this point, so an
+ * `async` case registered here would be constructed, never awaited, and reported as a pass it never earned.
+ * `readTokenEconomics` and `writeTokenSnapshot` are synchronous by design — the dashboard and the health
+ * signal that will consume them both run inside synchronous pipelines — and the one case that needs the
+ * asynchronous reader reaches it through `execFileSync` on the real CLI.
+ */
+
+console.log('\ntoken economics');
+
+const ECON_STORE = path.join(tmpRoot, 'econ-store');
+
+/** One fixture, one transcript, one task log — shared by the cases below because building it is the slow part. */
+const econFixture = (() => {
+  const dir = fixture('econ', {
+    'project-atlas.config.json': JSON.stringify({
+      output: 'docs/_wiki',
+      planning: { source: 'docs/ROADMAP.md' },
+      include: ['**/*.md'],
+      exclude: ['**/_wiki/**'],
+      // The CLI case reads this from disk rather than being handed a config object, so the store has to be
+      // named here too — that path is what makes `atlas tokens` in the fixture read the fixture's transcript.
+      tokens: { transcriptRoot: ECON_STORE },
+    }),
+    'docs/A.md': '# A\n',
+    'docs/ROADMAP.md': '# Roadmap\n',
+    'tests/t.test.mjs': 'export const t = 1;\n',
+    'src/a.js': 'one\n',
+  });
+
+  // Two backdated commits touching the same file inside contrib's 3-day window, so one token day has a
+  // rework verdict and the other does not. Dated, because the whole point is the join to a per-day verdict.
+  const commit = (iso, body) => {
+    fs.writeFileSync(path.join(dir, 'src', 'a.js'), body, 'utf8');
+    execFileSync('git', ['add', '-A'], { cwd: dir, stdio: 'ignore' });
+    execFileSync('git', ['-c', 'user.email=t@example.com', '-c', 'user.name=Test', 'commit', '-qm', 'touch'],
+      { cwd: dir, stdio: 'ignore', env: { ...process.env, GIT_AUTHOR_DATE: iso, GIT_COMMITTER_DATE: iso } });
+  };
+  commit('2026-01-01T09:00:00Z', 'two\n');     // first touch of src/a.js on this day → new work
+  commit('2026-01-02T09:00:00Z', 'three\n');   // re-touched inside 3 days → rework
+
+  // The slug comes from the function under test, never a copy of it — the same discipline the older token
+  // cases follow, and for the same reason: a duplicate here would reproduce the product's bug and agree with it.
+  const slug = path.basename(transcriptDir(dir, { tokens: { transcriptRoot: ECON_STORE } }));
+  fs.mkdirSync(path.join(ECON_STORE, slug), { recursive: true });
+
+  const turn = (uuid, ts, output, cacheRead, extra = {}) => ({
+    type: 'assistant', uuid, timestamp: ts, sessionId: 's1', gitBranch: 'main',
+    message: { model: 'test-model', usage: { input_tokens: 1, output_tokens: output, cache_creation_input_tokens: 2, cache_read_input_tokens: cacheRead } },
+    ...extra,
+  });
+  const wrote = (owner, abs) => ({
+    type: 'user', sourceToolAssistantUUID: owner,
+    toolUseResult: { filePath: abs, structuredPatch: [], userModified: false },
+  });
+
+  const rows = [
+    turn('a1', '2026-01-01T10:00:00Z', 100, 1000),
+    wrote('a1', path.join(dir, 'docs', 'A.md')),                 // documentation
+    wrote('a1', path.join(dir, 'tests', 't.test.mjs')),          // testing
+    turn('b1', '2026-01-02T10:00:00Z', 60, 600, { gitBranch: 'feat/x' }),
+    wrote('b1', path.join(dir, 'docs', 'ROADMAP.md')),           // planning — the plan file, not documentation
+    turn('c1', '2026-01-02T10:30:00Z', 40, 400, { gitBranch: 'feat/x' }),
+    // A prompt and a path that must never reach any output, on a record that carries both.
+    { type: 'user', sourceToolAssistantUUID: 'c1',
+      message: { content: [{ type: 'text', text: 'SECRET-PROMPT-DO-NOT-LEAK' }] },
+      toolUseResult: { filePath: '/tmp/SECRET-PATH-DO-NOT-LEAK.txt', structuredPatch: [] } },
+    // Two subagent sessions inside one minute: peak concurrency is 2, not 1 and not the session count.
+    turn('d1', '2026-01-02T10:31:00Z', 10, 100, { gitBranch: 'feat/x', isSidechain: true, sessionId: 's2' }),
+    turn('e1', '2026-01-02T10:31:30Z', 10, 100, { gitBranch: 'feat/x', isSidechain: true, sessionId: 's3' }),
+  ];
+  fs.writeFileSync(path.join(ECON_STORE, slug, 'session.jsonl'),
+    rows.map((r) => JSON.stringify(r)).join('\n') + '\n', 'utf8');
+
+  // Written after the commits so it stays untracked, exactly as `.gitignore` keeps it in a real repository.
+  // Tasks 1 and 2 overlap; task 3 does not overlap either.
+  fs.mkdirSync(path.join(dir, '.atlas'), { recursive: true });
+  fs.writeFileSync(path.join(dir, '.atlas', 'tasks-live.jsonl'), [
+    { at: '2026-01-01T09:00:00Z', op: 'create', id: '1', subject: 'Alpha', status: 'pending' },
+    { at: '2026-01-01T09:30:00Z', op: 'create', id: '2', subject: 'Beta', status: 'pending' },
+    { at: '2026-01-01T11:00:00Z', op: 'update', id: '1', status: 'completed' },
+    { at: '2026-01-01T12:00:00Z', op: 'update', id: '2', status: 'completed' },
+    { at: '2026-01-02T09:00:00Z', op: 'create', id: '3', subject: 'Gamma', status: 'pending' },
+    { at: '2026-01-02T11:00:00Z', op: 'update', id: '3', status: 'completed' },
+    '{"torn":',
+  ].map((r) => (typeof r === 'string' ? r : JSON.stringify(r))).join('\n') + '\n', 'utf8');
+
+  return dir;
+})();
+
+const econCfg = (over = {}) => ({
+  ...resolveConfig(econFixture),
+  tokens: { transcriptRoot: ECON_STORE, ...over },
+});
+
+test('economics · overlapping task windows split a turn 1/n, so the per-task total cannot exceed the real one', () => {
+  // The failure this rule exists to prevent: two tasks open at once, each credited the whole turn, and a
+  // per-task table that sums to more than was ever spent. It reconciles against nothing and errs in the
+  // flattering direction, which is what makes it survive review.
+  const k = readTokenEconomics(econFixture, econCfg());
+  ok(k.available, k.reason || '');
+  eq(k.totals.output, 220, 'the fixture spends 100 + 60 + 40 + 10 + 10 output tokens');
+
+  const byId = Object.fromEntries(k.tasks.map((t) => [t.id, t]));
+  eq(byId['1'].output, 50, 'a turn inside two open windows contributes half to each');
+  eq(byId['2'].output, 50);
+  eq(byId['3'].output, 120, 'a turn inside one open window contributes all of it');
+  eq(k.tasks.reduce((n, t) => n + t.output, 0), k.totals.output,
+    'the per-task figures must sum to the total, never past it');
+
+  eq([byId['1'].partial, byId['2'].partial], [true, true], 'an overlapped window must declare itself partial');
+  eq(byId['3'].partial, false, 'a window that overlapped nothing is not partial');
+  includes(k.caveats.join(' '), '1/n', 'the split must be stated, not just performed');
+});
+
+test('economics · a task window closes at the FIRST completion, and a torn log line is skipped', () => {
+  const w = taskWindows(econFixture);
+  ok(w.available, w.reason || '');
+  eq(w.items.map((t) => t.id), ['1', '2', '3'], 'the torn last line must be skipped, not fatal');
+  eq(w.items.find((t) => t.id === '1').closed, '2026-01-01T11:00:00Z');
+
+  // Re-completing a task must not stretch its window over the gap it was explicitly not being worked in.
+  // A task finished at 11:00, reopened at 15:00 and finished again at 16:00 was not open for those four
+  // hours, and crediting it every turn in between is the same over-count the 1/n rule exists to stop.
+  const reopenDir = path.join(tmpRoot, 'econ-reopened');
+  fs.mkdirSync(path.join(reopenDir, '.atlas'), { recursive: true });
+  fs.writeFileSync(path.join(reopenDir, '.atlas', 'tasks-live.jsonl'), [
+    { at: '2026-01-01T10:00:00Z', op: 'create', id: '9', subject: 'Reopened', status: 'pending' },
+    { at: '2026-01-01T11:00:00Z', op: 'update', id: '9', status: 'completed' },
+    { at: '2026-01-01T15:00:00Z', op: 'update', id: '9', status: 'in_progress' },
+    { at: '2026-01-01T16:00:00Z', op: 'update', id: '9', status: 'completed' },
+  ].map((r) => JSON.stringify(r)).join('\n') + '\n', 'utf8');
+  const reopened = taskWindows(reopenDir).items[0];
+  eq(reopened.closed, '2026-01-01T11:00:00Z', 'the window closes at the first completion, not the last');
+  eq(overlapWindows([reopened])[0].partial, false, 'a single window overlaps nothing');
+});
+
+test('economics · a written path becomes one of five words, and the plan file is planning not documentation', () => {
+  // Taken in the order the contract lists them, "documentation" would swallow the plan file — it is markdown
+  // in a cluster — and the "planning is the plan file" clause would never fire for any repository that keeps
+  // its plan in markdown. Specific beats general, the same rule the cluster taxonomy already follows.
+  const cfg = econCfg();
+  eq(classifyWrite(path.join(econFixture, 'docs/ROADMAP.md'), econFixture, cfg), 'planning');
+  eq(classifyWrite(path.join(econFixture, 'docs/A.md'), econFixture, cfg), 'documentation');
+  eq(classifyWrite(path.join(econFixture, 'tests/t.test.mjs'), econFixture, cfg), 'testing');
+  eq(classifyWrite(path.join(econFixture, 'src/a.js'), econFixture, cfg), 'coding');
+  eq(classifyWrite('.atlas/journal/someone.jsonl', econFixture, cfg), 'planning');
+  eq(classifyWrite('/tmp/elsewhere.txt', econFixture, cfg), null, 'a write outside the repository is not this repository\'s coding');
+
+  const k = readTokenEconomics(econFixture, cfg);
+  const byKind = Object.fromEntries(k.kinds.map((x) => [x.kind, x]));
+  eq(k.kinds.map((x) => x.kind), WORK_KINDS, 'every kind is reported in a fixed order, present or not');
+  eq(byKind.documentation.output, 50, 'a turn that wrote two kinds splits evenly between them');
+  eq(byKind.testing.output, 50);
+  eq(byKind.planning.output, 60);
+  eq(byKind.other.output, 60, 'a turn that wrote nothing inside the repository is `other`');
+  eq(k.kinds.reduce((n, x) => n + x.output, 0), k.totals.output, 'the kind split must not invent output');
+  eq(byKind.coding.writes, 0, 'the fixture writes no source file');
+});
+
+test('economics · the subagent split counts sidechain turns, and peak concurrency is per minute', () => {
+  const k = readTokenEconomics(econFixture, econCfg());
+  eq(k.agents.agentOutput, 20, 'both sidechain turns count as subagent output');
+  eq(k.agents.mainOutput, 200);
+  eq(k.agents.runs, 2, 'two distinct sessions ran a sidechain turn');
+  eq(k.agents.peakConcurrent, 2, 'two subagent sessions inside one minute is a peak of two');
+  const jan2 = k.days.find((d) => d.day === '2026-01-02');
+  eq([jan2.mainOutput, jan2.agentOutput], [100, 20], 'the day series carries the split too');
+});
+
+test('economics · rework is contrib\'s verdict joined by day, and a day with no commit is unknown not zero', () => {
+  const cfg = econCfg();
+  const contrib = readContrib(econFixture, cfg);
+  ok(contrib.available, contrib.reason || '');
+  ok(Array.isArray(contrib.quality.reworkByDay), 'contrib owns the definition and now publishes it per day');
+
+  const k = readTokenEconomics(econFixture, cfg);
+  const byDay = Object.fromEntries(k.rework.map((r) => [r.day, r]));
+  // 2026-01-01: src/a.js touched for the first time → no rework. 2026-01-02: re-touched inside 3 days → all of it.
+  eq([byDay['2026-01-01'].reworkOutput, byDay['2026-01-01'].newWorkOutput], [0, 100]);
+  eq([byDay['2026-01-02'].reworkOutput, byDay['2026-01-02'].newWorkOutput], [120, 0]);
+  includes(k.caveats.join(' '), 'not recomputed here',
+    'the report must say the verdict is joined rather than reinvented');
+
+  // A day with spend and no commit has no verdict. Reporting it as pure new work would be a claim from silence.
+  const orphan = readTokenEconomics(econFixture, { ...cfg, contrib: { since: '2026-06-01' } });
+  const o1 = orphan.rework.find((r) => r.day === '2026-01-01');
+  eq([o1.newWorkOutput, o1.reworkOutput], [null, null], 'no commit that day means unknown, not zero');
+});
+
+test('economics · unavailable is a state with a reason — never zero, never silence', () => {
+  const k = readTokenEconomics(econFixture, { ...resolveConfig(econFixture), tokens: { transcriptRoot: path.join(tmpRoot, 'econ-no-store') } });
+  eq(k.available, false);
+  eq(k.totals, null, 'an absent source must not be reported as a spend of zero');
+  ok(k.reason && k.reason.length > 20, 'the reason has to say what is missing');
+  eq(k.caveats.includes(k.reason), true, 'and it has to reach the caveats a view renders');
+  includes(formatEconomics(k, false), 'Unavailable');
+});
+
+test('economics · no prompt text and no file path reaches the report or the snapshot', () => {
+  // The transcripts hold every prompt and every path of every session. This is the rule the whole module is
+  // built around, so it is asserted over the serialised output and not over an intention.
+  const cfg = econCfg({ snapshot: true, snapshotFile: '.atlas/tokens-leak.jsonl' });
+  const k = readTokenEconomics(econFixture, cfg);
+  const dump = JSON.stringify(k) + formatEconomics(k, false);
+  ok(!dump.includes('SECRET-PROMPT-DO-NOT-LEAK'), 'prompt text must never reach the report');
+  ok(!dump.includes('SECRET-PATH-DO-NOT-LEAK'), 'a written path must never be retained');
+  ok(!dump.includes('docs/A.md'), 'not even a path inside the repository — it becomes a word and is dropped');
+
+  writeTokenSnapshot(econFixture, cfg, k);
+  const snap = fs.readFileSync(path.join(econFixture, '.atlas', 'tokens-leak.jsonl'), 'utf8');
+  ok(!/SECRET|\.md|\.mjs|\//.test(snap.replace(/"day":"[^"]*"/g, '')),
+    `the snapshot is counts only — no path, no text: ${snap.slice(0, 200)}`);
+});
+
+test('economics · the snapshot is gated on tokens.snapshot, and nothing else ever writes it', () => {
+  const off = writeTokenSnapshot(econFixture, econCfg({ snapshotFile: '.atlas/tokens-gated.jsonl' }));
+  eq(off.written, false);
+  includes(off.reason, 'tokens.snapshot', 'the refusal must name the setting that would allow it');
+  eq(fs.existsSync(path.join(econFixture, '.atlas', 'tokens-gated.jsonl')), false,
+    'a gated snapshot must not leave a file behind');
+
+  // And it refuses the published directory for the same reason a token report does.
+  let threw = null;
+  try { writeTokenSnapshot(econFixture, econCfg({ snapshot: true, snapshotFile: 'docs/_wiki/tokens.jsonl' })); }
+  catch (e) { threw = e; }
+  ok(threw, 'a snapshot inside the published output directory must be refused');
+  includes(threw.message, 'published');
+});
+
+test('economics · the snapshot is append-only, byte-stable, and re-running it appends nothing', () => {
+  const cfg = econCfg({ snapshot: true, snapshotFile: '.atlas/tokens-stable.jsonl' });
+  const file = path.join(econFixture, '.atlas', 'tokens-stable.jsonl');
+
+  const first = writeTokenSnapshot(econFixture, cfg);
+  eq(first.written, true);
+  eq(first.appended, 2, 'the fixture has two days of spend');
+  const bytes = fs.readFileSync(file);
+  eq(bytes.toString('utf8').trim().split('\n').length, 2, 'one JSON object per line');
+
+  const again = writeTokenSnapshot(econFixture, cfg);
+  eq(again.appended, 0, 'a day already recorded with identical counts is not written twice');
+  eq(fs.readFileSync(file).equals(bytes), true, 'the file must be byte-identical after a no-op run');
+
+  // Byte-stability for a given input, independently of what was already on disk.
+  fs.rmSync(file);
+  writeTokenSnapshot(econFixture, cfg);
+  eq(fs.readFileSync(file).equals(bytes), true, 'the same input must produce the same bytes');
+
+  const rows = fs.readFileSync(file, 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+  eq(rows.map((r) => r.day), ['2026-01-01', '2026-01-02'], 'days are written in order');
+  eq(rows[1].output, 120);
+  eq(rows[1].agentOutput, 20);
+  eq(Object.keys(rows[0]), ['v', 'day', 'input', 'cacheWrite', 'cacheRead', 'output', 'messages', 'mainOutput', 'agentOutput'],
+    'a fixed key order is what makes the bytes stable across machines');
+  eq(snapshotLine({ day: '2026-01-01', input: 1, cacheWrite: 2, cacheRead: 3, output: 4, messages: 5, mainOutput: 6, agentOutput: 7 }),
+    '{"v":1,"day":"2026-01-01","input":1,"cacheWrite":2,"cacheRead":3,"output":4,"messages":5,"mainOutput":6,"agentOutput":7}');
+});
+
+test('economics · atlas tokens keeps its existing report and gains the attribution below it', () => {
+  // The extension must not replace the terminal output anyone already reads, so both halves are asserted.
+  const r = cli(econFixture, ['tokens']);
+  includes(r.stdout, 'Where they went', 'the original totals report must survive');
+  includes(r.stdout, 'cache read', 'including the tier split it exists for');
+  includes(r.stdout, 'Attribution', 'and the new section must be printed after it');
+  includes(r.stdout, 'By kind of work');
+  includes(r.stdout, 'Main agent against subagents');
+  ok(!r.stdout.includes('SECRET-PROMPT-DO-NOT-LEAK'), 'no prompt text on the terminal either');
+
+  // `--snapshot` with the gate off says so rather than silently doing nothing.
+  const gated = cli(econFixture, ['tokens', '--snapshot']);
+  includes(gated.stdout, 'Snapshot not written');
+  includes(gated.stdout, 'tokens.snapshot');
+
+  // And no other command touches the store: a build must never write the snapshot.
+  const before = fs.existsSync(path.join(econFixture, '.atlas', 'tokens.jsonl'));
+  cli(econFixture, ['build', '--quiet']);
+  eq(fs.existsSync(path.join(econFixture, '.atlas', 'tokens.jsonl')), before,
+    'a build must never write the token snapshot');
+});
+
+/* ---- subagent transcripts, which a flat read of the store never saw ---- */
+
+const SUB_STORE = path.join(tmpRoot, 'econ-sub-store');
+
+const subFixture = (() => {
+  const dir = fixture('econ-sub', {
+    'project-atlas.config.json': JSON.stringify({
+      output: 'docs/_wiki', planning: { source: 'docs/ROADMAP.md' },
+      tokens: { transcriptRoot: SUB_STORE },
+    }),
+    'docs/A.md': '# A\n',
+  });
+  const slug = path.basename(transcriptDir(dir, { tokens: { transcriptRoot: SUB_STORE } }));
+  const store = path.join(SUB_STORE, slug);
+  fs.mkdirSync(path.join(store, 'main', 'subagents'), { recursive: true });
+
+  const turn = (o) => JSON.stringify({
+    type: 'assistant', timestamp: o.ts, uuid: o.uuid, sessionId: 'p1', gitBranch: 'main',
+    ...(o.agentId ? { agentId: o.agentId } : {}),
+    ...(o.isSidechain === undefined ? {} : { isSidechain: o.isSidechain }),
+    message: {
+      model: 'test-model',
+      usage: { input_tokens: 0, output_tokens: o.output, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      ...(o.content ? { content: o.content } : {}),
+    },
+  });
+
+  // Three spawns asked for; two of them left a transcript here. The third is the case worth reporting.
+  fs.writeFileSync(path.join(store, 'main.jsonl'),
+    turn({ ts: '2026-02-01T10:00:00Z', uuid: 'm1', output: 100, isSidechain: false,
+      content: [{ type: 'tool_use', id: 't1', name: 'Agent' }, { type: 'tool_use', id: 't2', name: 'Agent' },
+                { type: 'tool_use', id: 't3', name: 'Agent' }] }) + '\n', 'utf8');
+
+  // Both carry the PARENT's sessionId — which is why concurrency cannot be counted by session — and one of
+  // them does not set `isSidechain` at all, so living in the directory has to be enough on its own.
+  fs.writeFileSync(path.join(store, 'main', 'subagents', 'agent-aaa.jsonl'),
+    turn({ ts: '2026-02-01T10:05:00Z', uuid: 'a1', output: 30, agentId: 'aaa', isSidechain: true }) + '\n', 'utf8');
+  fs.writeFileSync(path.join(store, 'main', 'subagents', 'agent-bbb.jsonl'),
+    turn({ ts: '2026-02-01T10:05:30Z', uuid: 'b1', output: 20, agentId: 'bbb' }) + '\n', 'utf8');
+  // The sidecar the reader must never open: it holds the agent's brief, which is the prompt in miniature.
+  fs.writeFileSync(path.join(store, 'main', 'subagents', 'agent-aaa.meta.json'),
+    JSON.stringify({ agentType: 'general-purpose', description: 'SECRET-AGENT-BRIEF-DO-NOT-LEAK', spawnDepth: 1 }), 'utf8');
+
+  return { dir, store };
+})();
+
+test('economics · subagent transcripts live one directory down, and a flat read of the store misses every one', () => {
+  // Measured on this repository's own store before the fix: 20 files, 4,569 records and 1,085,725 output
+  // tokens invisible to every figure the module produced — and invisible in exactly one direction, so the
+  // main-versus-subagent axis read a flat zero and read it as a fact rather than as a directory nobody opened.
+  const found = transcriptFiles(subFixture.store);
+  eq(found.length, 3, 'one session transcript and two subagent transcripts');
+  eq(found.filter((f) => f.subagent).map((f) => f.name).sort(), ['agent-aaa.jsonl', 'agent-bbb.jsonl']);
+  eq(found.some((f) => f.name.endsWith('.meta.json')), false, 'the sidecar is not a transcript and is not read');
+
+  const cfg = { ...resolveConfig(subFixture.dir), tokens: { transcriptRoot: SUB_STORE } };
+  const k = readTokenEconomics(subFixture.dir, cfg);
+  eq(k.totals.output, 150, 'a subagent\'s tokens are this repository\'s tokens');
+  eq(k.agents.mainOutput, 100);
+  eq(k.agents.agentOutput, 50, 'and they belong on the subagent side of the split, not nowhere');
+  eq(k.agents.runs, 2);
+});
+
+test('economics · concurrency is counted by agent id, because a subagent carries its parent\'s session id', () => {
+  const cfg = { ...resolveConfig(subFixture.dir), tokens: { transcriptRoot: SUB_STORE } };
+  const k = readTokenEconomics(subFixture.dir, cfg);
+  // Both subagent turns fall in the same minute and both records say sessionId 'p1'. Counting distinct
+  // sessions would report a peak of one for a session that fanned two agents out at once — the precise
+  // claim the axis exists to check, answered with the wrong key.
+  eq(k.agents.peakConcurrent, 2, 'two agents inside one minute is a peak of two, whatever the session id says');
+  // And one of those two never set `isSidechain`: being in the subagents directory has to be enough.
+  includes(k.caveats.join(' '), 'agentId', 'the key the count uses must be stated');
+});
+
+test('economics · a spawn is an intent and is never counted as spend', () => {
+  // A spawn call says fan-out was requested; a transcript says it ran and cost something. Folding them
+  // together would let an agent with no observed spend raise peak concurrency with nothing behind it —
+  // but reporting a bare zero after three spawns is the silence this tool forbids. Both, separately.
+  const cfg = { ...resolveConfig(subFixture.dir), tokens: { transcriptRoot: SUB_STORE } };
+  const k = readTokenEconomics(subFixture.dir, cfg);
+  eq(k.agents.spawns, 3);
+  eq(k.agents.spawnsWithoutTranscript, 1, 'the third spawn left no transcript in this store');
+  eq(k.agents.runs, 2, 'runs counts what left a transcript — a spawn must not be folded into it');
+  eq(k.agents.peakConcurrent, 2, 'and it must not raise concurrency, because nothing was observed to run');
+  eq(k.agents.agentOutput, 50, 'nor spend');
+  includes(k.caveats.join(' '), 'ran somewhere this store cannot see', 'the gap must be named, not smoothed');
+});
+
+test('economics · the subagent sidecar is never opened — it carries the agent\'s brief', () => {
+  const cfg = { ...resolveConfig(subFixture.dir), tokens: { transcriptRoot: SUB_STORE } };
+  const k = readTokenEconomics(subFixture.dir, cfg);
+  const dump = JSON.stringify(k) + formatEconomics(k, false);
+  ok(!dump.includes('SECRET-AGENT-BRIEF-DO-NOT-LEAK'), 'agent-*.meta.json holds a brief and must not be read');
+  ok(!dump.includes('general-purpose'), 'nor anything else out of it');
+});
+
+test('tokens · the totals report counts subagent transcripts too, and does not call them sessions', () => {
+  // `readTokens` is async, so it is exercised here through the real CLI — which is also the surface a user
+  // reads. Before the fix `files` counted one, and every subagent token was missing from the totals.
+  const r = cli(subFixture.dir, ['tokens', '--json', '--quiet']);
+  const k = JSON.parse(r.stdout);
+  eq(k.files, 3, 'all three transcripts are read');
+  eq(k.subagentFiles, 2);
+  eq(k.totals.output, 150, 'the subagent tokens are in the totals');
+  // A subagent transcript is not a session. The old counter tested a global accumulator, so once any file
+  // had produced an assistant turn every later file counted as a session whether it held anything or not.
+  eq(k.outcomes.sessions, 1, 'three transcripts, one session');
+  includes(k.notChecked.join(' '), 'subagents/', 'and the report says where they were found');
 });
 
 console.log(`\n${pass} passed, ${fail} failed${skipped ? `, ${skipped} skipped on ${process.platform}` : ''}\n`);

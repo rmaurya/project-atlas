@@ -250,20 +250,35 @@ function aggregateQuality(commits, c) {
   const windowMs = c.reworkWindowDays * 86400000;
   const lastTouch = new Map();
   let rework = 0, touches = 0;
+  // The per-day breakdown comes out of **this** loop rather than a second one somewhere else. Token
+  // economics (C-10) needs a day-by-day rework verdict to split spend into new work and rework, and the one
+  // thing it must not do is invent a second definition of the word — two answers to one question is the fork
+  // this whole tool exists to detect. So the definition stays here, single, and the day series is a
+  // by-product of it.
+  const byDay = new Map();
 
   for (const cm of commits) {
     const t = Date.parse(cm.date);
+    const day = cm.date.slice(0, 10);
     for (const f of cm.files) {
       touches++;
       const prev = lastTouch.get(f.path);
-      if (prev !== undefined && t - prev < windowMs) rework++;
+      const isRework = prev !== undefined && t - prev < windowMs;
+      if (isRework) rework++;
       lastTouch.set(f.path, t);
+      const d = byDay.get(day) || { day, touches: 0, rework: 0 };
+      d.touches++;
+      if (isRework) d.rework++;
+      byDay.set(day, d);
     }
   }
 
   return {
     reworkRate: touches ? Math.round((rework / touches) * 1000) / 10 : 0,
     reworkWindowDays: c.reworkWindowDays,
+    reworkTouches: touches,
+    // Ascending, so a caller joining it to a time series does not have to sort it again.
+    reworkByDay: [...byDay.values()].sort((a, b) => a.day.localeCompare(b.day)),
     reverts: commits.filter((x) => x.revert).length,
     revertRate: Math.round((commits.filter((x) => x.revert).length / commits.length) * 1000) / 10,
     conventional: commits.filter((x) => x.conventional).length,

@@ -30,13 +30,24 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import readline from 'node:readline';
+import { StringDecoder } from 'node:string_decoder';
 import { isAtOrInside } from './paths.mjs';
+import { matchesAny } from './config.mjs';
+import { readContrib } from './contrib.mjs';
 
 export const DEFAULT_TOKENS = {
   transcriptRoot: null,          // defaults to ~/.claude/projects
   since: null,                   // ISO date; omit for everything
   rates: null,                   // { model: { input, output, cacheWrite, cacheRead } } per million tokens
   ratesAsOf: null,               // the date those rates were correct — printed with any cost figure
+  // C-10. Off by default and it stays off by default: the snapshot is the one path by which anything derived
+  // from a transcript reaches a commit, so it is opted into once, in writing, by the repository owner.
+  snapshot: false,
+  snapshotFile: '.atlas/tokens.jsonl',
+  // What counts as a test for the per-kind split. The rest of the taxonomy comes from the configured clusters
+  // and the plan source; there is no existing "these are the tests" setting in the config, so this is it.
+  testGlobs: ['tests/**', 'test/**', 'spec/**', '**/__tests__/**', '**/__test__/**',
+              '**/*.test.*', '**/*.spec.*', '**/*_test.*', '**/*-test.*'],
 };
 
 /**
@@ -81,6 +92,49 @@ export function assertNotPublishable(root, cfg, dest) {
 
 /* ------------------------------------------------------------------ reading */
 
+/**
+ * Every transcript in the store — **including the subagent ones, which a flat read of the directory misses.**
+ *
+ * A session writes `<store>/<session-id>.jsonl`. A subagent it spawns writes
+ * `<store>/<session-id>/subagents/agent-<id>.jsonl`, one directory down, and the original
+ * `readdirSync(dir).filter(f => f.endsWith('.jsonl'))` never descended. Measured on this repository's own
+ * store: **20 files, 4,569 records and 1,085,725 output tokens invisible** to every figure this module
+ * produced. Worse than a shortfall, it was a shortfall in exactly one direction — every token a subagent
+ * spent — so the main-versus-subagent axis C-10 and C-11 are built on read a flat zero, and read it as a
+ * fact rather than as a directory that was never opened.
+ *
+ * The `.meta.json` beside each subagent transcript is **deliberately not read**. It carries the agent's
+ * `description`, which is the prompt in miniature, and nothing here needs it: `agentId` is on every record
+ * of the transcript itself.
+ */
+export function transcriptFiles(dir) {
+  const stat = (p) => { try { return fs.statSync(p); } catch { return null; } };
+  const out = [];
+  let entries;
+  try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return out; }
+
+  for (const e of entries) {
+    const p = path.join(dir, e.name);
+    if (e.isFile() && e.name.endsWith('.jsonl')) {
+      const st = stat(p);
+      if (st?.size) out.push({ name: e.name, path: p, size: st.size, subagent: false });
+      continue;
+    }
+    if (!e.isDirectory()) continue;
+    const sub = path.join(p, 'subagents');
+    let kids;
+    try { kids = fs.readdirSync(sub); } catch { continue; }
+    for (const k of kids) {
+      // `.meta.json` is skipped by the extension test, and that is on purpose — see above.
+      if (!k.endsWith('.jsonl')) continue;
+      const kp = path.join(sub, k);
+      const st = stat(kp);
+      if (st?.size) out.push({ name: k, path: kp, size: st.size, subagent: true });
+    }
+  }
+  return out;
+}
+
 export async function readTokens(root, cfg = {}, { onProgress } = {}) {
   const t = { ...DEFAULT_TOKENS, ...(cfg.tokens || {}) };
   const dir = transcriptDir(root, cfg);
@@ -88,12 +142,10 @@ export async function readTokens(root, cfg = {}, { onProgress } = {}) {
   if (!fs.existsSync(dir)) {
     return { available: false, reason: `No session transcripts for this repository at ${dir}.`, dir };
   }
-  const files = fs.readdirSync(dir).filter((f) => f.endsWith('.jsonl'))
-    .map((f) => ({ name: f, path: path.join(dir, f), size: fs.statSync(path.join(dir, f)).size }))
-    .filter((f) => f.size > 0)
-    .sort((a, b) => b.size - a.size);
+  const files = transcriptFiles(dir).sort((a, b) => b.size - a.size);
 
   if (!files.length) return { available: false, reason: `No .jsonl transcripts in ${dir}.`, dir };
+  const subagentFiles = files.filter((f) => f.subagent).length;
 
   const sinceMs = t.since ? Date.parse(t.since) : null;
   const totals = { input: 0, output: 0, cacheWrite: 0, cacheRead: 0, messages: 0 };
@@ -109,7 +161,13 @@ export async function readTokens(root, cfg = {}, { onProgress } = {}) {
 
   for (const [i, f] of files.entries()) {
     onProgress?.(`  reading ${i + 1}/${files.length}  ${(f.size / 1048576).toFixed(0)} MB`);
-    const s = { file: f.name.slice(0, 8), bytes: f.size, input: 0, output: 0, cacheWrite: 0, cacheRead: 0, messages: 0, first: null, last: null };
+    const s = { file: f.name.replace(/\.jsonl$/, '').slice(0, 8), subagent: f.subagent,
+      bytes: f.size, input: 0, output: 0, cacheWrite: 0, cacheRead: 0, messages: 0, first: null, last: null };
+    // A subagent transcript is not a session, so it must not increment the session count. The old test —
+    // `s.messages || oc.assistantTurns` — read a *global* accumulator, so once any file had produced an
+    // assistant turn every later file counted as a session whether it held anything or not. That was
+    // survivable while the store was four files; it is not now that it is twenty-four.
+    let fileTurns = 0;
     const rl = readline.createInterface({ input: fs.createReadStream(f.path), crlfDelay: Infinity });
 
     for await (const line of rl) {
@@ -125,7 +183,7 @@ export async function readTokens(root, cfg = {}, { onProgress } = {}) {
           if (c?.type === 'tool_result') { oc.toolResults++; if (c.is_error) oc.toolErrors++; }
         }
       }
-      if (j.type === 'assistant') oc.assistantTurns++;
+      if (j.type === 'assistant') { oc.assistantTurns++; fileTurns++; }
       if (j.promptSource === 'typed') oc.typedPrompts++;
       else if (j.promptSource === 'queued') oc.queuedPrompts++;
       if (j.interruptedMessageId) oc.interruptions++;
@@ -162,7 +220,7 @@ export async function readTokens(root, cfg = {}, { onProgress } = {}) {
         if (!s.last || ts > s.last) s.last = ts;
       }
     }
-    if (s.messages || oc.assistantTurns) oc.sessions++;
+    if (!f.subagent && (s.messages || fileTurns)) oc.sessions++;
     if (s.messages) bySession.push({ ...s, first: s.first && new Date(s.first).toISOString().slice(0, 10), last: s.last && new Date(s.last).toISOString().slice(0, 10) });
   }
 
@@ -170,6 +228,7 @@ export async function readTokens(root, cfg = {}, { onProgress } = {}) {
   return {
     available: true, dir,
     files: files.length,
+    subagentFiles,
     bytes: files.reduce((n, f) => n + f.size, 0),
     totals,
     billable,
@@ -185,7 +244,7 @@ export async function readTokens(root, cfg = {}, { onProgress } = {}) {
       interruptionRate: oc.typedPrompts ? Math.round((oc.interruptions / oc.typedPrompts) * 1000) / 10 : null,
     },
     cost: estimateCost(byModel, t),
-    notChecked: notChecked(t, skippedLines, outOfRange),
+    notChecked: notChecked(t, skippedLines, outOfRange, subagentFiles),
   };
 }
 
@@ -212,9 +271,12 @@ function estimateCost(byModel, t) {
   };
 }
 
-function notChecked(t, skippedLines, outOfRange) {
+function notChecked(t, skippedLines, outOfRange, subagentFiles = 0) {
   const out = [];
   out.push('Derived from local session transcripts, not from the repository. They are machine-local, unversioned, and gone if cleared — these figures are not reproducible from a clone.');
+  out.push(subagentFiles
+    ? `${subagentFiles} subagent transcript(s) are included. They live one directory down, under <session>/subagents/, and were read by nothing here until C-10 — every token they spent used to be missing from these totals.`
+    : 'No subagent transcript is present in this store. A subagent given its own git worktree runs under a different working directory and writes to a different store entirely, so absence here is not evidence that nothing was fanned out.');
   if (skippedLines) out.push(`${skippedLines} unparseable line(s) were skipped.`);
   if (outOfRange) out.push(`${outOfRange} message(s) fall before tokens.since and are excluded.`);
   if (!t.rates) out.push('No cost is shown because no rates are configured.');
@@ -345,5 +407,573 @@ export function formatSessions(k, contrib, useColor) {
   }
   L.push(c.dim('  · Difficulty. A turn on a hard problem and a turn on a typo count the same.'));
   for (const n of k.notChecked) L.push(c.dim('  · ' + n));
+  return L.join('\n');
+}
+
+/* ================================================================== economics (C-10)
+ *
+ * `readTokens` above answers *how much*. Everything left is a **join** — what a task cost, what a day of
+ * rework cost against a day of new work, what planning cost against coding, how much ran in a subagent — and
+ * `docs/specs/token-economics.md` fixes the shape those joins return so that three workstreams building on
+ * them agree on one.
+ *
+ * ## Three properties this code exists to hold
+ *
+ * **1. It never double-counts.** Task windows overlap: at any moment several items are open, and a turn that
+ * happened while three were open belongs a third to each. The naive join gives each open task the whole turn
+ * and produces a per-task table summing to three times the real total — a number that looks authoritative,
+ * reconciles against nothing, and is wrong in the direction that flatters. So a turn attributed to *n* open
+ * windows contributes `1/n` to each, and any task whose window overlapped another carries `partial: true` so
+ * a reader knows the figure is a share and not a measurement.
+ *
+ * **2. It retains no path and no text.** A written path is read, turned into one of five words, and dropped
+ * on the same line. Nothing downstream of `classifyWrite` has ever seen a path. The snapshot — the only thing
+ * here that reaches a commit — carries integers and a date, nothing else.
+ *
+ * **3. It does not invent a second definition of rework.** `contrib.mjs` already says what rework is (a file
+ * re-touched inside its window) and now publishes that verdict per day; this joins to it. Two answers to one
+ * question is precisely the drift this tool exists to detect, and shipping one inside the tool would be
+ * embarrassing.
+ *
+ * ## Why this one is synchronous when `readTokens` is not
+ *
+ * `readTokens` streams because it only ever had one caller, and that caller is a command. This has three: a
+ * command, a dashboard panel and a health signal — and `renderSite`, `buildIndex` and `runHealth` are all
+ * synchronous. An async reader would have forced the whole render path to grow an `await`, or forced the
+ * panel to be fed from outside, which is how a view ends up with a data source nothing else can check. It
+ * still reads in 1 MB chunks rather than slurping the file: these transcripts run to tens of megabytes each.
+ */
+
+/** The five kinds, in a fixed order so every consumer renders them the same way. */
+export const WORK_KINDS = ['planning', 'coding', 'testing', 'documentation', 'other'];
+
+/**
+ * Read a JSONL file line by line, synchronously, without holding the whole file in memory.
+ *
+ * `StringDecoder` rather than `buf.toString()` per chunk: a multi-byte character straddling a 1 MB boundary
+ * decodes to two replacement characters otherwise, which corrupts the JSON on that line and turns a real
+ * record into a skipped one. The count of skipped lines is reported, so the failure would have been visible —
+ * as an unexplained number, which is worse than either a crash or a correct read.
+ */
+function* jsonlLines(file) {
+  const fd = fs.openSync(file, 'r');
+  try {
+    const buf = Buffer.allocUnsafe(1 << 20);
+    const dec = new StringDecoder('utf8');
+    let carry = '';
+    for (;;) {
+      const n = fs.readSync(fd, buf, 0, buf.length, null);
+      if (n <= 0) break;
+      carry += dec.write(buf.subarray(0, n));
+      let i;
+      while ((i = carry.indexOf('\n')) !== -1) {
+        const line = carry.slice(0, i);
+        carry = carry.slice(i + 1);
+        if (line.trim()) yield line;
+      }
+    }
+    carry += dec.end();
+    if (carry.trim()) yield carry;
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
+/** The `usage` block, wherever the record carries it. One reader, so this and `readTokens` cannot disagree. */
+export function usageOf(rec) {
+  const u = rec?.message?.usage || rec?.usage;
+  if (!u) return null;
+  return {
+    input: u.input_tokens || 0,
+    output: u.output_tokens || 0,
+    cacheWrite: u.cache_creation_input_tokens || 0,
+    cacheRead: u.cache_read_input_tokens || 0,
+  };
+}
+
+/**
+ * The path a turn **wrote**, or null.
+ *
+ * Verified against this repository's own transcripts: a top-level `toolUseResult.filePath` is produced by
+ * `Edit` and `Write` and by nothing else — a `Read` puts its path at `toolUseResult.file.filePath`, one level
+ * down, and is deliberately not matched here. Counting reads as writes would classify a turn that read a test
+ * and changed a source file as testing.
+ *
+ * The return value is consumed by `classifyWrite` and discarded on the same line. It is never stored.
+ */
+function writtenPathOf(rec) {
+  const r = rec?.toolUseResult;
+  if (r && typeof r === 'object' && typeof r.filePath === 'string' && r.filePath) return r.filePath;
+  if (typeof rec?.trackingPath === 'string' && rec.trackingPath) return rec.trackingPath;
+  return null;
+}
+
+/**
+ * One written path → one of five words. **This is the only function in the module that sees a path**, and it
+ * returns a word.
+ *
+ * Precedence is testing → planning → documentation → coding, and the order is not the order the contract
+ * lists them in. Taken literally — documentation before planning — the plan file is markdown inside a cluster,
+ * so it resolves as documentation and the "planning is the plan file" clause never fires for any repository
+ * that keeps its plan in markdown, which is all of them. Naming a specific file and then having a general
+ * rule swallow it is the same defect the cluster taxonomy fixed by putting filename rules before directory
+ * rules. Recorded in the report as an amendment rather than applied silently.
+ *
+ * Returns `null` for a write outside the repository — a scratch file in a temp directory is a real write and
+ * is not this repository's coding.
+ */
+export function classifyWrite(p, root, cfg = {}) {
+  const t = { ...DEFAULT_TOKENS, ...(cfg.tokens || {}) };
+  let rel = p;
+  if (path.isAbsolute(p)) {
+    rel = path.relative(path.resolve(root), p);
+    if (!rel || rel === '..' || rel.startsWith('..' + path.sep) || path.isAbsolute(rel)) return null;
+  }
+  rel = rel.split(path.sep).join('/').replace(/^\.\//, '');
+
+  if (matchesAny(rel, t.testGlobs)) return 'testing';
+
+  const planSource = (cfg.planning?.source || '').split(path.sep).join('/');
+  if (planSource && rel === planSource) return 'planning';
+  if (rel.startsWith('.atlas/journal/') || rel === '.atlas/tasks-live.jsonl') return 'planning';
+
+  // "Resolves to a document cluster" in the contract; in practice the question a cluster answers is *which*
+  // document this is, and the question here is *whether* it is one — so this is the corpus test the rest of
+  // the tool uses, which is what decides whether a cluster is ever consulted at all.
+  if (matchesAny(rel, cfg.include || ['**/*.md']) && !matchesAny(rel, cfg.exclude || [])) return 'documentation';
+
+  return 'coding';
+}
+
+/**
+ * Task windows, replayed from `.atlas/tasks-live.jsonl` — the same append-only log the in-flight panel folds,
+ * read the same way: later records win field by field, and a torn last line is skipped rather than fatal.
+ *
+ * A window opens at the `create` record and closes at the **first** update carrying `status: "completed"`.
+ * First, not last: a task reopened and completed again would otherwise absorb every turn in the gap, which is
+ * the period it was explicitly not being worked on.
+ */
+export function taskWindows(root) {
+  const file = path.join(root, '.atlas', 'tasks-live.jsonl');
+  let raw;
+  try { raw = fs.readFileSync(file, 'utf8'); }
+  catch {
+    return { available: false, items: [], dropped: 0, undated: 0,
+      reason: 'No `.atlas/tasks-live.jsonl` in this repository, so no turn can be attributed to a task. ' +
+              'That file is written by hooks/on-task.sh as a session\'s task list changes.' };
+  }
+
+  const by = new Map();
+  for (const line of raw.split('\n')) {
+    if (!line.trim()) continue;
+    let r;
+    try { r = JSON.parse(line); } catch { continue; }
+    if (!r?.id) continue;
+    const id = String(r.id);
+    const prev = by.get(id) || { id, subject: null, status: 'pending', opened: null, closed: null };
+    if (!prev.opened && r.at) prev.opened = r.at;
+    if (r.subject != null) prev.subject = r.subject;
+    if (r.status != null) prev.status = r.status;
+    if (r.status === 'completed' && !prev.closed && r.at) prev.closed = r.at;
+    by.set(id, prev);
+  }
+
+  const all = [...by.values()];
+  // A task the harness deleted is dropped, the same call inflight.mjs makes — but counted, because dropping
+  // it changes the denominator of every 1/n split in its window.
+  const items = all.filter((x) => x.status !== 'deleted');
+  const dated = items.filter((x) => x.opened && Number.isFinite(Date.parse(x.opened)));
+  return {
+    available: true, reason: null,
+    items: dated,
+    dropped: all.length - items.length,
+    undated: items.length - dated.length,
+  };
+}
+
+/** An interval per task, with `partial` set on any window that overlaps another. Exported for the test. */
+export function overlapWindows(items) {
+  const w = items.map((t) => ({
+    ...t,
+    openMs: Date.parse(t.opened),
+    closeMs: t.closed ? Date.parse(t.closed) : Infinity,
+    partial: false,
+    output: 0, cacheRead: 0, messages: 0,
+  }));
+  for (let i = 0; i < w.length; i++) {
+    for (let j = i + 1; j < w.length; j++) {
+      if (w[i].openMs <= w[j].closeMs && w[j].openMs <= w[i].closeMs) { w[i].partial = true; w[j].partial = true; }
+    }
+  }
+  return w;
+}
+
+const emptyEconomics = (reason) => ({
+  available: false, reason,
+  // Not zeros. A zero here is a claim that nothing was spent, and the claim being made is that nothing is
+  // known — so every figure is absent and the reason is carried in the caveats where a view will render it.
+  totals: null, days: [], tasks: [], kinds: [], agents: null, branches: [], rework: [],
+  caveats: [reason],
+});
+
+/**
+ * The C-10 data layer. Returns the shape in `docs/specs/token-economics.md`.
+ */
+export function readTokenEconomics(root, cfg = {}) {
+  const t = { ...DEFAULT_TOKENS, ...(cfg.tokens || {}) };
+  const dir = transcriptDir(root, cfg);
+
+  if (!fs.existsSync(dir)) {
+    return emptyEconomics(`No session transcripts for this repository at ${dir}. Token economics is derived ` +
+      `from local session history, which this machine does not have for this path — that is an absent source, not a spend of zero.`);
+  }
+  // Sorted by path so the pass is deterministic, which is half of what makes the snapshot byte-stable.
+  const files = transcriptFiles(dir).sort((a, b) => a.path.localeCompare(b.path));
+  if (!files.length) return emptyEconomics(`No .jsonl transcripts in ${dir}, so there is nothing to attribute.`);
+  const subagentFiles = files.filter((f) => f.subagent).length;
+
+  const sinceMs = t.since ? Date.parse(t.since) : null;
+  const totals = { input: 0, cacheWrite: 0, cacheRead: 0, output: 0, messages: 0 };
+  const days = new Map();
+  const branches = new Map();
+  const kinds = new Map(WORK_KINDS.map((k) => [k, { kind: k, output: 0, cacheRead: 0, writes: 0 }]));
+
+  const tw = taskWindows(root);
+  const windows = overlapWindows(tw.items);
+
+  // Keyed on `agentId`, not `sessionId`. **Every record in a subagent transcript carries the *parent's*
+  // sessionId** — verified across all twenty here — so counting distinct sessionIds would report a peak of
+  // one for a session that fanned six agents out at once, which is the precise claim C-11 exists to check.
+  // `agentId` is per subagent and is on every record of its transcript.
+  const sideMinutes = new Map();          // minute → Set(agentId)
+  const agentIds = new Set();
+  let mainOutput = 0, agentOutput = 0, sidechainTurns = 0, spawns = 0;
+  let skippedLines = 0, outOfRange = 0;
+  let unattributedTurns = 0, unattributedOutput = 0;
+  let outsideWrites = 0;
+
+  for (const file of files) {
+    // Written paths arrive on records that follow the assistant turn that produced them, so the per-turn kind
+    // set is completed only once the file is read. Held per file, not per store, and folded at the end of each.
+    const turns = new Map();
+    let lastTurnUuid = null;
+
+    for (const line of jsonlLines(file.path)) {
+      let j;
+      try { j = JSON.parse(line); } catch { skippedLines++; continue; }
+
+      // A spawn is an *intent* to fan out; a subagent transcript is evidence it ran and cost something.
+      // Counted separately and never merged — see the `agents` block below.
+      const content = j.message?.content;
+      if (Array.isArray(content)) {
+        for (const b of content) if (b?.type === 'tool_use' && (b.name === 'Agent' || b.name === 'Task')) spawns++;
+      }
+
+      const written = writtenPathOf(j);
+      if (written) {
+        const kind = classifyWrite(written, root, cfg);
+        if (kind === null) outsideWrites++;
+        else {
+          const owner = (j.sourceToolAssistantUUID && turns.get(j.sourceToolAssistantUUID))
+            || (lastTurnUuid && turns.get(lastTurnUuid));
+          if (owner) owner.kinds.add(kind);
+          kinds.get(kind).writes++;
+        }
+      }
+
+      const u = usageOf(j);
+      if (!u) continue;
+      const ts = j.timestamp ? Date.parse(j.timestamp) : null;
+      if (sinceMs && ts && ts < sinceMs) { outOfRange++; continue; }
+
+      totals.input += u.input; totals.cacheWrite += u.cacheWrite;
+      totals.cacheRead += u.cacheRead; totals.output += u.output;
+      totals.messages++;
+
+      // A record in a subagent transcript is a subagent turn whether or not it says so, and one marked
+      // `isSidechain` is one wherever it lives. Either witness is enough.
+      const sidechain = j.isSidechain === true || file.subagent;
+      if (sidechain) {
+        agentOutput += u.output; sidechainTurns++;
+        // `agentId` first, and `sessionId` only as a fallback: a sidechain turn written inline in a session
+        // file — the older shape — has no agent id, and there the session is the only discriminator there is.
+        const who = j.agentId || j.sessionId || file.name;
+        agentIds.add(who);
+        if (ts) {
+          const minute = Math.floor(ts / 60000);
+          if (!sideMinutes.has(minute)) sideMinutes.set(minute, new Set());
+          sideMinutes.get(minute).add(who);
+        }
+      } else mainOutput += u.output;
+
+      if (ts) {
+        const key = new Date(ts).toISOString().slice(0, 10);
+        const d = days.get(key) || { day: key, input: 0, cacheWrite: 0, cacheRead: 0, output: 0, messages: 0, agentOutput: 0, mainOutput: 0 };
+        d.input += u.input; d.cacheWrite += u.cacheWrite; d.cacheRead += u.cacheRead; d.output += u.output;
+        d.messages++;
+        if (sidechain) d.agentOutput += u.output; else d.mainOutput += u.output;
+        days.set(key, d);
+      }
+
+      const br = j.gitBranch || null;
+      const b = branches.get(br) || { branch: br, output: 0, cacheRead: 0, messages: 0 };
+      b.output += u.output; b.cacheRead += u.cacheRead; b.messages++;
+      branches.set(br, b);
+
+      // The 1/n split. Every open window gets a share, never the whole turn.
+      if (ts !== null && windows.length) {
+        const open = windows.filter((w) => ts >= w.openMs && ts <= w.closeMs);
+        if (!open.length) { unattributedTurns++; unattributedOutput += u.output; }
+        else {
+          const n = open.length;
+          for (const w of open) { w.output += u.output / n; w.cacheRead += u.cacheRead / n; w.messages += 1 / n; }
+        }
+      }
+
+      if (j.uuid) { turns.set(j.uuid, { o: u.output, c: u.cacheRead, kinds: new Set() }); lastTurnUuid = j.uuid; }
+    }
+
+    for (const turn of turns.values()) {
+      const list = [...turn.kinds];
+      if (!list.length) { kinds.get('other').output += turn.o; kinds.get('other').cacheRead += turn.c; continue; }
+      const n = list.length;
+      for (const k of list) { kinds.get(k).output += turn.o / n; kinds.get(k).cacheRead += turn.c / n; }
+    }
+  }
+
+  const daySeries = [...days.values()].sort((a, b) => a.day.localeCompare(b.day));
+
+  /* ---- rework: joined to contrib's verdict, never recomputed ---- */
+  // A failure to read git is a missing rework verdict, not a failed token report. `readContrib` degrades for
+  // the ordinary cases itself and throws for the rest; the rest must not take this whole surface down.
+  let contrib;
+  try { contrib = readContrib(root, cfg); }
+  catch (err) { contrib = { available: false, reason: String(err?.message || err).split('\n')[0] }; }
+  const reworkByDay = new Map((contrib?.available ? contrib.quality.reworkByDay : []).map((d) => [d.day, d]));
+  const rework = daySeries.map((d) => {
+    const v = reworkByDay.get(d.day);
+    if (!v || !v.touches) return { day: d.day, newWorkOutput: null, reworkOutput: null };
+    const reworkOutput = Math.round(d.output * (v.rework / v.touches));
+    return { day: d.day, newWorkOutput: d.output - reworkOutput, reworkOutput };
+  });
+  const daysWithoutVerdict = rework.filter((r) => r.reworkOutput === null).length;
+
+  const caveats = [];
+  caveats.push('Derived from local session transcripts, not from the repository. They are machine-local, ' +
+    'unversioned, and gone if cleared — these figures are not reproducible from a clone.');
+  caveats.push('There is no git author in a transcript, so there is no per-contributor axis here and there ' +
+    'will not be one. The honest axes are branch and agent.');
+  caveats.push('Counts only. No prompt text, no message content, and no file path reaches this output: a ' +
+    'written path is read to choose one of five words and is discarded on the same line.');
+
+  if (!tw.available) caveats.push(tw.reason);
+  else if (!windows.length) caveats.push('`.atlas/tasks-live.jsonl` holds no dated task, so no turn is attributed to a task.');
+  else {
+    const partial = windows.filter((w) => w.partial).length;
+    if (partial) caveats.push(`${partial} of ${windows.length} task window(s) overlapped another, so a turn ` +
+      `inside n open windows contributes 1/n to each and those tasks are marked \`partial\`. Per-task figures ` +
+      `are rounded from fractional shares and will not sum exactly to the total — that is the rounding, not a gap.`);
+    if (unattributedTurns) {
+      const share = totals.output ? Math.round((unattributedOutput / totals.output) * 1000) / 10 : 0;
+      caveats.push(`${unattributedTurns.toLocaleString()} assistant turn(s) — ${share}% of all output — fall ` +
+        `inside no task window and are attributed to no task. The task log only covers sessions that ran with the hook installed.`);
+    }
+    if (tw.dropped) caveats.push(`${tw.dropped} task(s) were deleted in the harness and are excluded, which changes the 1/n denominator inside their windows.`);
+    if (tw.undated) caveats.push(`${tw.undated} task record(s) carry no usable timestamp and cannot be given a window.`);
+  }
+
+  caveats.push(subagentFiles
+    ? `${subagentFiles} subagent transcript(s) were read from <session>/subagents/. Concurrency is counted by ` +
+      `\`agentId\`, not by session: every record in a subagent transcript carries the parent session's id, so ` +
+      `counting sessions would report a peak of one however many agents ran at once.`
+    : 'No subagent transcript is present in this store. A subagent given its own git worktree runs under a ' +
+      'different working directory and writes to a different store entirely — absence here is not evidence ' +
+      'that nothing was fanned out.');
+  if (!sidechainTurns) caveats.push('No subagent turn was found at all, so the split below reports the main agent only.');
+  // A spawn with no transcript is the interesting case, and reporting only one of the two numbers hides it.
+  const orphanSpawns = Math.max(0, spawns - agentIds.size);
+  if (orphanSpawns) caveats.push(`${spawns} subagent spawn(s) were requested and ${agentIds.size} left a ` +
+    `transcript here, so ${orphanSpawns} ran somewhere this store cannot see — a worktree of its own, or a ` +
+    `transcript since cleared. A spawn is counted as an intent to fan out and never as spend: it contributes ` +
+    `no tokens and no concurrency, because none was observed.`);
+
+  if (!contrib?.available) caveats.push(`New work against rework is unavailable: ${contrib?.reason || 'git history could not be read'}.`);
+  else {
+    caveats.push(`New work against rework uses \`contrib.mjs\`'s definition — a file re-touched within ` +
+      `${contrib.quality.reworkWindowDays} days — joined by day. It is not recomputed here, so the two surfaces cannot drift.`);
+    if (daysWithoutVerdict) caveats.push(`${daysWithoutVerdict} day(s) had token spend but no commit, so they ` +
+      `carry no rework verdict. They are reported as unknown rather than as a day of pure new work.`);
+  }
+
+  caveats.push('Per kind, a turn that wrote to more than one kind splits evenly across them, and `other` is a ' +
+    'turn that wrote nothing inside this repository.');
+  if (outsideWrites) caveats.push(`${outsideWrites} write(s) landed outside this repository and are counted under \`other\`, not \`coding\`.`);
+  if (skippedLines) caveats.push(`${skippedLines} unparseable line(s) were skipped.`);
+  if (outOfRange) caveats.push(`${outOfRange} message(s) fall before tokens.since and are excluded.`);
+  caveats.push(t.rates
+    ? `This report is counts only; currency appears in the cost section of \`atlas tokens\`, at the rates ` +
+      `configured in tokens.rates${t.ratesAsOf ? ` and entered ${t.ratesAsOf}` : ' (undated)'}. The snapshot never carries currency.`
+    : 'No figure here is in currency, because tokens.rates is not configured. Prices are not in the transcript and change over time.');
+
+  return {
+    available: true,
+    reason: null,
+    totals,
+    days: daySeries,
+    tasks: windows.map((w) => ({
+      id: w.id, subject: w.subject, status: w.status,
+      opened: w.opened, closed: w.closed,
+      output: Math.round(w.output), cacheRead: Math.round(w.cacheRead), messages: Math.round(w.messages),
+      partial: w.partial,
+    })).sort((a, b) => b.output - a.output || a.id.localeCompare(b.id)),
+    kinds: WORK_KINDS.map((k) => {
+      const v = kinds.get(k);
+      return { kind: k, output: Math.round(v.output), cacheRead: Math.round(v.cacheRead), writes: v.writes };
+    }),
+    agents: {
+      mainOutput, agentOutput,
+      runs: agentIds.size,
+      peakConcurrent: [...sideMinutes.values()].reduce((n, s) => Math.max(n, s.size), 0),
+      spawns,
+      spawnsWithoutTranscript: Math.max(0, spawns - agentIds.size),
+    },
+    branches: [...branches.values()].sort((a, b) => b.output - a.output),
+    rework,
+    caveats,
+  };
+}
+
+/* ------------------------------------------------------------------ snapshot */
+
+/**
+ * One day of the rollup, as the exact bytes that go on the line.
+ *
+ * Fixed key order and integers only, so the same input produces the same byte sequence on every machine and
+ * every run — which is what makes the file diffable, and what lets a re-run tell "this day changed" apart from
+ * "this day was written again".
+ */
+export function snapshotLine(d) {
+  return JSON.stringify({
+    v: 1, day: d.day,
+    input: d.input, cacheWrite: d.cacheWrite, cacheRead: d.cacheRead, output: d.output,
+    messages: d.messages, mainOutput: d.mainOutput, agentOutput: d.agentOutput,
+  });
+}
+
+/**
+ * Append the counts-only rollup to `.atlas/tokens.jsonl`.
+ *
+ * **Nothing calls this except `atlas tokens --snapshot`.** No build writes it, no hook writes it, and it does
+ * nothing at all unless `tokens.snapshot` is true in the config — the snapshot is the single path by which a
+ * figure derived from a session transcript reaches a commit and travels to a clone, so it is opted into once,
+ * in writing, by whoever owns the repository.
+ *
+ * Append-only, one object per line, the same discipline as the journal and the task log: a killed run loses at
+ * most the line it was writing. A day already recorded with identical counts is not written again, so running
+ * it twice over an unchanged store appends nothing.
+ */
+export function writeTokenSnapshot(root, cfg = {}, econ = null) {
+  const t = { ...DEFAULT_TOKENS, ...(cfg.tokens || {}) };
+  if (!t.snapshot) {
+    return { written: false, appended: 0, file: t.snapshotFile,
+      reason: 'tokens.snapshot is not enabled in project-atlas.config.json, so nothing was written. The ' +
+              'snapshot is the only path by which transcript-derived figures reach a commit, and it is opt-in.' };
+  }
+  const k = econ || readTokenEconomics(root, cfg);
+  if (!k.available) return { written: false, appended: 0, file: t.snapshotFile, reason: k.reason };
+
+  assertNotPublishable(root, cfg, t.snapshotFile);
+  const abs = path.resolve(root, t.snapshotFile);
+
+  const known = new Map();
+  try {
+    for (const line of fs.readFileSync(abs, 'utf8').split('\n')) {
+      if (!line.trim()) continue;
+      let r;
+      try { r = JSON.parse(line); } catch { continue; }
+      if (r?.day) known.set(r.day, line);
+    }
+  } catch { /* no snapshot yet — the first run writes every day it has */ }
+
+  const add = [];
+  for (const d of k.days) {
+    const line = snapshotLine(d);
+    if (known.get(d.day) !== line) add.push(line);
+  }
+  if (add.length) {
+    fs.mkdirSync(path.dirname(abs), { recursive: true });
+    fs.appendFileSync(abs, add.join('\n') + '\n', 'utf8');
+  }
+  return { written: true, file: t.snapshotFile, appended: add.length, days: k.days.length,
+    unchanged: k.days.length - add.length, reason: null };
+}
+
+/* ------------------------------------------------------------------ economics report */
+
+export function formatEconomics(k, useColor) {
+  const c = useColor
+    ? { dim: (s) => `\x1b[2m${s}\x1b[0m`, bold: (s) => `\x1b[1m${s}\x1b[0m`, yellow: (s) => `\x1b[33m${s}\x1b[0m` }
+    : new Proxy({}, { get: () => (s) => s });
+
+  const L = [];
+  L.push(c.bold('Attribution') + c.dim('  what the work went on, not just how much there was'));
+  if (!k.available) {
+    L.push(c.dim(`  Unavailable — ${k.reason}`));
+    return L.join('\n');
+  }
+
+  L.push('');
+  L.push(c.bold('By kind of work') + c.dim('  a turn writing two kinds splits evenly'));
+  for (const kind of k.kinds) {
+    L.push(`  ${kind.kind.padEnd(14)}${M(kind.output).padStart(7)} out  ${M(kind.cacheRead).padStart(7)} cached  ${String(kind.writes).padStart(5)} write(s)`);
+  }
+
+  if (k.tasks.length) {
+    L.push('');
+    L.push(c.bold('By task') + c.dim(`  (${k.tasks.length}) · ‡ marks a window that overlapped another, so its figure is a 1/n share`));
+    for (const task of k.tasks.slice(0, 12)) {
+      const flag = task.partial ? c.yellow('‡') : ' ';
+      const subject = (task.subject || '(no subject recorded)').slice(0, 46);
+      L.push(`  ${flag} ${M(task.output).padStart(7)} out  ${String(task.messages).padStart(5)} msg  ${task.status.padEnd(11)} ${subject}`);
+    }
+    if (k.tasks.length > 12) L.push(c.dim(`    … and ${k.tasks.length - 12} more`));
+  } else {
+    L.push('');
+    L.push(c.bold('By task') + c.dim('  none — see the caveats for why'));
+  }
+
+  L.push('');
+  L.push(c.bold('Main agent against subagents'));
+  L.push(`  main output    ${M(k.agents.mainOutput).padStart(7)}`);
+  L.push(`  agent output   ${M(k.agents.agentOutput).padStart(7)}  ` + c.dim(`${k.agents.runs} subagent(s) left a transcript`));
+  L.push(`  peak parallel  ${String(k.agents.peakConcurrent).padStart(7)}  ` + c.dim('most subagents active inside one minute, by agent id'));
+  L.push(`  spawns asked   ${String(k.agents.spawns).padStart(7)}  ` +
+    c.dim(k.agents.spawnsWithoutTranscript
+      ? `${k.agents.spawnsWithoutTranscript} left no transcript here — an intent, never counted as spend`
+      : 'fan-out requested — counted separately from what was observed to run'));
+
+  const verdicts = k.rework.filter((r) => r.reworkOutput !== null);
+  L.push('');
+  if (verdicts.length) {
+    const rw = verdicts.reduce((n, r) => n + r.reworkOutput, 0);
+    const nw = verdicts.reduce((n, r) => n + r.newWorkOutput, 0);
+    L.push(c.bold('New work against rework') + c.dim(`  over ${verdicts.length} day(s) with a commit`));
+    L.push(`  new work       ${M(nw).padStart(7)} out`);
+    L.push(`  rework         ${M(rw).padStart(7)} out  ` + c.dim("contrib.mjs's definition, joined by day — not recomputed"));
+  } else {
+    L.push(c.bold('New work against rework') + c.dim('  unavailable — see the caveats'));
+  }
+
+  if (k.branches.length) {
+    L.push('');
+    L.push(c.bold('By branch'));
+    for (const b of k.branches.slice(0, 10)) {
+      L.push(`  ${M(b.output).padStart(7)} out  ${M(b.cacheRead).padStart(7)} cached  ${String(b.messages).padStart(5)} msg   ${b.branch || c.dim('(no branch recorded)')}`);
+    }
+  }
+
+  L.push('');
+  L.push(c.bold('Read these with the caveats'));
+  for (const n of k.caveats) L.push(c.dim('  · ' + n.replace(/`/g, '')));
   return L.join('\n');
 }
