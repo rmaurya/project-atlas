@@ -40,7 +40,8 @@ measured against the code — the same distinction the tool preserves everywhere
 | C-7 | 100 | C-8 | 100 | | |
 | C-9 | 100 | A-31 | 100 | A-30 | 100 |
 | C-10 | 45 | C-11 | 10 | Q-4 | 10 |
-| Q-5 | 10 | A-32 | 0 | | |
+| Q-5 | 10 | A-32 | 0 | A-33 | 100 |
+| A-34 | 0 | | | | |
 
 ---
 
@@ -108,11 +109,30 @@ test that fails on a second call site. The branch report will not delete a branc
 command that would** — these are the commands an agent runs blind, and a read-only report whose output is a
 destructive command is read-only in name only.
 
-*Two known duplications, both deliberate and both worth closing.* The zero-fill for silent weeks exists here
-and as a private function in `dashboard.mjs`; the reverse citation index exists here and as a local `const`
-inside `kb.mjs`. Neither is exported, both modules were owned by other work in the session that wrote this,
-and re-deriving eight lines was the lesser evil against editing them. Hoisting one of each pair into a shared
-helper is the follow-up.
+*Two known duplications, both deliberate, both now hoisted.* The zero-fill for silent weeks and the reverse
+citation index were each written twice, because the other copy sat in a module owned by different work in the
+same session and re-deriving eight lines was the lesser evil against editing it. That excuse expired when the
+branches merged onto one trunk: two copies of one derivation in one tree are two answers waiting to disagree,
+and a project whose dashboard contradicts its own CLI has lost the argument it exists to make.
+
+The zero-fill now lives in `contrib.mjs` as `fillAxis`/`weeklyAxis`, beside the aggregation whose gaps it
+closes — the sparse series is that module's product and the axis is a property of the series, not of anybody's
+rendering of it. `gitinsight.mjs::fillWeeks` is a wrapper that adds the one thing the rhythm report needs
+beyond the series: the count of weeks it filled, read off the shared `silent` flag rather than counted a
+second time. The reverse index is `design.mjs::reverseCitations`, beside the other measure of whether the
+written record still describes the code; `kb.mjs` and `gitinsight.mjs` both read it. **The hoisted version is
+the fixed one** — the continuous axis C-8 put under `velocityChart`, with the malformed-key guard and the
+iteration cap the older copy lacked — so no caller inherited the earlier behaviour.
+
+Two tests hold it, and both are written as agreements between callers rather than as unit tests of the
+helpers: a unit test cannot fail when somebody re-derives the same thing elsewhere, which is the whole failure
+mode. One asserts the silent weeks the terminal counts are the silent weeks the page draws; the other asserts
+the routing table and the hotspot report name the same documented files, including that an ambiguous citation
+is coverage on neither. Each carries a structural half, so a third copy fails the suite rather than waiting to
+be noticed. **One copy is still outstanding**: `dashboard.mjs` holds a private `fillAxis`/`weeklyAxis`, and
+closing it is deleting those two functions plus `AXIS_MAX` and importing them from `./contrib.mjs` — a file
+that module already imports. The behavioural test above covers it either way, because it reads what the page
+says rather than where the page got it.
 
 **C-8 · Where the work lands** — **P2 · Medium**
 *Shipped.* A Repository view. Delivery's unit of analysis is the commit and the person — how many, by whom,
@@ -857,6 +877,41 @@ existed.*
 file browser over `.env` and `.git`; what is served is the exact set of documents the build indexed, written
 to `sources.json` and re-read per miss so a document added by the watcher resolves without a restart.
 Verified: the failing link returns 200, `package-lock.json` and `.git/config` still 404.*
+
+**A-33 · One commit, one set of bytes, on every machine** — **P1 · High**
+*Shipped.* Bare `toLocaleString()` reads the host locale. Under `en-IN` — the default where this tool is
+written — `126200000` renders `12,62,00,000`, so two people building one commit produced different output, in
+the form hardest to read: every number in the site appears to have changed.
+
+*Byte-identical rebuild is the property the build stamp asserts, the property that makes "derived and
+regenerable" checkable rather than promised, and the property a publish diff depends on to show only what
+changed.* All three were being decided by an environment variable. `format.mjs::num()` pins the locale;
+thirty-two call sites across eleven modules route through it, five of them in `render.mjs` and two in
+`worklog.mjs` that reach files under version control. A test walks every module and fails on a bare call,
+because this defect returns silently and on one machine only, so the guard has to be structural rather than
+remembered.
+
+**A-34 · The build changes an input to itself, so it is not idempotent from a clean tree** — **P1 · High**
+
+*Open, and found while verifying A-33.* `atlas build` writes `worklog/<today>/<contributor>.md`. That file is
+in the working tree, and the working tree is an **input** — `inflight.mjs` reads it for the work-in-flight
+panel and the rework figure. So the first build after a clean checkout produces different bytes from the
+second, and every build after that agrees with the second.
+
+Measured: build 1 from a clean tree hashed `3cc6bf0…`, builds 2 and 3 both hashed `5f7d8ea…`, and the only
+tree change between them was the worklog directory the build itself had just created.
+
+***Not the same defect as A-33, and fixing that one did not touch this.*** A-33 was two machines disagreeing
+about one commit. This is one machine disagreeing with itself, one run apart. This one is worse, because it
+means **the byte-identical property cannot be observed from a working checkout at all** unless you know to
+compare the second build against the third. Verifications done from a clean tree — including one in the
+session that filed this — were measuring the wrong pair and reported a pass they had not earned.
+
+*The fix is a boundary question, not a patch.* Either `build` stops writing the worklog — it is a report, and
+`atlas worklog` already exists — or `inflight.mjs` excludes the paths the build itself authors, which means it
+has to know what those are. The first is cleaner; the second is less disruptive. Decide before implementing:
+a build that quietly filters its own output out of its own input is easy to get subtly wrong, and the wrongness
+would look exactly like correctness.
 
 **A-32 · Work in flight survives the session that was doing it** — **P1 · High**
 

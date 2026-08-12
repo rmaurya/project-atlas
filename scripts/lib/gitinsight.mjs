@@ -11,7 +11,11 @@
  * the forked-document failure this whole tool exists to detect, committed in code instead of prose.
  *
  *   - **Commits, people, agents, desks, churn, weekly aggregation** — `contrib.mjs`. This module takes a
- *     `readContrib` result as an argument and never runs `git log --numstat` itself.
+ *     `readContrib` result as an argument and never runs `git log --numstat` itself. The **continuous week
+ *     axis** that fills silent weeks with zero comes from there too (`weeklyAxis`), rather than being
+ *     re-derived here as it was until C-7.
+ *   - **The reverse citation index** — `design.mjs::reverseCitations`, which `kb.mjs` reads for its routing
+ *     table. Both surfaces answer "which documents describe this file", and they must not answer differently.
  *   - **Conventional-subject rate, revert rate, rework rate** — `contrib.mjs::aggregateQuality`. The hygiene
  *     section reads those figures rather than counting them again.
  *   - **Working tree, staged, this branch's diff, cluster mapping** — `changes.mjs::readChanges`.
@@ -43,6 +47,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { readChanges, defaultBranch } from './changes.mjs';
+import { weeklyAxis } from './contrib.mjs';
+import { reverseCitations } from './design.mjs';
 import { num } from './format.mjs';
 
 // Record and field separators for the one `git log` this module runs of its own. Same names and the same
@@ -87,31 +93,12 @@ function git(root, args) {
 
 /* ------------------------------------------------------------------ the corpus cross-reference */
 
-/**
- * Code file → the documents that cite it.
- *
- * `kb.mjs::writeKnowledgeGraph` builds exactly this and holds it as a local `const`, so there is nothing to
- * import. Named by function rather than by line: both files are under active change, and a line number that
- * is wrong within the hour is worse than no citation at all.
- *
- * Eight duplicated lines was the lesser of two evils against editing a module owned by a different change in
- * the same session; hoisting one of the two into a shared helper is the right follow-up, and C-7 records it.
- * Both must stay filtered on `typeof resolved === 'string'` — an unresolved
- * or ambiguous citation is not evidence that anything is documented, and counting it would turn the one
- * finding this section exists for ("nothing documents this file") into a false negative.
+/*
+ * Code file → the documents that cite it is `design.mjs::reverseCitations`, imported above. It was written
+ * out here as well until C-7 closed the pair: `kb.mjs` builds the same index for its routing table, and a
+ * hotspot report that called a file undocumented while the routing table listed two documents describing it
+ * would be this tool contradicting itself on its own output.
  */
-function reverseCitations(index) {
-  const by = new Map();
-  if (!index?.documents) return by;
-  for (const d of index.documents) {
-    for (const c of d.citations || []) {
-      if (typeof c.resolved !== 'string') continue;
-      if (!by.has(c.resolved)) by.set(c.resolved, new Set());
-      by.get(c.resolved).add(d.path);
-    }
-  }
-  return by;
-}
 
 /* ------------------------------------------------------------------ hotspots */
 
@@ -399,36 +386,20 @@ export function branchHealth(root, cfg = {}, opts = DEFAULT_GITINSIGHT) {
 /**
  * Weeks with no commits are weeks, and they have to be drawn.
  *
- * `contrib.mjs::aggregateWeeks` creates an entry only for a week that contains a commit, so a fortnight of
- * silence vanishes from the array and the next week sits flush against the last one. Anything reading the
- * series by index therefore reads a two-month gap as a single step, which is the one thing a rhythm measure
- * must not do.
+ * The zero-fill itself is `contrib.mjs::weeklyAxis`, beside the aggregation whose gaps it closes. It used to
+ * be written out a second time here and a third time inside `dashboard.mjs`, because both of those modules
+ * were owned by other work in the session that wrote this and re-deriving eight lines was the lesser evil
+ * against editing them. That excuse expired when the branches merged: three copies of one derivation in one
+ * tree are three answers waiting to disagree, on pages that would then print two different numbers for the
+ * same week with nothing to say which was right. C-7 filed the hoist and this is it.
  *
- * **The gaps are filled with zero, not with unknown**, and that distinction is the whole justification: git
- * history is complete over its own range, so a week with no entry is a week that was examined and had none.
- * That is a measurement. Nothing is invented — every non-zero figure is exactly the one `aggregateWeeks`
- * produced — and the number of filled weeks is carried on the result so the caller can state it.
- *
- * `dashboard.mjs::weeklyAxis` reaches the same conclusion for the charts and holds it as a private function
- * in a module that renders HTML. The rule is stated in both places rather than imported
- * through a renderer; C-7 records that one of the two should be hoisted.
+ * What stays here is the *count*, which is the only thing this module needs beyond the series: the rhythm
+ * report states how many weeks it filled, so a reader can tell a measured zero from a drawn one. Read off the
+ * `silent` flag the shared fill sets rather than counted during it, so the two can never come apart.
  */
 export function fillWeeks(weeks) {
-  const src = weeks || [];
-  if (src.length < 2) return { weeks: src, filled: 0 };
-  const by = new Map(src.map((w) => [w.week, w]));
-  const last = src[src.length - 1].week;
-  const out = [];
-  let filled = 0;
-  // Every key comes from `isoWeekStart`, so both ends are a Monday and a 7-day step lands on Mondays.
-  for (const d = new Date(`${src[0].week}T00:00:00Z`); ; d.setUTCDate(d.getUTCDate() + 7)) {
-    const week = d.toISOString().slice(0, 10);
-    const hit = by.get(week);
-    if (hit) out.push(hit);
-    else { out.push({ week, commits: 0, added: 0, removed: 0, ai: 0, authors: 0, silent: true }); filled++; }
-    if (week >= last) break;
-  }
-  return { weeks: out, filled };
+  const out = weeklyAxis(weeks);
+  return { weeks: out, filled: out.filter((w) => w.silent).length };
 }
 
 const median = (xs) => {

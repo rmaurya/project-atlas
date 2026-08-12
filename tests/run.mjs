@@ -7467,6 +7467,110 @@ test('format · no module reintroduces a bare toLocaleString', () => {
   eq(offenders, [], `use num() from format.mjs — a bare call reads the host locale`);
 });
 
+/* ================================================================== one derivation, one answer (C-7) */
+
+/**
+ * **Synchronous, like everything appended below the drain.** `pendingAsync` is emptied thousands of lines
+ * above, so an `async` case here would be constructed, never awaited, and counted as a pass it never earned.
+ *
+ * Both cases are written as *agreements between two callers* rather than as unit tests of the hoisted helper.
+ * A unit test of one function cannot fail when somebody re-derives it somewhere else, and re-derivation is
+ * the failure mode: the roadmap carried these two duplications as deliberate for a whole release, and the
+ * damage they threatened was never a wrong number — it was two different numbers, on two surfaces, with
+ * nothing on either page to say which one to believe. So each case asks the same question of both surfaces
+ * over one input and asserts the answers are the same, and then asserts structurally that there is only one
+ * implementation left to give an answer at all.
+ */
+
+console.log('\none derivation, one answer');
+
+test('C-7 · the rhythm report and the dashboard fill the same silent weeks', () => {
+  // Two commits, five weeks apart, so four weeks in between contain nothing. `cadence` counts them for the
+  // terminal report and `velocityChart` draws them on the page; before C-7 those were two zero-fills in two
+  // modules, free to drift into a page saying "3 silent weeks" beside a report saying 4.
+  const ctx = repoCtx('c7-weeks');
+  execFileSync('git', ['-c', 'user.email=t@example.com', '-c', 'user.name=Test',
+    'commit', '-q', '--amend', '--no-edit', '--date=2026-01-05T09:00:00Z'],
+    { cwd: ctx.dir, stdio: 'ignore', env: { ...process.env, GIT_COMMITTER_DATE: '2026-01-05T09:00:00Z' } });
+  commitAt(ctx.dir, '2026-01-05T10:00:00Z', 'a.txt', 'one');
+  commitAt(ctx.dir, '2026-02-09T10:00:00Z', 'b.txt', 'two');
+
+  const contrib = readContrib(ctx.dir, ctx.cfg);
+  const k = cadence(contrib);
+  ok(k.available, k.reason);
+  eq(k.spanWeeks, 6, 'the fixture must really span six weeks, or this asserts on nothing');
+  eq(k.filled, 4, 'four of them contain no commit at all');
+
+  const html = viewPage({ id: 'x', title: 'X', panels: ['velocity'] }, { ...ctx, contrib }, (o) => o.body);
+  includes(html, `${k.filled} of them contain no commit`,
+    'the page must state the same number of silent weeks the rhythm report counted');
+  eq((html.match(/no commit this week/g) || []).length, k.filled,
+    'and draw exactly that many of them — a caption agreeing with a chart that does not is worse than either');
+  for (const w of k.weeks) {
+    includes(html, w.week, `the week ${w.week} is on the report's axis and must be on the page's axis too`);
+  }
+
+  // The structural half. The behavioural half above passes whether there is one implementation or two
+  // identical ones, which is exactly the state C-7 was filed against.
+  const gi = fs.readFileSync(path.join(REPO_ROOT, 'scripts', 'lib', 'gitinsight.mjs'), 'utf8');
+  includes(gi, "import { weeklyAxis } from './contrib.mjs'",
+    'the rhythm report reads the axis from the module that produces the series');
+  eq(/setUTCDate/.test(gi), false, 'and steps no week axis of its own');
+  // dashboard.mjs still holds the third copy at the time this was written — it was owned by another change
+  // in the same session and could not be edited here. Closing it is deleting `AXIS_MAX`, `fillAxis` and
+  // `weeklyAxis` from that file and importing the last two from `./contrib.mjs`; nothing above needs
+  // amending when that lands, because it asserts on what the page says rather than on where it came from.
+});
+
+test('C-7 · the routing table and the hotspot report agree on which files are documented', () => {
+  // `kb.mjs` inverts the citations to answer "I am about to change this file — what describes it?", and
+  // `gitinsight.mjs` inverts them again to answer "this file is busy and nothing describes it". Those are
+  // the same index read two ways, and two builds of it could disagree in the worst possible direction: a
+  // hotspot reported as undocumented while the routing table lists the document that documents it.
+  const dir = fixture('c7-routes', {
+    'docs/README.md': '# Index\n\n[Alpha](A.md) · [Beta](B.md)\n',
+    'docs/A.md': '# Alpha\n\n## How it works\n\nThe loop is at `src/one.js:1`.\n',
+    'docs/B.md': '# Beta\n\n## Also\n\nSee `src/one.js:2`, and `two.js:1` which names two files at once.\n',
+    'src/one.js': 'const a = 1;\nconst b = 2;\n',
+    'src/two.js': 'const c = 3;\n',
+    'lib/two.js': 'const d = 4;\n',
+  });
+  const { cfg, index, health } = analyse(dir);
+  const { outDir } = renderSite(index, health, cfg, dir);
+  const routes = fs.readFileSync(path.join(outDir, 'kb', 'routes.md'), 'utf8');
+  const spots = hotspots(readContrib(dir, cfg), { index, root: dir });
+  ok(spots.available, spots.reason);
+
+  const byFile = routes.slice(routes.indexOf('## By file'), routes.indexOf('## Code areas nothing documents'));
+  const listed = [...byFile.matchAll(/^\| `([^`]+)` \|/gm)].map((m) => m[1]).sort();
+  const documented = spots.byCommits.filter((r) => r.citedBy && r.citedBy.length).map((r) => r.path).sort();
+  eq(listed, ['src/one.js'], 'the fixture must produce exactly one documented file, or the comparison is empty');
+  eq(listed, documented, 'both surfaces must name the same documented files');
+
+  // The shared filter, which is the part most likely to be dropped by one copy and not the other: `two.js`
+  // names two tracked files, so it resolves to neither and is not evidence that either is documented.
+  eq(listed.includes('src/two.js') || listed.includes('lib/two.js'), false,
+    'an ambiguous citation is not coverage — on either surface');
+  ok(spots.undocumented.some((r) => r.path === 'src/two.js'),
+    'and the hotspot report says so out loud rather than leaving the file out');
+
+  // And the same documents behind that file, not merely the same count.
+  const titleOf = new Map(index.documents.map((d) => [d.path, d.title || d.path]));
+  const row = /^\| `src\/one\.js` \| (.+?) \| (\d+) \|$/m.exec(byFile);
+  ok(row, 'the routing table must carry a row for the cited file');
+  const cited = spots.byCommits.find((r) => r.path === 'src/one.js').citedBy;
+  eq(cited, ['docs/A.md', 'docs/B.md'], 'both documents cite it');
+  for (const p of cited) includes(row[1], titleOf.get(p), `${p} must be routed to from the file it describes`);
+  eq(Number(row[2]), 2, 'and both citations are counted');
+
+  // The structural half: one module builds this index, and it is the one that owns citation coverage.
+  const defs = fs.readdirSync(path.join(REPO_ROOT, 'scripts', 'lib'))
+    .filter((f) => f.endsWith('.mjs'))
+    .filter((f) => /\.set\(c\.resolved, new Set\(\)\)/
+      .test(fs.readFileSync(path.join(REPO_ROOT, 'scripts', 'lib', f), 'utf8')));
+  eq(defs, ['design.mjs'], 'exactly one module may build the reverse citation index');
+});
+
 console.log(`\n${pass} passed, ${fail} failed${skipped ? `, ${skipped} skipped on ${process.platform}` : ''}\n`);
 if (fail) {
   console.log('Failures:');

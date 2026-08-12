@@ -27,7 +27,7 @@ import { SIGNALS } from './health.mjs';
 // rather than named — a named import of an export that does not exist is a module-load error, and this file
 // renders every page. See `operatorSignals()`.
 import * as healthModule from './health.mjs';
-import { taskCoverage } from './contrib.mjs';
+import { taskCoverage, fillAxis, weeklyAxis } from './contrib.mjs';
 import { DEFAULT_PLANNING } from './planning.mjs';
 import { read as readJournalFor } from './journal.mjs';
 import { PANELS } from './views.mjs';
@@ -803,66 +803,6 @@ function chartsPanel(contrib, plan, health) {
   <div class="chart-wall">${figs.join('')}</div>
 </section>`;
 }
-
-/**
- * The produced weekly series, placed on a continuous week axis.
- *
- * `contrib.mjs::aggregateWeeks` creates an entry only for a week that contains a commit, so a fortnight of
- * nothing vanishes from the array and the following week's bar sits flush against the one before it. Every
- * time chart here plots by index, so two months of silence rendered as a single step — and which way the work
- * is going is the one question these charts exist to answer.
- *
- * **The gaps are filled with zero, not with unknown**, and that distinction is the whole justification. Git
- * history is complete over its own range: a week with no entry is a week that was examined and had no commits
- * in it, which is a measurement rather than a missing figure. Nothing is invented — every non-zero value here
- * is exactly the one `aggregateWeeks` produced — and the filled weeks are flagged so the charts can say how
- * many they drew.
- */
-/**
- * The zero-fill itself, over any ISO-day key at any step.
- *
- * **Extracted rather than copied, because the token series is per *day* and the commit series is per week.**
- * The economics view needed the identical treatment one granularity down, and the alternative was a second
- * function with the same body and a different constant in it — which is how `gitinsight.mjs` and this file
- * already ended up holding two zero-fills for silent weeks, a duplication the roadmap files as a follow-up.
- * Writing a third was not going to improve on that.
- *
- * `silent: true` on every filled row, never on a row that came from the data, so a caller can count what it
- * drew and say so. The blank supplies the numeric fields; the key is written over it last so a blank cannot
- * accidentally carry a stale date.
- *
- * **The cap is not decoration.** The loop walks from the first key to the last and stops when it reaches it,
- * which is only guaranteed to terminate if both ends parse and the step divides the span. A malformed key
- * from a snapshot file would otherwise spin the build forever, and a hang is the worst failure mode here
- * because it looks like nothing at all. Ten years of days is far past any series this tool plots.
- */
-const AXIS_MAX = 3700;
-
-function fillAxis(rows, { key, stepDays, blank }) {
-  const src = rows || [];
-  if (src.length < 2) return src;
-  const first = src[0][key], last = src[src.length - 1][key];
-  const start = new Date(`${first}T00:00:00Z`);
-  if (Number.isNaN(start.getTime()) || Number.isNaN(new Date(`${last}T00:00:00Z`).getTime())) return src;
-
-  const by = new Map(src.map((r) => [r[key], r]));
-  const out = [];
-  for (const d = start; out.length < AXIS_MAX; d.setUTCDate(d.getUTCDate() + stepDays)) {
-    const at = d.toISOString().slice(0, 10);
-    out.push(by.get(at) || { ...blank, [key]: at, silent: true });
-    if (at >= last) break;
-  }
-  return out;
-}
-
-// Every key comes from `isoWeekStart`, so both ends are a Monday and a 7-day step lands on Mondays.
-function weeklyAxis(weeks) {
-  return fillAxis(weeks, {
-    key: 'week', stepDays: 7,
-    blank: { commits: 0, added: 0, removed: 0, ai: 0, authors: 0 },
-  });
-}
-
 function decisionsPanel(index, cfg, root, pageOf) {
   const docs = index.documents.filter((d) => /(^|\/)(adr|decisions?)\//i.test(d.path) || /(^|\/)ADR[-_ ]?\d+/i.test(d.path));
 
