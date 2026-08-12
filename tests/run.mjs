@@ -8171,6 +8171,47 @@ test('render · neither renderer passes a data: URL through into a published hre
   }
 });
 
+test('boundary · exactly two modules reach the network, and both are named (A-39)', () => {
+  // README and `host.mjs` both promised that `caps` was the only thing touching the network and that
+  // "everything else is entirely offline". `update.mjs` fetches from raw.githubusercontent.com, and
+  // `atlas version --notice` — which the SessionStart hook runs at the start of every session — reaches it.
+  // So a hook made a request while two documents promised none did, in the section a reader consults
+  // precisely to find out what leaves their machine.
+  //
+  // Structural, because the claim decays silently: a third caller added later re-breaks the promise with
+  // nothing to notice it.
+  const dir = path.join(REPO_ROOT, 'scripts', 'lib');
+  //
+  // **A browser-side fetch is not the tool reaching the network.** `dashboard.mjs` emits two `fetch()` calls
+  // into the live-reload script it writes into the page; both take relative URLs and go back to the loopback
+  // server that served the page. Excluding them by *scheme* rather than by filename keeps the distinction
+  // honest: the moment one of them gains an absolute URL, it counts.
+  const fetchLines = (f) => fs.readFileSync(path.join(dir, f), 'utf8').split('\n')
+    .filter((l) => !/^\s*[*/]/.test(l) && /\bfetch(Impl)?\s*\(/.test(l));
+  const files = fs.readdirSync(dir).filter((f) => f.endsWith('.mjs')).sort();
+
+  // Loopback iff every call site's first argument is plainly relative — a quoted path with no scheme, or
+  // something built from `location`. A variable (`host.api`, `url`) is remote until proven otherwise, which
+  // is the safe direction for a boundary claim.
+  const isLoopback = (l) => /fetch\(\s*(location\.|['"`][^'"`:]*['"`])/.test(l);
+  const remote = files.filter((f) => fetchLines(f).some((l) => !isLoopback(l)));
+  eq(remote, ['host.mjs', 'update.mjs'],
+    'if this list changed, the network boundary changed — update README and host.mjs, then this test');
+
+  const loopback = files.filter((f) => fetchLines(f).length && !remote.includes(f));
+  eq(loopback, ['dashboard.mjs'], 'the only same-origin fetches are the live-reload ones');
+  for (const l of fetchLines('dashboard.mjs')) {
+    eq(/https?:\/\//.test(l), false, `a live-reload fetch must stay relative: ${l.trim()}`);
+  }
+
+  // And neither document may still claim there is only one.
+  for (const f of ['README.md', path.join('scripts', 'lib', 'host.mjs')]) {
+    const src = fs.readFileSync(path.join(REPO_ROOT, f), 'utf8');
+    eq(/only (command|module) (in the tool )?that touches the network/.test(src), false,
+      `${f} still claims a single network caller`);
+  }
+});
+
 console.log(`\n${pass} passed, ${fail} failed${skipped ? `, ${skipped} skipped on ${process.platform}` : ''}\n`);
 if (fail) {
   console.log('Failures:');

@@ -42,7 +42,7 @@ measured against the code — the same distinction the tool preserves everywhere
 | C-10 | 45 | C-11 | 10 | Q-4 | 10 |
 | Q-5 | 10 | A-32 | 100 | A-33 | 100 |
 | A-34 | 100 | A-35 | 100 | Q-6 | 100 |
-| A-36 | 0 | A-37 | 100 | | |
+| A-36 | 0 | A-37 | 100 | A-39 | 100 |
 
 ---
 
@@ -960,6 +960,26 @@ thirty-two call sites across eleven modules route through it, five of them in `r
 `worklog.mjs` that reach files under version control. A test walks every module and fails on a bare call,
 because this defect returns silently and on one machine only, so the guard has to be structural rather than
 remembered.
+
+**A-39 · A hook was making a network request while two documents promised none did** — **P1 · High**
+*Shipped.* `README.md` said `caps` is "**the only command that touches the network**… Everything else is
+entirely offline", and `host.mjs` opened with the same claim about itself as a module.
+
+*Both were false.* `update.mjs` fetches `.claude-plugin/plugin.json` from the repository's own `origin` over
+`raw.githubusercontent.com`, and it is reached by `atlas version`, by `publish --single all`, and by
+`atlas version --notice` — **which `hooks/on-session-start.sh` runs at the start of every session.** So the
+tool made an unrequested request on every session, while the section a reader consults to find out what
+leaves their machine said nothing did.
+
+***The comment that was wrong had already written down why it mattered:*** *"the promise 'no network' is worth
+nothing if any command might quietly make a request."* One did. The sentence predates the update check and
+survived it — the A-29 pattern again, a claim in prose beside a surface that grew.
+
+Corrected to what is true: **two** files reach the network, `host.mjs` behind an explicit command and
+`update.mjs` behind the version check, both only to a location the repository already points at. The guard is
+structural, because a trust claim decays silently: each `fetch` call site is classified by whether its
+argument is plainly relative, so the browser-side live-reload polling in `dashboard.mjs` is correctly not
+counted — while an absolute URL appearing there later would be.
 
 **A-37 · A conflicted file is one document, not one per merge stage** — **P1 · High**
 *Shipped.* `git ls-files` prints an unmerged path once for **each index stage** — 1 base, 2 ours, 3 theirs.

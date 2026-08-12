@@ -412,10 +412,21 @@ atlas caps          # which features are on; --offline to skip the check entirel
 atlas community     # generate scaffolding for the ones that exist; --write to create it
 ```
 
-`caps` is **the only command that touches the network**, it says so when it runs, and the result is cached for
-an hour inside `.git/`. Everything else is entirely offline. When the check cannot run — offline, rate
-limited, private without a token — targets proceed on a **stated assumption** rather than blocking or guessing
-silently.
+`caps` says so when it runs, and the result is cached for an hour inside `.git/`. When the check cannot run —
+offline, rate limited, private without a token — targets proceed on a **stated assumption** rather than
+blocking or guessing silently.
+
+**Two things in this tool reach the network, not one.** `caps` is the one you ask for. The other is the update
+check in `update.mjs`, which fetches `.claude-plugin/plugin.json` from your own `origin` remote over
+`raw.githubusercontent.com` to see whether the installed plugin is behind — cached for a day, and reached by
+`atlas version`, by `publish --single all`, and by `atlas version --notice`, **which the `SessionStart` hook
+runs at the start of every session.** So a hook does make a request, on a repository you have adopted, without
+you typing anything.
+
+*It fetches only from the remote your repository already points at, never from a location the tool chooses,
+and it sends nothing but the request.* Nothing else here touches the network. This paragraph replaces a
+sentence that said `caps` was the only one — which was written before the update check existed and stayed
+after it did, in the section a reader consults precisely to find out what leaves the machine.
 
 `community` generates issue templates, a PR template and a Discussions welcome post **seeded from your own
 repository** — its real document counts, cluster names and open items — and generates *only* what the host

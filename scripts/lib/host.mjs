@@ -1,10 +1,20 @@
 /**
  * project-atlas · host detection and capability probing
  *
- * **This is the only module in the tool that touches the network, and it does so only when asked.**
- * Everything else — scan, health, build, publish staging — is entirely offline. That separation is
- * deliberate and load-bearing: the promise "no network" is worth nothing if any command might quietly make a
- * request, so network use lives in one file, behind one explicit command, and says so when it runs.
+ * **This module touches the network, and only when asked.** Scan, health, build and publish staging are
+ * entirely offline.
+ *
+ * ***It is not the only one, and this comment used to say it was.*** `update.mjs` fetches
+ * `.claude-plugin/plugin.json` from the repository's own `origin` to see whether the installed plugin is
+ * behind — and `atlas version --notice` is run by the `SessionStart` hook, so that request happens at the
+ * start of every session without anybody asking for it. The sentence here was written before that existed
+ * and survived it, which is the failure it was trying to prevent: *"the promise 'no network' is worth nothing
+ * if any command might quietly make a request"* — and one did, from a hook, while this file promised
+ * otherwise.
+ *
+ * The separation is still load-bearing, so state it as it is: network use lives in **two** files, `host.mjs`
+ * behind an explicit command and `update.mjs` behind the version check, and both fetch only from a location
+ * the repository already points at.
  *
  * ## Why probe at all
  *
