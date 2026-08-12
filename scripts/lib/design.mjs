@@ -175,6 +175,42 @@ export function citationHealth(documents) {
     .sort((a, b) => b.broken - a.broken || b.total - a.total);
 }
 
+/**
+ * The reverse citation index: code file → the set of documents that cite it.
+ *
+ * Every other surface in this tool reads citations forwards, from the document outwards. Backwards is the
+ * direction an agent about to change a file actually needs — *what will I have to update if I touch this* —
+ * and it is the same inversion `undesigned` below performs one level up, at the area rather than the file.
+ *
+ * **Derived entirely from citations that resolved.** `resolved` is the resolved path when a citation matched,
+ * `null` when it was checked and did not, and `undefined` when nothing checked it, so the filter is on
+ * `typeof === 'string'` rather than on truthiness. An unresolved or ambiguous citation is not evidence that
+ * anything is documented, and counting it would turn the one finding this index exists for — *nothing in
+ * this corpus describes this file* — into a false negative.
+ *
+ * **One implementation, deliberately.** `kb.mjs` held this as a local `const` and `gitinsight.mjs` as a
+ * private function, eight duplicated lines apiece, because each module was owned by different work in the
+ * session that wrote them. Two answers to one question is the fork this whole tool exists to detect, and a
+ * routing table that disagreed with the hotspot report about which files are documented would be the tool
+ * failing at its own argument. C-7 filed the hoist; this is where it landed, beside the other measure of
+ * whether the written record still describes the code.
+ *
+ * Insertion order is the corpus order of `index.documents`, which is what `kb.mjs::routesPage` groups by; it
+ * sorts where it needs a stable order and so does the caller in `gitinsight.mjs`.
+ */
+export function reverseCitations(index) {
+  const by = new Map();
+  if (!index?.documents) return by;
+  for (const d of index.documents) {
+    for (const c of d.citations || []) {
+      if (typeof c.resolved !== 'string') continue;
+      if (!by.has(c.resolved)) by.set(c.resolved, new Set());
+      by.get(c.resolved).add(d.path);
+    }
+  }
+  return by;
+}
+
 /** First `depth` path segments — the same area key ownership uses, so the two panels agree. */
 function areaOf(p, depth = 2) {
   const parts = String(p || '').split('/');

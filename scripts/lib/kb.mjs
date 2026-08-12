@@ -92,7 +92,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { SIGNALS } from './signals.mjs';
-import { blueprint, designRecord, undesigned, summariseDesign, isDesignDoc } from './design.mjs';
+import { blueprint, designRecord, undesigned, summariseDesign, isDesignDoc, reverseCitations } from './design.mjs';
 import { areaOf } from './ownership.mjs';
 import { buildPrompt } from './prompt.mjs';
 import { read as readJournal, KINDS } from './journal.mjs';
@@ -331,15 +331,10 @@ export function writeKnowledgeGraph({ outDir, root, index, health, cfg, plan, co
 
   // The reverse citation index: code file → the documents that cite it. Every other surface in this tool
   // reads citations forwards, from the document. Backwards is the direction an agent about to change a file
-  // actually needs, and nothing computed it.
-  const citedBy = new Map();
-  for (const d of index.documents) {
-    for (const c of d.citations || []) {
-      if (typeof c.resolved !== 'string') continue;      // unresolved and ambiguous are not evidence of coverage
-      if (!citedBy.has(c.resolved)) citedBy.set(c.resolved, new Set());
-      citedBy.get(c.resolved).add(d.path);
-    }
-  }
+  // actually needs, and nothing computed it. Built by `design.mjs` rather than here: `gitinsight.mjs` asks
+  // the same question of the same corpus when it reports which hotspots nothing documents, and two copies of
+  // the derivation are two answers waiting to disagree — closed by C-7.
+  const citedBy = reverseCitations(index);
 
   const covById = new Map((coverage?.rows || []).map((r) => [r.id, r]));
   const clusterOf = clusterFiles(index.clusters);

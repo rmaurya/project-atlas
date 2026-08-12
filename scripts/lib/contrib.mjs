@@ -279,6 +279,75 @@ function isoWeekStart(iso) {
   return d.toISOString().slice(0, 10);
 }
 
+/* ------------------------------------------------------------------ the continuous axis */
+
+/**
+ * A dated series, placed on a continuous axis, over any ISO-day key at any step.
+ *
+ * `aggregateWeeks` above creates an entry only for a week that contains a commit, so a fortnight of nothing
+ * vanishes from the array and the following week's row sits flush against the one before it. Everything that
+ * reads the series by index — every time chart on the dashboard, the rhythm measure in `gitinsight.mjs` —
+ * therefore reads two months of silence as a single step, which is the one thing a series called "per week"
+ * must not do. Worse on a labelled chart: the page renders `2026-01-05` immediately above `2026-02-09` as
+ * consecutive rows, a claim about the calendar that is simply untrue.
+ *
+ * **The gaps are filled with zero, not with unknown**, and that distinction is the whole justification. Git
+ * history is complete over its own range: a week with no entry is a week that was examined and had no commits
+ * in it, which is a measurement rather than a missing figure. Nothing is invented — every non-zero value is
+ * exactly the one the aggregation produced — and `silent: true` marks every filled row and only a filled row,
+ * so a caller can count what it drew and say so.
+ *
+ * **It lives here, once.** This derivation existed three times: here for the charts, again as a private copy
+ * in `dashboard.mjs`, and a third time as `gitinsight.mjs::fillWeeks` — two answers to one question, which is
+ * the fork this whole tool exists to detect, committed in code instead of in prose. It belongs beside
+ * `aggregateWeeks`, because the sparse series is what this module produces and the axis is a property of that
+ * series rather than of anyone's rendering of it. C-7 files the hoist.
+ *
+ * **The cap is not decoration.** The loop walks from the first key to the last and stops when it reaches it,
+ * which is only guaranteed to terminate if both ends parse and the step divides the span. A malformed key
+ * from a snapshot file would otherwise spin the build forever, and a hang is the worst failure mode here
+ * because it looks like nothing at all. Ten years of days is far past any series this tool plots.
+ */
+export const AXIS_MAX = 3700;
+
+/**
+ * The key is written first, so a filled row carries its fields in the same order as the measured rows it sits
+ * between — `aggregateWeeks` emits `week` first — and a row that serialises differently depending on whether
+ * anybody committed that week is a difference with no meaning behind it. Written again after the blank, so a
+ * `blank` that carried the key could not leave a stale date behind either.
+ */
+function filledRow(key, at, blank) {
+  const row = { [key]: at, ...blank };
+  row[key] = at;
+  row.silent = true;
+  return row;
+}
+
+export function fillAxis(rows, { key, stepDays, blank }) {
+  const src = rows || [];
+  if (src.length < 2) return src;
+  const first = src[0][key], last = src[src.length - 1][key];
+  const start = new Date(`${first}T00:00:00Z`);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(new Date(`${last}T00:00:00Z`).getTime())) return src;
+
+  const by = new Map(src.map((r) => [r[key], r]));
+  const out = [];
+  for (const d = start; out.length < AXIS_MAX; d.setUTCDate(d.getUTCDate() + stepDays)) {
+    const at = d.toISOString().slice(0, 10);
+    out.push(by.get(at) || filledRow(key, at, blank));
+    if (at >= last) break;
+  }
+  return out;
+}
+
+/** Every key comes from `isoWeekStart`, so both ends are a Monday and a 7-day step lands on Mondays. */
+export function weeklyAxis(weeks) {
+  return fillAxis(weeks, {
+    key: 'week', stepDays: 7,
+    blank: { commits: 0, added: 0, removed: 0, ai: 0, authors: 0 },
+  });
+}
+
 /**
  * Outcome measures. Named for what they are: none of these observes a prompt, and calling any of them
  * "quality of the AI" would be a claim the data does not support.

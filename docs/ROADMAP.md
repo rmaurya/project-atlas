@@ -108,11 +108,30 @@ test that fails on a second call site. The branch report will not delete a branc
 command that would** — these are the commands an agent runs blind, and a read-only report whose output is a
 destructive command is read-only in name only.
 
-*Two known duplications, both deliberate and both worth closing.* The zero-fill for silent weeks exists here
-and as a private function in `dashboard.mjs`; the reverse citation index exists here and as a local `const`
-inside `kb.mjs`. Neither is exported, both modules were owned by other work in the session that wrote this,
-and re-deriving eight lines was the lesser evil against editing them. Hoisting one of each pair into a shared
-helper is the follow-up.
+*Two known duplications, both deliberate, both now hoisted.* The zero-fill for silent weeks and the reverse
+citation index were each written twice, because the other copy sat in a module owned by different work in the
+same session and re-deriving eight lines was the lesser evil against editing it. That excuse expired when the
+branches merged onto one trunk: two copies of one derivation in one tree are two answers waiting to disagree,
+and a project whose dashboard contradicts its own CLI has lost the argument it exists to make.
+
+The zero-fill now lives in `contrib.mjs` as `fillAxis`/`weeklyAxis`, beside the aggregation whose gaps it
+closes — the sparse series is that module's product and the axis is a property of the series, not of anybody's
+rendering of it. `gitinsight.mjs::fillWeeks` is a wrapper that adds the one thing the rhythm report needs
+beyond the series: the count of weeks it filled, read off the shared `silent` flag rather than counted a
+second time. The reverse index is `design.mjs::reverseCitations`, beside the other measure of whether the
+written record still describes the code; `kb.mjs` and `gitinsight.mjs` both read it. **The hoisted version is
+the fixed one** — the continuous axis C-8 put under `velocityChart`, with the malformed-key guard and the
+iteration cap the older copy lacked — so no caller inherited the earlier behaviour.
+
+Two tests hold it, and both are written as agreements between callers rather than as unit tests of the
+helpers: a unit test cannot fail when somebody re-derives the same thing elsewhere, which is the whole failure
+mode. One asserts the silent weeks the terminal counts are the silent weeks the page draws; the other asserts
+the routing table and the hotspot report name the same documented files, including that an ambiguous citation
+is coverage on neither. Each carries a structural half, so a third copy fails the suite rather than waiting to
+be noticed. **One copy is still outstanding**: `dashboard.mjs` holds a private `fillAxis`/`weeklyAxis`, and
+closing it is deleting those two functions plus `AXIS_MAX` and importing them from `./contrib.mjs` — a file
+that module already imports. The behavioural test above covers it either way, because it reads what the page
+says rather than where the page got it.
 
 **C-8 · Where the work lands** — **P2 · Medium**
 *Shipped.* A Repository view. Delivery's unit of analysis is the commit and the person — how many, by whom,
