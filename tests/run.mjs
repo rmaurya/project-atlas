@@ -19,7 +19,7 @@ import { fileURLToPath } from 'node:url';
 import { globToRegExp, resolveConfig, DEFAULT_CLUSTERS, DEFAULT_CONFIG, clusterFor, unsafeRegexReason, AUTOMATION_KEYS } from '../scripts/lib/config.mjs';
 import { buildIndex } from '../scripts/lib/scan.mjs';
 import { runHealth, formatReport, SIGNALS, OPERATOR_SIGNALS, readParallelism,
-         DEFAULT_PARALLELISM_EDITS } from '../scripts/lib/health.mjs';
+         DEFAULT_PARALLELISM_EDITS, CORPUS_SIGNALS as HEALTH_CORPUS_SIGNALS } from '../scripts/lib/health.mjs';
 import { SIGNALS as CORPUS_SIGNALS } from '../scripts/lib/signals.mjs';
 import { renderSite } from '../scripts/lib/render.mjs';
 import { renderMarkdown, inline } from '../scripts/lib/markdown.mjs';
@@ -6194,6 +6194,15 @@ test('H17 · measures the operator, not the corpus, and says so in its own descr
   ok(!CORPUS_SIGNALS.H17, 'H17 must not be in the corpus catalogue');
   ok(OPERATOR_SIGNALS.H17 && SIGNALS.H17, 'but it must still be in the report catalogue');
   ok(SIGNALS.H17.operator === true, 'and be marked as an operator signal for the renderers');
+
+  // The two counts a renderer needs, both reachable from this module. A card headed "Rot signals" that counts
+  // the combined catalogue calls H17 a rot signal — so `health.mjs` re-exports the corpus set rather than
+  // leaving a renderer to reach into `signals.mjs` or, more likely, not to notice there was a choice.
+  eq([Object.keys(HEALTH_CORPUS_SIGNALS).length, Object.keys(OPERATOR_SIGNALS).length,
+      Object.keys(SIGNALS).length], [16, 1, 17],
+    'sixteen claims about the repository, one about the operator, seventeen rows to render');
+  eq(Object.keys(HEALTH_CORPUS_SIGNALS), Object.keys(CORPUS_SIGNALS),
+    'the re-export must be the same catalogue signals.mjs holds, not a second copy of it');
 });
 
 test('H17 · unevaluated, never ok, when there is no transcript to read', () => {

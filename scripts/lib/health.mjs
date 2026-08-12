@@ -101,7 +101,15 @@ export const OPERATOR_SIGNALS = {
  *
  * Exported from here rather than added to `signals.mjs` on purpose — see `OPERATOR_SIGNALS` above. Consumers
  * that want only corpus claims import `signals.mjs`; consumers that render the whole report import this.
+ *
+ * **`CORPUS_SIGNALS` is re-exported beside it so a renderer never has to choose between the two by accident.**
+ * `render.mjs` and `dashboard.mjs` import their catalogue from this module and nothing else, so before this
+ * line the only catalogue they could see was the combined one — and a card headed "Rot signals" counting
+ * `Object.keys(SIGNALS).length` silently began describing H17 as a rot signal, which is the precise claim this
+ * whole design exists to avoid making. Both sets are available here now: enumerate `SIGNALS` to render every
+ * row, count `CORPUS_SIGNALS` to say how many things about the repository are checked.
  */
+export { CORPUS_SIGNALS };
 export const SIGNALS = { ...CORPUS_SIGNALS, ...OPERATOR_SIGNALS };
 
 /**
