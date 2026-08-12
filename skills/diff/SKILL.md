@@ -32,3 +32,7 @@ bare filenames, a re-stamped date on a revised page, no second copy of something
 
 **If the diff is large**, summarise by theme rather than walking it top to bottom. A file-length recital is
 not a review.
+
+**Nearest neighbour.** `/atlas:diff <path>` is **one file, in detail**. `/atlas:changes` is **every changed
+file, without the diffs**, plus the documents that cite them. `/atlas:review` is the pre-commit judgement over
+the whole change. Reach for diff when you already know which file is in question.

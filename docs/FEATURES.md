@@ -11,6 +11,10 @@ read in that session and re-resolved against the tree immediately before this pa
 **not built** was checked and found absent; a row marked **partial** ships less than a document elsewhere in
 this repository claims.
 
+**Section 3 and the Slash column in section 1 were re-verified later, on 2026-08-12**, on branch
+`feat/manual-command-surface`, after sixteen slash commands were added. Nothing else on this page was
+re-checked that day, so every other row still carries the date above and should be read as that old.
+
 **A line number is the weakest part of a citation.** If one of these no longer lands on what it names, the
 surrounding symbol — the `if (cmd === …)`, the `export function`, the signal id — is the thing to search for;
 that is what was verified, and the number is only how it was reached on the date above.
@@ -33,43 +37,47 @@ that is what was verified, and the number is only how it was reached on the date
 Every command below is dispatched from `scripts/atlas.mjs`. The line given is the `if (cmd === …)` that
 selects it — verified by reading the file, not by reading `usage()`.
 
-| Command | What it does | Dispatch | Status |
-|---|---|---|---|
-| `atlas help` | Print the command list. Also the default when no command is given. | `scripts/atlas.mjs:304`, `scripts/atlas.mjs:1493` | shipped |
-| `atlas version` | Which build is executing, where it lives, what is registered, whether it is behind. | `scripts/atlas.mjs:307` | shipped |
-| `atlas version --notice` | One line for a `SessionStart` hook, silent when current. | `scripts/atlas.mjs:322` | shipped |
-| `atlas init` | Write `project-atlas.config.json` from a probe of the repository's layout. | `scripts/atlas.mjs:340`, `scripts/atlas.mjs:1438` | shipped |
-| `atlas scan` | Build the corpus index and summarise it. `--json` emits the model without document bodies. | `scripts/atlas.mjs:345` | shipped |
-| `atlas tasks [filter]` | The planning document as progress bars, grouped by track. | `scripts/atlas.mjs:359`, `scripts/atlas.mjs:1270` | shipped |
-| `atlas branch [type slug]` | Report branch safety, or create `type/short-slug` carrying uncommitted work. | `scripts/atlas.mjs:368` | shipped |
-| `atlas caps` (alias `capabilities`) | Probe which host features are on. The only command that makes a network request. | `scripts/atlas.mjs:415` | shipped |
-| `atlas community [--write]` | Generate issue/PR/Discussions scaffolding for the features the host supports. | `scripts/atlas.mjs:423` | shipped |
-| `atlas note <kind> "<text>"` | Append one record to the continuity journal. | `scripts/atlas.mjs:457` | shipped |
-| `atlas state` | What a resuming session reads first: branch, uncommitted work, journal. | `scripts/atlas.mjs:488` | shipped |
-| `atlas design [--scaffold]` | The design record's state; `--scaffold` writes question stubs, never answers. | `scripts/atlas.mjs:517` | shipped |
-| `atlas ask <task>` | One structured JSON answer with a meaningful exit code. Takes a **task id**, not a question. | `scripts/atlas.mjs:558` | shipped |
-| `atlas mcp` | Serve the corpus over MCP on stdio. `--status` reports what a client would connect to. | `scripts/atlas.mjs:591` | shipped |
-| `atlas handoff` | The derived half of a handoff, printed as a prompt. Writes no file. | `scripts/atlas.mjs:603` | shipped |
-| `atlas changes` | Uncommitted work, branch-local work, and the documents that cite the files touched. | `scripts/atlas.mjs:619` | shipped |
-| `atlas config` | The merged configuration — user overrides shown against the defaults. | `scripts/atlas.mjs:631` | shipped |
-| `atlas plan [slug]` | Propose the git route for work in progress. `--apply` creates the branch and nothing else. | `scripts/atlas.mjs:676` | shipped |
-| `atlas surviving` | Surviving lines per file, by author. | `scripts/atlas.mjs:711` | shipped |
-| `atlas ownership` | Areas by author, and where the bus factor is one. | `scripts/atlas.mjs:718` | shipped |
-| `atlas worklog` | Write the day's log to `worklog/`. `--stdout` prints instead. | `scripts/atlas.mjs:735` | shipped |
-| `atlas diff [file]` | One file's diff; with no path, lists what there is to ask about. | `scripts/atlas.mjs:753` | shipped |
-| `atlas tokens` | Token accounting from local session transcripts. | `scripts/atlas.mjs:788` | shipped |
-| `atlas sessions` | Session outcomes — turns, interruptions, compactions, tool friction, rework. | `scripts/atlas.mjs:815` | shipped |
-| `atlas prompt` | A system prompt assembled from this repository's own config, plan and corpus. | `scripts/atlas.mjs:831` | shipped |
-| `atlas contrib` | Contribution analysis from `git log` alone. | `scripts/atlas.mjs:851` | shipped |
-| `atlas spec --gate` | Commit gate: refuse a staged change whose message names no plan item. | `scripts/atlas.mjs:863` | shipped |
-| `atlas health --gate` | Commit gate: refuse a commit that would land a blocking signal. | `scripts/atlas.mjs:893` | shipped |
-| `atlas health` | The rot report. Exit 1 when any blocking signal fires. | `scripts/atlas.mjs:910` | shipped |
-| `atlas build` | Generate the static site. `--verify` audits what was just written. | `scripts/atlas.mjs:920` | shipped |
-| `atlas all` | `scan` + `health` + `build`; exit 1 if blocking. | `scripts/atlas.mjs:920`, `scripts/atlas.mjs:935` | shipped |
-| `atlas publish --target wiki\|pages\|export` | Stage a publish target. Nothing pushes without `--push`. | `scripts/atlas.mjs:939` | shipped |
-| `atlas serve` | Start (or adopt) the live dashboard server and open it. | `scripts/atlas.mjs:1029` | shipped |
-| `atlas serve --stop \| --status \| --list \| --launcher` | Stop it, report it, list every dashboard on the machine, or write a launcher page. | `scripts/atlas.mjs:1032`, `scripts/atlas.mjs:1069`, `scripts/atlas.mjs:1056`, `scripts/atlas.mjs:1043` | shipped |
-| `atlas watch [--serve]` | Rebuild on change; `--serve` hosts the output on loopback. | `scripts/atlas.mjs:1207` | shipped |
+The **Slash** column was re-verified on 2026-08-12 against `skills/` on branch
+`feat/manual-command-surface`, by running every command in this repository. A dash means no slash command
+exposes it, and §3 gives the reason for each dash rather than leaving it to be read as an oversight.
+
+| Command | What it does | Dispatch | Slash | Status |
+|---|---|---|---|---|
+| `atlas help` | Print the command list. Also the default when no command is given. | `scripts/atlas.mjs:304`, `scripts/atlas.mjs:1493` | `/atlas:help` | shipped |
+| `atlas version` | Which build is executing, where it lives, what is registered, whether it is behind. | `scripts/atlas.mjs:307` | `/atlas:version` | shipped |
+| `atlas version --notice` | One line for a `SessionStart` hook, silent when current. | `scripts/atlas.mjs:322` | — | shipped |
+| `atlas init` | Write `project-atlas.config.json` from a probe of the repository's layout. | `scripts/atlas.mjs:340`, `scripts/atlas.mjs:1438` | — | shipped |
+| `atlas scan` | Build the corpus index and summarise it. `--json` emits the model without document bodies. | `scripts/atlas.mjs:345` | `/atlas:status` | shipped |
+| `atlas tasks [filter]` | The planning document as progress bars, grouped by track. | `scripts/atlas.mjs:359`, `scripts/atlas.mjs:1270` | `/atlas:tasks` | shipped |
+| `atlas branch [type slug]` | Report branch safety, or create `type/short-slug` carrying uncommitted work. | `scripts/atlas.mjs:368` | `/atlas:branch` | shipped |
+| `atlas caps` (alias `capabilities`) | Probe which host features are on. Makes a network request, and says so. | `scripts/atlas.mjs:415` | `/atlas:caps` | shipped |
+| `atlas community [--write]` | Generate issue/PR/Discussions scaffolding for the features the host supports. | `scripts/atlas.mjs:423` | `/atlas:community` | shipped |
+| `atlas note <kind> "<text>"` | Append one record to the continuity journal. **The only writing slash command.** | `scripts/atlas.mjs:457` | `/atlas:note` | shipped |
+| `atlas state` | What a resuming session reads first: branch, uncommitted work, journal. | `scripts/atlas.mjs:488` | `/atlas:state` | shipped |
+| `atlas design [--scaffold]` | The design record's state; `--scaffold` writes question stubs, never answers. | `scripts/atlas.mjs:517` | `/atlas:design` | shipped |
+| `atlas ask <task>` | One structured JSON answer with a meaningful exit code. Takes a **task id**, not a question. | `scripts/atlas.mjs:558` | `/atlas:ask` | shipped |
+| `atlas mcp` | Serve the corpus over MCP on stdio. `--status` reports what a client would connect to. | `scripts/atlas.mjs:591` | `/atlas:mcp` | shipped |
+| `atlas handoff` | The derived half of a handoff, printed as a prompt. Writes no file. | `scripts/atlas.mjs:603` | `/atlas:handoff` | shipped |
+| `atlas changes` | Uncommitted work, branch-local work, and the documents that cite the files touched. | `scripts/atlas.mjs:619` | `/atlas:changes`, `/atlas:review` | shipped |
+| `atlas config` | The merged configuration — user overrides shown against the defaults. | `scripts/atlas.mjs:631` | `/atlas:config` | shipped |
+| `atlas plan [slug]` | Propose the git route for work in progress. `--apply` creates the branch and nothing else. | `scripts/atlas.mjs:676` | `/atlas:plan` | shipped |
+| `atlas surviving` | Surviving lines per file, by author. | `scripts/atlas.mjs:711` | `/atlas:surviving` | shipped |
+| `atlas ownership` | Areas by author, and where the bus factor is one. | `scripts/atlas.mjs:718` | `/atlas:ownership` | shipped |
+| `atlas worklog` | Write the day's log to `worklog/`. `--stdout` prints instead. | `scripts/atlas.mjs:735` | `/atlas:worklog` (via `--stdout`) | shipped |
+| `atlas diff [file]` | One file's diff; with no path, lists what there is to ask about. | `scripts/atlas.mjs:753` | `/atlas:diff` | shipped |
+| `atlas tokens` | Token accounting from local session transcripts. | `scripts/atlas.mjs:788` | `/atlas:tokens` | shipped |
+| `atlas sessions` | Session outcomes — turns, interruptions, compactions, tool friction, rework. | `scripts/atlas.mjs:815` | `/atlas:sessions` | shipped |
+| `atlas prompt` | A system prompt assembled from this repository's own config, plan and corpus. | `scripts/atlas.mjs:831` | `/atlas:prompt` | shipped |
+| `atlas contrib` | Contribution analysis from `git log` alone. | `scripts/atlas.mjs:851` | `/atlas:contrib` | shipped |
+| `atlas spec --gate` | Commit gate: refuse a staged change whose message names no plan item. | `scripts/atlas.mjs:863` | — | shipped |
+| `atlas health --gate` | Commit gate: refuse a commit that would land a blocking signal. | `scripts/atlas.mjs:893` | — | shipped |
+| `atlas health` | The rot report. Exit 1 when any blocking signal fires. | `scripts/atlas.mjs:910` | `/atlas:health` | shipped |
+| `atlas build` | Generate the static site. `--verify` audits what was just written. | `scripts/atlas.mjs:920` | `/atlas:build` | shipped |
+| `atlas all` | `scan` + `health` + `build`; exit 1 if blocking. | `scripts/atlas.mjs:920`, `scripts/atlas.mjs:935` | — | shipped |
+| `atlas publish --target wiki\|pages\|export` | Stage a publish target. Nothing pushes without `--push`. | `scripts/atlas.mjs:939` | `/atlas:publish` | shipped |
+| `atlas serve` | Start (or adopt) the live dashboard server and open it. | `scripts/atlas.mjs:1029` | `/atlas:dashboard` | shipped |
+| `atlas serve --stop \| --status \| --list \| --launcher` | Stop it, report it, list every dashboard on the machine, or write a launcher page. | `scripts/atlas.mjs:1032`, `scripts/atlas.mjs:1069`, `scripts/atlas.mjs:1056`, `scripts/atlas.mjs:1043` | `/atlas:dashboard` (`--list`) | shipped |
+| `atlas watch [--serve]` | Rebuild on change; `--serve` hosts the output on loopback. | `scripts/atlas.mjs:1207` | — | shipped |
 
 An unrecognised command prints the usage block and exits 2 (`scripts/atlas.mjs:1264`).
 
@@ -142,27 +150,61 @@ declined, or whose input could not be read, is added to `unevaluated` and render
 
 ## 3. Slash commands (Claude Code skills)
 
-Thirteen `SKILL.md` files under `skills/`. Twelve set `disable-model-invocation: true`, which makes them
-typed-only; `skills/build/SKILL.md` does not and is the one the model may invoke on its own.
+**Twenty-nine `SKILL.md` files under `skills/`**, up from thirteen on 2026-08-12. Twenty-eight set
+`disable-model-invocation: true`, which makes them typed-only; `skills/build/SKILL.md` does not and is the one
+the model may invoke on its own. Every command below was run in this repository before its skill was written.
 
 | Skill | Shells out to | Source |
 |---|---|---|
-| `/atlas:ask` | `atlas ask $ARGUMENTS` | `skills/ask/SKILL.md:12` |
-| `/atlas:changes` | `atlas changes --no-color` | `skills/changes/SKILL.md:8` |
-| `/atlas:config` | `atlas config` | `skills/config/SKILL.md:8` |
-| `/atlas:dashboard` | `atlas serve`, `atlas serve --list` | `skills/dashboard/SKILL.md:8` |
-| `/atlas:diff <path>` | `atlas diff $ARGUMENTS` | `skills/diff/SKILL.md:9` |
-| `/atlas:health` | `atlas health --no-color $ARGUMENTS` | `skills/health/SKILL.md:8` |
-| `/atlas:help` | `atlas help` | `skills/help/SKILL.md:8` |
-| `/atlas:mcp` | `atlas mcp --status` | `skills/mcp/SKILL.md:8` |
-| `/atlas:plan <slug>` | `atlas plan $ARGUMENTS` | `skills/plan/SKILL.md:9` |
-| `/atlas:publish` | `atlas caps` | `skills/publish/SKILL.md:8` |
-| `/atlas:review` | `atlas changes --no-color` | `skills/review/SKILL.md:8` |
-| `/atlas:status` | `atlas scan` | `skills/status/SKILL.md:8` |
-| build (model-invoked) | nothing; instructions only | `skills/build/SKILL.md:1-3` |
+| `/atlas:ask` | `atlas ask $ARGUMENTS`, `atlas scan` | `skills/ask/SKILL.md` |
+| `/atlas:branch` | `atlas branch` | `skills/branch/SKILL.md` |
+| `/atlas:caps` | `atlas caps` — **network** | `skills/caps/SKILL.md` |
+| `/atlas:changes` | `atlas changes --no-color` | `skills/changes/SKILL.md` |
+| `/atlas:community` | `atlas community` — **network**, previews only | `skills/community/SKILL.md` |
+| `/atlas:config` | `atlas config`, `atlas scan`, `atlas health --no-color` | `skills/config/SKILL.md` |
+| `/atlas:contrib` | `atlas contrib` | `skills/contrib/SKILL.md` |
+| `/atlas:dashboard` | `atlas serve`, `atlas serve --list` | `skills/dashboard/SKILL.md` |
+| `/atlas:design` | `atlas design` | `skills/design/SKILL.md` |
+| `/atlas:diff <path>` | `atlas diff $ARGUMENTS` | `skills/diff/SKILL.md` |
+| `/atlas:handoff` | `atlas handoff` | `skills/handoff/SKILL.md` |
+| `/atlas:health` | `atlas health --no-color $ARGUMENTS` | `skills/health/SKILL.md` |
+| `/atlas:help` | `atlas help`, `atlas caps --offline` | `skills/help/SKILL.md` |
+| `/atlas:mcp` | `atlas mcp --status` | `skills/mcp/SKILL.md` |
+| `/atlas:note <kind> "<text>"` | `atlas note $ARGUMENTS` — **writes** `.atlas/journal/` | `skills/note/SKILL.md` |
+| `/atlas:ownership` | `atlas ownership` | `skills/ownership/SKILL.md` |
+| `/atlas:plan <slug>` | `atlas plan $ARGUMENTS` | `skills/plan/SKILL.md` |
+| `/atlas:prompt` | `atlas prompt` | `skills/prompt/SKILL.md` |
+| `/atlas:publish` | `atlas caps` — **network**, `atlas scan` | `skills/publish/SKILL.md` |
+| `/atlas:review` | `atlas changes --no-color`, `atlas health --no-color`, `atlas branch` | `skills/review/SKILL.md` |
+| `/atlas:sessions` | `atlas sessions` — reads **local transcripts**, outside the repository | `skills/sessions/SKILL.md` |
+| `/atlas:state` | `atlas state` | `skills/state/SKILL.md` |
+| `/atlas:status` | `atlas scan`, `atlas health --no-color`, `atlas tasks`, `atlas branch` | `skills/status/SKILL.md` |
+| `/atlas:surviving` | `atlas surviving` | `skills/surviving/SKILL.md` |
+| `/atlas:tasks [filter]` | `atlas tasks $ARGUMENTS` | `skills/tasks/SKILL.md` |
+| `/atlas:tokens` | `atlas tokens` — reads **local transcripts**, outside the repository | `skills/tokens/SKILL.md` |
+| `/atlas:version` | `atlas version` | `skills/version/SKILL.md` |
+| `/atlas:worklog` | `atlas worklog --stdout` | `skills/worklog/SKILL.md` |
+| build (model-invoked) | nothing; instructions only | `skills/build/SKILL.md` |
 
 `atlas status` and `atlas review` are not CLI commands — no `if (cmd === 'status')` or `'review'` exists in
 `scripts/atlas.mjs`. They are slash commands only, built over `atlas scan` and `atlas changes`.
+
+Line numbers are omitted from this table on purpose. Every one of these files is prose around one or two
+shell blocks and the blocks move whenever the prose does; the command string is the durable citation, and it
+is what a reader can grep for.
+
+### Five dispatched commands have no slash command, deliberately
+
+A command per dispatch would make the useful ones harder to find. Each of these was considered and refused,
+and the reason is recorded here so the gap is not read as an oversight and closed by the next person.
+
+| Command | Why there is no slash command |
+|---|---|
+| `atlas watch` | **It blocks until interrupted** — verified by running it, still alive after six seconds. A slash command that never returns is a trap. `/atlas:dashboard` starts the same server, returns, and hands back a URL. |
+| `atlas all` | `scan` + `health` + `build`, which is `/atlas:build`; the first two are also `/atlas:status` and `/atlas:health`. A fourth name for the same work splits the path without adding a capability. |
+| `atlas init` | Step two of a first run, and `/atlas:build` does the whole run. A command that writes a config and stops ends adoption with no index, no site and no URL — the failure `skills/build/SKILL.md` exists to prevent. |
+| `atlas capabilities` | The alias for `caps`. One implementation, one skill. |
+| `atlas spec --gate` | The commit hook's entry point. Bare `atlas spec` is not a command at all (it falls through to the usage block and exits 2), and `--gate` reads the commit message from **stdin** — with staged files and no stdin it would wait, and it prints nothing at all when it passes. |
 
 ### `/atlas:ask` is currently broken — defect
 

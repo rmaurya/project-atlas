@@ -1,5 +1,5 @@
 ---
-description: List every project-atlas command and what this repository's current state is. Use when the user asks what they can do, how to start, or types /atlas:help.
+description: The map of every project-atlas command, grouped by what you are trying to do, plus this repository's current state and what to run first. Use when the user asks what they can do, how to start, which command they want, or types /atlas:help.
 disable-model-invocation: true
 ---
 
@@ -13,20 +13,77 @@ disable-model-invocation: true
 ## This repository right now
 
 !`atlas caps --offline`
+
+> **If the block above is empty**, `atlas` is not on `PATH` — the plugin is not installed where this is
+> running. Say so; do not read an empty section as "this repository has no host".
+
 ---
 
-Present the command list above with **one line each**, written from what each skill's `description` frontmatter
-actually says — read them, do not recite from memory. This page must never list a command that no longer
-exists, or omit one that does; that is why the list is read from disk rather than typed here.
+Twenty-nine slash commands is too many to list. **Give the user the group their question belongs to, then the
+one or two commands in it** — the failure with a surface this size is never a missing command, it is a person
+choosing between three they cannot tell apart.
 
-Then say **what to run first**, based on the state shown above:
+## The map
 
-- **No config** → `atlas init`, then `atlas scan`. Explain that nothing existing is modified.
-- **Configured but never built** → `atlas health` then `atlas build`.
-- **Built already** → point at the delta: what changed since the last run.
+**Starting out**
+`/atlas:build` adopt this repository and generate the site — the one command that does a first run end to end ·
+`/atlas:help` this map · `/atlas:config` tune the taxonomy, the blocking signals, the stale window ·
+`/atlas:version` which build is answering, and whether it is behind
 
-Keep it to a screen. This is the answer to *"what can I do here?"*, not a flag reference — `atlas --help`
-covers flags, and say so once at the end rather than reproducing them.
+**Seeing where things stand**
+`/atlas:status` the corpus, the rot and the one next action · `/atlas:health` the full rot report ·
+`/atlas:tasks` the plan as progress bars · `/atlas:design` which design documents exist, and which are
+scaffolds still owing their substance · `/atlas:dashboard` build, serve and hand back a URL
 
-If the user asked about something specific (publishing, a signal, configuring), skip the tour and route them
-straight to the one command that answers it.
+**Working on a change**
+`/atlas:branch` is it safe to commit here · `/atlas:plan` propose the route and run none of it ·
+`/atlas:changes` what is uncommitted and which documents cite it · `/atlas:diff <path>` one file, explained ·
+`/atlas:review` what this diff breaks or fixes, before the commit
+
+**Picking up cold**
+`/atlas:state` what a resuming session reads first · `/atlas:handoff` the derived half of a handoff, for the
+half only a person can write · `/atlas:note` record one decision, trap or blocker — **the only command here
+that writes to the repository**
+
+**Digging into history**
+`/atlas:contrib` commits over time · `/atlas:ownership` authors per area, and where the bus factor is one ·
+`/atlas:surviving` lines still in the tree · `/atlas:worklog` what landed today ·
+`/atlas:sessions` and `/atlas:tokens` — **both read local session transcripts from outside the repository**,
+aggregate only, and never publish
+
+**Publishing**
+`/atlas:caps` which features the host has on — **makes one network request** · `/atlas:community` issue and PR
+scaffolding for the features that came back on · `/atlas:publish` wiki, pages or a single file, and never
+without confirmation
+
+**Agent surfaces**
+`/atlas:mcp` connect a client to the read-only tool surface · `/atlas:ask` answer a question from the corpus ·
+`/atlas:prompt` a system prompt for an agent that cannot load this plugin
+
+**Not slash commands, deliberately.** `atlas watch` blocks until interrupted, so it would be a slash command
+that never returns — `/atlas:dashboard` is what you want, and it hands back a URL. `atlas all` is
+`scan + health + build`, which is `/atlas:build`. `atlas init` is step two of `/atlas:build`, and splitting it
+out ends a first run with a config file and no index. `atlas spec --gate` is the commit hook's entry point,
+reads the message from stdin and prints nothing when it passes.
+
+**This map is hand-written and the `skills/` directory is the authority.** If a command listed here does not
+exist in this install, or one exists and is missing below, that is a defect in this file — say so rather than
+working around it. **An `/atlas:git-*` family is being added on another branch and is deliberately not listed
+here yet**; if this install has those commands, this map is behind and their own descriptions are the source.
+
+## Then answer the actual question
+
+If the user asked about something specific — publishing, a signal, resuming, who wrote what — **skip the tour
+and route them to the one command**. The map is for "what can I do here?", not for every question.
+
+Otherwise say what to run first, from the state above:
+
+- **No config** → `/atlas:build`. Explain that nothing existing is modified: it writes a config and a derived
+  output directory, both safe to delete.
+- **Configured but never built** → `/atlas:health`, then `/atlas:build`.
+- **Built already** → point at the delta. What changed since the last run is the only interesting part.
+
+**One caveat about the first block.** `atlas help` prints the CLI usage, and that list is *not* complete —
+several dispatched commands are missing from it, including `tasks`, `plan`, `config`, `ownership`,
+`surviving`, `worklog` and `serve`. Do not tell the user a command does not exist because the block above
+omits it; the map here and `skills/` are the better answer, and `atlas --help` covers flags.

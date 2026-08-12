@@ -1,0 +1,44 @@
+---
+description: "Which features the git host has switched on — wiki, pages, issues, discussions — before you try to publish to one. MAKES ONE NETWORK REQUEST to the host API. Use when a publish target is unavailable or unexplained, or when the user types /atlas:caps."
+disable-model-invocation: true
+---
+
+# What this host has switched on
+
+!`atlas caps`
+
+> **If the block above is empty**, `atlas` is not on `PATH` — the plugin is not installed where this is
+> running. Say so; do not read an empty section as "the host has nothing enabled".
+
+---
+
+**This command reached the network, and that must be the first thing you say if the user did not expect it.**
+It made a single unauthenticated `GET` to the host's repository API — `api.github.com/repos/<owner>/<repo>` or
+the GitLab equivalent — and asked `git ls-remote` whether a wiki repository exists. It sent no repository
+content and no credentials, timed out in six seconds, and cached the answer for an hour inside `.git/`.
+`atlas caps --offline` skips the probe entirely and says what it therefore assumed.
+
+That is one of the four places this tool can reach the network, all four of which are named with a file and a
+line in `SECURITY.md`. If the user is auditing rather than publishing, send them there rather than
+paraphrasing it.
+
+Report what the block found:
+
+- **A feature marked on** is available to publish to. Name the target that uses it.
+- **A feature marked off** is a setting on the host, and the report names it. It is not a failure here.
+- **A dash means the host has no such feature at all** — a different fact from it being switched off, and the
+  distinction decides whether there is anything to enable.
+- **A wiki being enabled is not the same as its wiki repository existing.** GitHub creates that only when the
+  first page is saved by hand. This is the single most confusing state in publishing, and the block says which
+  one it saw.
+
+**Rules:**
+
+- **Do not enable anything.** Host settings belong to whoever owns the repository.
+- **The cache is an hour old at most.** If a setting was just changed and the block disagrees, say the answer
+  is cached rather than insisting.
+- **`capabilities` is the same command under a longer name.** There is one implementation and one skill.
+
+**Nearest neighbour.** `/atlas:caps` only *asks* what is available. `/atlas:publish` runs the same probe and
+then stages an actual publish, pushing nothing without `--push` and explicit confirmation. `/atlas:community`
+runs it too, and writes issue and PR scaffolding for the features that came back on.

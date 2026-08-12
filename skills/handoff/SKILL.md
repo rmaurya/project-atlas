@@ -1,0 +1,42 @@
+---
+description: The derived half of a handoff — branch, in-flight plan items, uncommitted work and the journal — printed as a prompt for the half only a person can write. Use when ending a session, handing work over, or when the user types /atlas:handoff.
+disable-model-invocation: true
+---
+
+# Handoff
+
+!`atlas handoff`
+
+> **If the block above is empty**, `atlas` is not on `PATH` — the plugin is not installed where this is
+> running. Say so; do not read an empty section as "there is nothing to hand over".
+
+---
+
+**The command wrote nothing, and that is deliberate.** It prints the half a machine can see — the branch, the
+commits, the in-flight items, the journal — and then asks the four questions no repository can answer. A
+generated handoff would be confident prose nobody reviewed, going stale from the hour it was written, which is
+the exact failure this tool exists to detect.
+
+Your job is the other half. Draft answers to the four questions **from this session**, not from the block
+above:
+
+1. What was decided, and what does it rule out?
+2. What was tried that did not work, and why not?
+3. What will bite the next person that nothing in the repository reveals?
+4. What is half-done, and in what state?
+
+Then offer to write it to the handoff path the block named. **Offer — do not write it silently.** A handoff is
+a claim signed with the user's name, and they get to read it first.
+
+**Rules:**
+
+- **Write only what you can source.** "The auth refactor is nearly done" is worthless without the branch and
+  the file. `UNKNOWN` is a valid answer to any of the four and is better than a plausible one.
+- **If the block says the existing handoff is many commits behind `HEAD`**, that is signal H13. Lead with it:
+  the file on disk is describing a tree that no longer exists, and someone will trust it.
+- **Nothing about how the session went belongs here.** Turn counts and token totals are `/atlas:sessions`.
+- If the answer to all four is "nothing worth recording", say that in one line and do not write a file.
+
+**Nearest neighbour.** `/atlas:state` is the machine-readable resume surface, read at the *start* of a
+session; `/atlas:handoff` is the human one, written at the *end*. `/atlas:note` records a single thing the
+moment it happens, so it survives a session that never reaches a handoff at all.

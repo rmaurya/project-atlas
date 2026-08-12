@@ -42,4 +42,9 @@ Then stop.
 - **Read the "Not checked" section.** A check that did not run is not a check that passed.
 - **If the branch check reports a block**, say so before anything else — the user is about to commit to a
   protected branch.
-- If nothing is configured, say that plainly and point at `atlas:help`.
+- If nothing is configured, say that plainly and point at `/atlas:help`.
+
+**Nearest neighbour.** `/atlas:status` is the state of the **corpus** — documents, rot, plan, branch, in one
+screen. `/atlas:tasks` is the state of the **plan** alone, in detail. `/atlas:state` is the state of the
+**work** — where this session is and what the journal recorded. Status is the one to ask for when the question
+is "what should I do next"; the other two answer narrower questions and answer them better.

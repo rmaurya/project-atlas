@@ -37,6 +37,7 @@ measured against the code — the same distinction the tool preserves everywhere
 | A-23 | 100 | A-24 | 100 | M-3 | 40 |
 | A-25 | 100 | A-26 | 100 | A-27 | 100 |
 | A-28 | 100 | M-4 | 100 | A-29 | 100 |
+| C-9 | 100 | | | | |
 
 ---
 
@@ -79,6 +80,25 @@ directories have exactly one author, and one of them is the publishing path* nam
 An area with a single commit is excluded — it is new, not concentrated, and the first week of any project
 would otherwise bury the real risks. A second author counts however little they wrote: "meaningful
 contribution" is a judgement this cannot make.
+
+**C-9 · Every capability reachable by hand** — **P2 · Medium**
+*Shipped.* The CLI had thirty-three commands and thirteen slash commands over them. The twenty that were
+missing were not the unimportant ones — `ownership`, `contrib`, `surviving`, `tasks`, `state`, `handoff`,
+`note`, `sessions`, `tokens`, `worklog`, `caps`, `design`, `prompt`, `version`, `branch`, `community` — they
+were simply the ones nobody had written a skill for. A capability an agent can reach and a person cannot is a
+capability the person has to be told about, every time.
+
+Sixteen new skills, and four existing ones amended. The amendment matters as much as the additions: with a
+surface this size the failure is never a missing command, it is three commands a reader cannot tell apart. So
+`status`, `changes`, `diff` and `help` now each carry a **nearest-neighbour** paragraph naming the commands
+they are most likely to be confused with and saying which question each one actually answers — `/atlas:status`
+is the corpus, `/atlas:tasks` is the plan, `/atlas:state` is the session.
+
+`help` was rewritten as a map by intent rather than an alphabetical list, for the same reason.
+
+*`docs/FEATURES.md` was re-verified against `skills/` on the day of this change by running every command in the
+repository, and the Slash column now carries a dash with a stated reason wherever no command exposes a
+capability — an absence that is explained is not an oversight.*
 
 ## Track 2 — Product
 
