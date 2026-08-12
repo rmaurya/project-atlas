@@ -208,6 +208,42 @@ were invisible to every figure `atlas tokens` has ever printed**, and invisible 
 every token a subagent spent. The axis C-11 is built on read a flat zero and presented it as a measurement.
 Fixed here, because a data layer over a source it only half reads is worse than none.
 
+***Then the two gaps it reported against itself were closed — one by changing the rule, one by admitting what
+cannot be recovered.*** Both were printed in the tool's own caveats before anyone was asked to look at them,
+which is the point of a report that names its limits.
+
+**`other` was 98% of output, and the rule was what was wrong.** Classifying a turn by the files *that turn*
+wrote put 83.4% of output (on the larger store measured at the time of the fix) into `other`, because the
+overwhelming majority of turns read, search, reason or run a command and write nothing. `other` had come to
+mean *did not happen to write a file this turn* — a fact about the shape of a transcript, not about the work,
+and a chart of it is one bar and four slivers. A turn is now attributed to the **contiguous run** it belongs
+to: a run ends at a silence long enough to be a different sitting, or where the kind being written changes,
+and a turn that wrote nothing takes the kind of the nearest write on either side of it. **The gap is five
+minutes and it is measured, not chosen** — the 99.4th percentile of the 8,319 gaps between consecutive
+assistant turns in this repository's own store, where the median gap is 6.2 s and 94% are under a minute, and
+where only 53 gaps exceed five minutes with the largest running from two to twelve hours. Two minutes would
+let an ordinary long tool call end a run and leaves `other` at 23.4%; thirty minutes reaches 4.3% only by
+letting one write speak for work done half an hour away. **`other` fell from 83.4% to 7.2%**, and now means
+*a run in which nothing inside this repository was written at all* — genuinely unattributable.
+
+**63.8% of output fell in no task window, and that figure stays visible.** The task log only covers sessions
+that ran with the hook installed, and no amount of widening windows makes that honest. What is recoverable is
+a turn seconds away from a turn inside a window — the same run, the same work — so the identical run rule is
+applied on the task axis: **2.2% of output across 168 turns** was recovered that way and the share fell to
+**59.5%**, which is reported, not hidden. The remainder is now reported with its *shape*: **100% of it
+predates the first record in `.atlas/tasks-live.jsonl`**, so it is a start date rather than a hook that misses
+sessions, and the two are not the same problem. Two further limits are stated for the first time — **9 of 11
+windows here opened and closed inside one second**, the burst the hook writes when it first sees a task list
+that already existed, so their zero is a window too narrow to hold a turn rather than a task that cost
+nothing; and a window still open takes its share of every later turn, so its figure is a running total.
+
+**And rule 1 of `tokens.mjs` had been false since the day the panel landed.** The module header said *nothing
+reads transcripts unless `atlas tokens` is run*; C-10 put the attribution on a page, so every build that
+renders the Economics view reads the store and `atlas watch` builds on every save. The rule now says what is
+true and why it is still safe, and the reader earns it: `hasTranscripts()` answers with a single `statSync`,
+so a machine with no store for this path pays a stat rather than a directory walk, a task-log read or a
+`git log`. A slow build is a build nobody runs twice.
+
 **C-11 · Fan independent work out, one worktree per agent** — **P1 · High**
 *The skill tells a session to do independent work in parallel, and states the constraint that makes it safe.*
 

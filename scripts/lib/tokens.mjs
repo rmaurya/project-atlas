@@ -11,7 +11,27 @@
  *
  * So four rules, enforced here rather than documented elsewhere:
  *
- *  1. **Opt-in.** Nothing reads transcripts unless `atlas tokens` is run. No other command touches them.
+ *  1. **Read only by the two surfaces that show them, and only when they are asked for.** This rule used to
+ *     read "nothing reads transcripts unless `atlas tokens` is run", and C-10 made that false: the Economics
+ *     view puts the attribution on a page, so a build that renders that view calls `readTokenEconomics`, and
+ *     `atlas watch` builds on every save. Leaving the sentence up would have been the worse outcome — a rule
+ *     nobody can check is not a rule — so it says what is true. **Nothing else opens the store**: not `scan`,
+ *     not `health` (H17 is fed an aggregate by its caller and reads nothing itself), not a hook, not `serve`,
+ *     and not a build of a site whose views do not include Economics — `dashboard.mjs` resolves the reader
+ *     only when a panel on the page asks for it.
+ *
+ *     It is still safe, and for reasons that are enforced rather than asserted. The read is **one-way and
+ *     counts-only**: `classifyWrite` is the only function that sees a path and it returns one of five words,
+ *     so no path, prompt or message text survives it. The panel carries `data-local-only` and `stripLocalOnly`
+ *     removes it on both exit doors. Nothing reaches disk unless `atlas tokens --snapshot` is run with
+ *     `tokens.snapshot` set — no build writes the snapshot, and a test asserts it.
+ *
+ *     And it is **cheap when there is nothing to read**, which is the property a per-save build actually needs:
+ *     `hasTranscripts()` stats one directory, and the reader returns unavailable-with-a-reason before it lists
+ *     a file, opens the task log or shells out to git. With a store present it costs one streaming pass —
+ *     88 MB across 26 transcripts in about 1.2s on the machine this was written on — paid once per build, not
+ *     once per panel. `surviving.mjs` is opt-in because a slow build is a build nobody runs twice; this is the
+ *     same concern answered by making the empty case free rather than by making the feature opt-in.
  *  2. **Never published.** `assertNotPublishable()` refuses to write a report into any directory the tool
  *     publishes from. A token report in a wiki is a prompt log in a wiki.
  *  3. **Aggregate only.** Counts, sums and model names. Never prompt text, never a file path that was read,
@@ -49,7 +69,38 @@ export const DEFAULT_TOKENS = {
   // and the plan source; there is no existing "these are the tests" setting in the config, so this is it.
   testGlobs: ['tests/**', 'test/**', 'spec/**', '**/__tests__/**', '**/__test__/**',
               '**/*.test.*', '**/*.spec.*', '**/*_test.*', '**/*-test.*'],
+  // How long a silence has to be before the next turn is a different sitting. See DEFAULT_SITTING_GAP_MINUTES.
+  sittingGapMinutes: 5,
 };
+
+/**
+ * **Five minutes, and it is measured rather than chosen.**
+ *
+ * A turn is attributed to the kind of work of the *run* it belongs to, not to whatever it happened to write
+ * by itself, and a run ends at a silence long enough to be a different sitting. That threshold decides how far
+ * one write is allowed to speak, so it is picked from the distribution of the gaps themselves, the way H17's
+ * 40-edit threshold is picked from the edit counts of the sessions that fanned out.
+ *
+ * Measured over the **8,319 gaps between consecutive assistant turns** in this repository's own store (26
+ * transcripts, 88 MB, four days): the median gap is **6.2 seconds**, 88% are under 30 seconds, **94% are under
+ * a minute**, and the 99th percentile is 3.5 minutes. Five minutes is the **99.4th percentile** — it cuts
+ * **53 of 8,319 gaps**. What is above it is not a pause: 25 gaps exceed ten minutes, eight exceed half an
+ * hour, and the largest six are 2.0, 3.4, 5.3, 8.6 and 12.0 hours — nights and days off, not thinking.
+ *
+ * The two neighbours were measured too, on the same store, by the share of output left in `other`:
+ *
+ *  - **2 minutes** cuts 198 gaps and leaves `other` at **23.4%**, because an ordinary long tool call — a test
+ *    run, a build, a large read — ends a run that plainly did not end. The threshold would be measuring the
+ *    machine's latency, not the operator's attention.
+ *  - **5 minutes** leaves `other` at **7.7%**.
+ *  - **30 minutes** leaves it at **4.3%**, and buys that last three points by letting a single write account
+ *    for work done half an hour on either side of it. That is a claim the data does not support.
+ *
+ * So the number is the point where the curve has already flattened and the remaining gaps are recognisably
+ * breaks. Override it with `tokens.sittingGapMinutes`; the figure in force is printed in the caveats, with the
+ * count of runs it produced in *this* store, so a repository whose rhythm differs can see that it does.
+ */
+export const DEFAULT_SITTING_GAP_MINUTES = 5;
 
 /**
  * ~/.claude/projects/<slug>, where the slug is the absolute path with separators replaced by hyphens.
@@ -136,13 +187,34 @@ export function transcriptFiles(dir) {
   return out;
 }
 
+/**
+ * Is there anything here to read at all — answered with one `statSync` and nothing else.
+ *
+ * **This is the cheap door in front of rule 1.** `readTokenEconomics` runs on every build that renders the
+ * Economics view, which on `atlas watch` is every save, and the overwhelmingly common case on a fresh clone or
+ * a CI runner is a store that does not exist. That case must cost a stat, not a directory walk, not a read of
+ * the task log, and above all not a `git log` — `readContrib` shells out, and paying for it to discover there
+ * were no transcripts is how a build becomes something nobody runs twice.
+ *
+ * Separate and exported so the property is testable as a property, rather than inferred from a stopwatch.
+ */
+export function hasTranscripts(root, cfg = {}) {
+  const dir = transcriptDir(root, cfg);
+  let st;
+  try { st = fs.statSync(dir); } catch { st = null; }
+  if (!st?.isDirectory()) {
+    return { present: false, dir,
+      reason: `No session transcripts for this repository at ${dir}.` };
+  }
+  return { present: true, dir, reason: null };
+}
+
 export async function readTokens(root, cfg = {}, { onProgress } = {}) {
   const t = { ...DEFAULT_TOKENS, ...(cfg.tokens || {}) };
-  const dir = transcriptDir(root, cfg);
+  const probe = hasTranscripts(root, cfg);
+  const dir = probe.dir;
 
-  if (!fs.existsSync(dir)) {
-    return { available: false, reason: `No session transcripts for this repository at ${dir}.`, dir };
-  }
+  if (!probe.present) return { available: false, reason: probe.reason, dir };
   const files = transcriptFiles(dir).sort((a, b) => b.size - a.size);
 
   if (!files.length) return { available: false, reason: `No .jsonl transcripts in ${dir}.`, dir };
@@ -609,6 +681,77 @@ export function overlapWindows(items) {
   return w;
 }
 
+/**
+ * **The contiguous-run rule, as one function, used on both axes.**
+ *
+ * The contract's first attempt classified each turn by what *that turn* wrote, and measured on this
+ * repository's own store it put **83.4% of all output in `other`** — not because the work was unclassifiable
+ * but because the overwhelming majority of turns read, search, reason or run a command and write no file. A
+ * chart of that is one bar and four slivers, and `other` had come to mean "did not happen to write a file this
+ * turn", which is a fact about the shape of a transcript rather than about the work.
+ *
+ * So a turn is attributed to the run it belongs to. Given an ordered list of turns and a predicate saying
+ * which of them carry an attribution of their own, this returns, for each turn, the index of the turn whose
+ * attribution it takes — or `-1` when the whole run carries none, which is the only honest `other`.
+ *
+ *  - **A run ends at a silence longer than `gapMs`.** Nothing inherits across a break; see
+ *    `DEFAULT_SITTING_GAP_MINUTES` for where the number comes from.
+ *  - **Inside a run, a turn takes the *nearest* attribution in time**, forwards or backwards, and a tie goes
+ *    to the earlier one so the answer does not depend on iteration order. Nearest rather than previous
+ *    because the reading and reasoning that *precede* a write are that write's work as much as the checking
+ *    that follows it; forward-fill alone would leave the head of every run in `other` for no better reason
+ *    than that it came first. Nearest is also what makes "a run ends when the kind changes" fall out rather
+ *    than needing a second rule: between two writes of different kinds the boundary lands midway, and each
+ *    write speaks for the turns on its own side of it.
+ *
+ * Both axes use it — the kind of work, and which task window a turn falls in — because they are the same
+ * question asked of two attributions, and two implementations of one rule is the drift this tool exists to
+ * detect.
+ */
+export function runAnchors(turns, gapMs, hasAnchor) {
+  const n = turns.length;
+  const anchor = new Array(n).fill(-1);
+  if (!n) return anchor;
+
+  // How far apart two turns are. Time when both are dated; otherwise the answer is "unknown", and an anchor
+  // that can be measured is preferred to one that cannot rather than the two being compared in mixed units.
+  const apart = (a, b) => (a.ts !== null && a.ts !== undefined && b.ts !== null && b.ts !== undefined
+    ? Math.abs(b.ts - a.ts) : null);
+
+  const segment = (from, to) => {
+    // Forward: the nearest anchor at or before each index.
+    let p = -1;
+    for (let i = from; i < to; i++) { if (hasAnchor(turns[i])) p = i; anchor[i] = p; }
+    // Backward: the nearest anchor at or after it, resolved against the forward answer as we go.
+    let q = -1;
+    for (let i = to - 1; i >= from; i--) {
+      if (hasAnchor(turns[i])) { q = i; anchor[i] = i; continue; }
+      const a = anchor[i], b = q;
+      if (a < 0 && b < 0) { anchor[i] = -1; continue; }
+      if (a < 0) { anchor[i] = b; continue; }
+      if (b < 0) { anchor[i] = a; continue; }
+      const da = apart(turns[i], turns[a]), db = apart(turns[i], turns[b]);
+      if (da === null && db === null) anchor[i] = (i - a <= b - i) ? a : b;
+      else if (da === null) anchor[i] = b;
+      else if (db === null) anchor[i] = a;
+      else anchor[i] = db < da ? b : a;
+    }
+  };
+
+  let from = 0, cuts = 0;
+  for (let i = 1; i <= n; i++) {
+    const broke = i === n
+      || (turns[i].ts != null && turns[i - 1].ts != null && turns[i].ts - turns[i - 1].ts > gapMs);
+    if (!broke) continue;
+    if (i < n) cuts++;
+    segment(from, i);
+    from = i;
+  }
+  anchor.cuts = cuts;                     // how many silences ended a run, reported in the caveats
+  anchor.runs = cuts + 1;
+  return anchor;
+}
+
 const emptyEconomics = (reason) => ({
   available: false, reason,
   // Not zeros. A zero here is a claim that nothing was spent, and the claim being made is that nothing is
@@ -622,10 +765,13 @@ const emptyEconomics = (reason) => ({
  */
 export function readTokenEconomics(root, cfg = {}) {
   const t = { ...DEFAULT_TOKENS, ...(cfg.tokens || {}) };
-  const dir = transcriptDir(root, cfg);
-
-  if (!fs.existsSync(dir)) {
-    return emptyEconomics(`No session transcripts for this repository at ${dir}. Token economics is derived ` +
+  // The cheap door, first: one stat, and nothing below this line runs on a machine with no store — no
+  // directory walk, no read of the task log, and no `git log` out of `readContrib`. This function is called
+  // by every build that renders the Economics view, which under `atlas watch` is every save.
+  const probe = hasTranscripts(root, cfg);
+  const dir = probe.dir;
+  if (!probe.present) {
+    return emptyEconomics(`${probe.reason} Token economics is derived ` +
       `from local session history, which this machine does not have for this path — that is an absent source, not a spend of zero.`);
   }
   // Sorted by path so the pass is deterministic, which is half of what makes the snapshot byte-stable.
@@ -653,11 +799,27 @@ export function readTokenEconomics(root, cfg = {}) {
   let unattributedTurns = 0, unattributedOutput = 0;
   let outsideWrites = 0;
 
+  // The run rule, and what it did — every one of these is reported, because a rule that moves 76% of the
+  // output out of `other` has to show its working.
+  const gapMinutes = Math.max(0, Number(t.sittingGapMinutes ?? DEFAULT_SITTING_GAP_MINUTES) || 0);
+  const gapMs = gapMinutes * 60000;
+  let runs = 0, gapCuts = 0;
+  let otherTurns = 0, inheritedKindOutput = 0;
+  let inheritedTaskTurns = 0, inheritedTaskOutput = 0;
+  // Where the task-log gap actually is. A single "63% is unattributed" figure does not say whether the hook
+  // misses sessions at random or simply was not installed yet, and those are different problems.
+  const logStartMs = windows.length ? Math.min(...windows.map((w) => w.openMs)) : null;
+  let unattributedBeforeLog = 0;
+
   for (const file of files) {
-    // Written paths arrive on records that follow the assistant turn that produced them, so the per-turn kind
-    // set is completed only once the file is read. Held per file, not per store, and folded at the end of each.
-    const turns = new Map();
-    let lastTurnUuid = null;
+    // Written paths arrive on records that follow the assistant turn that produced them, so a turn's kind set
+    // is only complete once the file is read — and under the run rule a turn's *attribution* is only complete
+    // once its neighbours are known too. So the turns of one file are held in order and folded at the end of
+    // it. Per file, never per store: the list is bounded by the number of usage-bearing records in a single
+    // transcript, and a run does not cross from one thread of work into another.
+    const turns = [];
+    const byUuid = new Map();
+    let lastTurn = null;
 
     for (const line of jsonlLines(file.path)) {
       let j;
@@ -675,8 +837,7 @@ export function readTokenEconomics(root, cfg = {}) {
         const kind = classifyWrite(written, root, cfg);
         if (kind === null) outsideWrites++;
         else {
-          const owner = (j.sourceToolAssistantUUID && turns.get(j.sourceToolAssistantUUID))
-            || (lastTurnUuid && turns.get(lastTurnUuid));
+          const owner = (j.sourceToolAssistantUUID && byUuid.get(j.sourceToolAssistantUUID)) || lastTurn;
           if (owner) owner.kinds.add(kind);
           kinds.get(kind).writes++;
         }
@@ -721,24 +882,57 @@ export function readTokenEconomics(root, cfg = {}) {
       b.output += u.output; b.cacheRead += u.cacheRead; b.messages++;
       branches.set(br, b);
 
-      // The 1/n split. Every open window gets a share, never the whole turn.
-      if (ts !== null && windows.length) {
-        const open = windows.filter((w) => ts >= w.openMs && ts <= w.closeMs);
-        if (!open.length) { unattributedTurns++; unattributedOutput += u.output; }
-        else {
-          const n = open.length;
-          for (const w of open) { w.output += u.output / n; w.cacheRead += u.cacheRead / n; w.messages += 1 / n; }
+      // Which windows were open at this instant. The 1/n split happens in the fold below, once it is known
+      // whether this turn stands on its own or takes its neighbour's attribution.
+      const open = (ts !== null && windows.length)
+        ? windows.filter((w) => ts >= w.openMs && ts <= w.closeMs) : [];
+
+      const turn = { ts, output: u.output, cacheRead: u.cacheRead, kinds: new Set(),
+                     open: open.length ? open : null };
+      turns.push(turn);
+      if (j.uuid) byUuid.set(j.uuid, turn);
+      lastTurn = turn;
+    }
+
+    /* ---- the fold: attribute each turn to the run it belongs to, on both axes ---- */
+
+    const kindAnchor = runAnchors(turns, gapMs, (x) => x.kinds.size > 0);
+    if (turns.length) { runs += kindAnchor.runs; gapCuts += kindAnchor.cuts; }
+    // The task axis is cut into the same runs by the same silences, so the two answers are consistent with
+    // each other; only the predicate changes.
+    const taskAnchor = windows.length ? runAnchors(turns, gapMs, (x) => x.open !== null) : null;
+
+    for (let i = 0; i < turns.length; i++) {
+      const x = turns[i];
+
+      const ka = kindAnchor[i];
+      if (ka < 0) {
+        // Nothing anywhere in this run wrote a file inside the repository. That is the only `other`: not
+        // "this turn wrote nothing", but "this stretch of work left no trace to classify it by".
+        otherTurns++;
+        kinds.get('other').output += x.output;
+        kinds.get('other').cacheRead += x.cacheRead;
+      } else {
+        const list = [...turns[ka].kinds];
+        if (ka !== i) inheritedKindOutput += x.output;
+        for (const k of list) {
+          kinds.get(k).output += x.output / list.length;
+          kinds.get(k).cacheRead += x.cacheRead / list.length;
         }
       }
 
-      if (j.uuid) { turns.set(j.uuid, { o: u.output, c: u.cacheRead, kinds: new Set() }); lastTurnUuid = j.uuid; }
-    }
-
-    for (const turn of turns.values()) {
-      const list = [...turn.kinds];
-      if (!list.length) { kinds.get('other').output += turn.o; kinds.get('other').cacheRead += turn.c; continue; }
-      const n = list.length;
-      for (const k of list) { kinds.get(k).output += turn.o / n; kinds.get(k).cacheRead += turn.c / n; }
+      if (!taskAnchor) continue;
+      const ta = taskAnchor[i];
+      if (ta < 0) {
+        unattributedTurns++;
+        unattributedOutput += x.output;
+        if (logStartMs !== null && x.ts !== null && x.ts < logStartMs) unattributedBeforeLog += x.output;
+      } else {
+        const open2 = turns[ta].open;
+        const n = open2.length;
+        if (ta !== i) { inheritedTaskTurns++; inheritedTaskOutput += x.output; }
+        for (const w of open2) { w.output += x.output / n; w.cacheRead += x.cacheRead / n; w.messages += 1 / n; }
+      }
     }
   }
 
@@ -759,6 +953,8 @@ export function readTokenEconomics(root, cfg = {}) {
   });
   const daysWithoutVerdict = rework.filter((r) => r.reworkOutput === null).length;
 
+  const pctOfOutput = (n) => (totals.output ? Math.round((n / totals.output) * 1000) / 10 : 0);
+
   const caveats = [];
   caveats.push('Derived from local session transcripts, not from the repository. They are machine-local, ' +
     'unversioned, and gone if cleared — these figures are not reproducible from a clone.');
@@ -774,11 +970,40 @@ export function readTokenEconomics(root, cfg = {}) {
     if (partial) caveats.push(`${partial} of ${windows.length} task window(s) overlapped another, so a turn ` +
       `inside n open windows contributes 1/n to each and those tasks are marked \`partial\`. Per-task figures ` +
       `are rounded from fractional shares and will not sum exactly to the total — that is the rounding, not a gap.`);
-    if (unattributedTurns) {
-      const share = totals.output ? Math.round((unattributedOutput / totals.output) * 1000) / 10 : 0;
-      caveats.push(`${num(unattributedTurns)} assistant turn(s) — ${share}% of all output — fall ` +
-        `inside no task window and are attributed to no task. The task log only covers sessions that ran with the hook installed.`);
+    if (inheritedTaskOutput) {
+      caveats.push(`${pctOfOutput(inheritedTaskOutput)}% of the output attributed to a task (${num(inheritedTaskTurns)} ` +
+        `turn(s)) fell in no window itself and took the attribution of the nearest turn in the same run — the ` +
+        `same ${gapMinutes}-minute rule used for the kind of work. No window was widened to achieve it: a turn ` +
+        `more than ${gapMinutes} minute(s) from any attributed turn stays unattributed and is counted below.`);
     }
+    if (unattributedTurns) {
+      caveats.push(`${num(unattributedTurns)} assistant turn(s) — ${pctOfOutput(unattributedOutput)}% of all ` +
+        `output — fall inside no task window, near no turn that does, and are attributed to no task. The task ` +
+        `log only covers sessions that ran with the hook installed.`);
+      // Where the hole is, not just how big it is. A gap that is entirely before the log's first record is a
+      // start date; a gap scattered through the covered period would be a hook that misses sessions. They
+      // need different fixes, and the single percentage above cannot tell them apart.
+      if (unattributedBeforeLog) {
+        const before = Math.round((unattributedBeforeLog / unattributedOutput) * 1000) / 10;
+        const all = before >= 99.95;
+        const stamp = `${new Date(logStartMs).toISOString().slice(0, 16).replace('T', ' ')}Z`;
+        caveats.push(`${all ? 'All of that unattributed output' : `${before}% of it`} predates the first record ` +
+          `in \`.atlas/tasks-live.jsonl\` (${stamp}) and is not recoverable from this source: those sessions ran ` +
+          `before the task hook existed.` +
+          `${all ? ' Nothing inside the covered period is unattributed.' : ' The rest falls between windows inside the covered period.'}`);
+      }
+    }
+    // The hook writes the whole task list the first time it sees one, so a list that already existed arrives
+    // as a burst of create-and-complete records sharing one instant. Those windows are narrower than a turn
+    // and can hold nothing; their zero is a coverage gap and must not read as a task that cost nothing.
+    const instant = windows.filter((w) => w.closeMs !== Infinity && w.closeMs - w.openMs <= 1000).length;
+    if (instant) caveats.push(`${instant} of ${windows.length} task window(s) opened and closed inside one ` +
+      `second and can contain no turn, so they report zero. That is a window too narrow to hold work, not a ` +
+      `task that cost nothing — it is what the hook writes the first time it sees a task list that already existed.`);
+    const openEnded = windows.filter((w) => w.closeMs === Infinity).length;
+    if (openEnded) caveats.push(`${openEnded} of ${windows.length} task window(s) have no closing record and ` +
+      `are still open, so each takes its share of every later turn. An unfinished task is genuinely still ` +
+      `open; its figure is a running total, not a final cost.`);
     if (tw.dropped) caveats.push(`${tw.dropped} task(s) were deleted in the harness and are excluded, which changes the 1/n denominator inside their windows.`);
     if (tw.undated) caveats.push(`${tw.undated} task record(s) carry no usable timestamp and cannot be given a window.`);
   }
@@ -806,9 +1031,29 @@ export function readTokenEconomics(root, cfg = {}) {
       `carry no rework verdict. They are reported as unknown rather than as a day of pure new work.`);
   }
 
-  caveats.push('Per kind, a turn that wrote to more than one kind splits evenly across them, and `other` is a ' +
-    'turn that wrote nothing inside this repository.');
-  if (outsideWrites) caveats.push(`${outsideWrites} write(s) landed outside this repository and are counted under \`other\`, not \`coding\`.`);
+  caveats.push('Per kind, a turn is attributed to the kind of work of the contiguous run it belongs to, ' +
+    'not to what that one turn happened to write. Most turns read, search, reason or run a command and write ' +
+    'no file at all; classifying each turn alone put 83.4% of this repository\'s output in `other`, which ' +
+    'measured the shape of a transcript rather than the work. A run ends at a silence longer than ' +
+    `${gapMinutes} minute(s) or where the kind being written changes, and inside a run a turn that wrote ` +
+    'nothing takes the kind of the nearest write in either direction. A turn that wrote two kinds still ' +
+    'splits evenly between them.');
+  caveats.push(`The ${gapMinutes}-minute run break is measured, not chosen: it is the 99.4th percentile of the ` +
+    `8,319 gaps between consecutive assistant turns in the store this rule was calibrated against, where the ` +
+    `median gap is 6.2 seconds and 94% are under a minute. Only 53 gaps exceed it, and the largest are 2 to 12 ` +
+    `hours — nights, not pauses. At 2 minutes an ordinary long tool call ends a run and \`other\` stays at ` +
+    `23.4%; at 30 minutes \`other\` reaches 4.3% only by letting one write speak for work done half an hour ` +
+    `away. Here it cut ${num(gapCuts)} silence(s) into ${num(runs)} run(s). Change it with tokens.sittingGapMinutes.`);
+  caveats.push(`\`other\` is ${pctOfOutput(kinds.get('other').output)}% of output across ${num(otherTurns)} ` +
+    `turn(s): runs in which no file inside this repository was written at all, so there is nothing to ` +
+    `attribute them to. It does not mean "wrote no file this turn".`);
+  if (inheritedKindOutput) caveats.push(`${pctOfOutput(inheritedKindOutput)}% of the output under a named kind ` +
+    `was inherited from another turn in the same run rather than written in that turn. The \`writes\` column ` +
+    `counts actual writes only, so it is the figure to read for how much was written, and the output column ` +
+    `for what the writing cost.`);
+  if (outsideWrites) caveats.push(`${outsideWrites} write(s) landed outside this repository. They give their ` +
+    `turn no kind of its own — a scratch file in a temp directory is not this repository's coding — so that ` +
+    `turn takes the kind of its run like any other, and falls in \`other\` only if the run wrote nothing here.`);
   if (skippedLines) caveats.push(`${skippedLines} unparseable line(s) were skipped.`);
   if (outOfRange) caveats.push(`${outOfRange} message(s) fall before tokens.since and are excluded.`);
   caveats.push(t.rates
@@ -924,10 +1169,12 @@ export function formatEconomics(k, useColor) {
   }
 
   L.push('');
-  L.push(c.bold('By kind of work') + c.dim('  a turn writing two kinds splits evenly'));
+  L.push(c.bold('By kind of work') + c.dim('  by the run a turn belongs to, not by what that turn wrote'));
   for (const kind of k.kinds) {
     L.push(`  ${kind.kind.padEnd(14)}${M(kind.output).padStart(7)} out  ${M(kind.cacheRead).padStart(7)} cached  ${String(kind.writes).padStart(5)} write(s)`);
   }
+  L.push(c.dim('  writes are actual writes; output is what the run around them cost. `other` is a run that'));
+  L.push(c.dim('  wrote nothing here at all — see the caveats for the run break and where it came from.'));
 
   if (k.tasks.length) {
     L.push('');

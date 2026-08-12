@@ -154,8 +154,13 @@ export function readParallelism(sessions, cfg = {}) {
   const no = (reason) => ({ available: false, reason, threshold });
 
   if (sessions === undefined || sessions === null) {
-    return no('no session data was supplied. Session transcripts are read only by `atlas tokens` (rule 1 in ' +
-      'tokens.mjs), so `atlas health` sees them only when its caller passes the aggregate in');
+    // The old wording here said transcripts are read *only* by `atlas tokens`. C-10 made that false — a build
+    // that renders the Economics view reads them too — and this sentence prints verbatim in the Not-checked
+    // block, so `atlas health` was stating a boundary the tool no longer holds. The claim that matters to a
+    // reader of this line is unchanged and is the one now made: **health does not open them itself.**
+    return no('no session data was supplied. `atlas health` never reads session transcripts itself — ' +
+      'rule 1 in tokens.mjs keeps that read in one place — so it sees them only when its caller passes ' +
+      'the aggregate in');
   }
   const data = Array.isArray(sessions) ? { available: true, sessions } : sessions;
   if (data.available === false) {

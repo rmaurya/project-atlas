@@ -40,7 +40,8 @@ import { pauseSession, readParked, verifyParked, stopSession, worktrees, agentId
   from '../scripts/lib/session.mjs';
 import { readTokens, formatTokens, formatSessions, assertNotPublishable, transcriptDir,
          readTokenEconomics, formatEconomics, writeTokenSnapshot, snapshotLine, classifyWrite,
-         taskWindows, overlapWindows, transcriptFiles, WORK_KINDS } from '../scripts/lib/tokens.mjs';
+         taskWindows, overlapWindows, transcriptFiles, WORK_KINDS,
+         runAnchors, hasTranscripts, DEFAULT_SITTING_GAP_MINUTES } from '../scripts/lib/tokens.mjs';
 import { readChanges, fileDiff, formatChanges } from '../scripts/lib/changes.mjs';
 import { readInflight, inflightSentence } from '../scripts/lib/inflight.mjs';
 import { branchStatus, createBranch, TYPES } from '../scripts/lib/branch.mjs';
@@ -7569,6 +7570,225 @@ test('C-7 · the routing table and the hotspot report agree on which files are d
     .filter((f) => /\.set\(c\.resolved, new Set\(\)\)/
       .test(fs.readFileSync(path.join(REPO_ROOT, 'scripts', 'lib', f), 'utf8')));
   eq(defs, ['design.mjs'], 'exactly one module may build the reverse citation index');
+});
+
+/* ================================================================== C-10 · the contiguous-run rule
+ *
+ * Every case here is synchronous, for the reason stated above the older economics block: `pendingAsync` is
+ * drained far above this point, so an `async` case registered down here would be constructed, never awaited,
+ * and reported as a pass it never earned.
+ */
+
+console.log('\ntoken attribution by run (C-10)');
+
+test('economics · a run is cut by a silence, and inside it a turn takes the NEAREST attribution', () => {
+  // The primitive both axes are built on, tested on its own so the rule is legible without a transcript.
+  const at = (m) => ({ ts: Date.parse(`2026-03-01T10:${String(m).padStart(2, '0')}:00Z`) });
+  const A = (m, mark) => ({ ...at(m), mark });
+  const gap = 5 * 60000;
+
+  // 10:00 unmarked, 10:01 marked, 10:02 unmarked, 10:20 unmarked (a different sitting), 10:21 unmarked.
+  const turns = [A(0), A(1, 'x'), A(2), A(20), A(21)];
+  const anchors = runAnchors(turns, gap, (t) => !!t.mark);
+  eq([...anchors], [1, 1, 1, -1, -1],
+    'a turn before the write inherits it too — the reading that precedes a write is that write\'s work');
+  eq(anchors.runs, 2, 'the eighteen-minute silence ends the run');
+  eq(anchors.cuts, 1);
+
+  // Equidistant between two marks: the earlier one wins, so the answer cannot depend on iteration order.
+  const tie = [A(0, 'first'), A(2), A(4, 'second')];
+  eq(runAnchors(tie, gap, (t) => !!t.mark)[1], 0, 'a tie goes to the earlier attribution, deterministically');
+  // And the nearer one wins when they are not equidistant, in either direction.
+  eq(runAnchors([A(0, 'a'), A(3), A(4, 'b')], gap, (t) => !!t.mark)[1], 2, 'nearest, looking forwards');
+  eq(runAnchors([A(0, 'a'), A(1), A(4, 'b')], gap, (t) => !!t.mark)[1], 0, 'nearest, looking backwards');
+  eq(runAnchors([], gap, () => true).length, 0, 'an empty file is not a crash');
+});
+
+/* One fixture: a run of turns that writes twice, then a long silence and two turns that write nothing. */
+const RUN_STORE = path.join(tmpRoot, 'econ-run-store');
+
+const runFixture = (() => {
+  const dir = fixture('econ-run', {
+    'project-atlas.config.json': JSON.stringify({
+      output: 'docs/_wiki', planning: { source: 'docs/ROADMAP.md' },
+      include: ['**/*.md'], exclude: ['**/_wiki/**'],
+      tokens: { transcriptRoot: RUN_STORE },
+    }),
+    'docs/A.md': '# A\n', 'docs/ROADMAP.md': '# Roadmap\n', 'src/a.js': 'one\n',
+  });
+  const slug = path.basename(transcriptDir(dir, { tokens: { transcriptRoot: RUN_STORE } }));
+  fs.mkdirSync(path.join(RUN_STORE, slug), { recursive: true });
+
+  const turn = (uuid, ts, output) => ({
+    type: 'assistant', uuid, timestamp: ts, sessionId: 's1', gitBranch: 'main',
+    message: { model: 'test-model', usage: { input_tokens: 0, output_tokens: output, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 } },
+  });
+  const wrote = (owner, abs) => ({ type: 'user', sourceToolAssistantUUID: owner, toolUseResult: { filePath: abs } });
+  const T = (s) => `2026-03-01T10:${s}Z`;
+
+  fs.writeFileSync(path.join(RUN_STORE, slug, 'session.jsonl'), [
+    turn('r1', T('00:00'), 100),                                   // reads and reasons — writes nothing
+    turn('r2', T('00:30'), 100),
+    wrote('r2', path.join(dir, 'src', 'a.js')),                    // coding
+    turn('r3', T('01:00'), 100),                                   // 30s from coding, 60s from documentation
+    turn('r4', T('02:00'), 100),
+    wrote('r4', path.join(dir, 'docs', 'A.md')),                   // documentation
+    turn('r5', T('02:30'), 100),
+    // Twenty-two minutes later: a different sitting, and nothing in it writes anything at all.
+    turn('r6', T('25:00'), 100),
+    turn('r7', T('25:30'), 100),
+  ].map((r) => JSON.stringify(r)).join('\n') + '\n', 'utf8');
+
+  // One task, open for thirty seconds in the middle of the first run — and one that never closes.
+  fs.mkdirSync(path.join(dir, '.atlas'), { recursive: true });
+  fs.writeFileSync(path.join(dir, '.atlas', 'tasks-live.jsonl'), [
+    { at: T('01:00'), op: 'create', id: 'T', subject: 'Narrow', status: 'pending' },
+    { at: T('01:30'), op: 'update', id: 'T', status: 'completed' },
+  ].map((r) => JSON.stringify(r)).join('\n') + '\n', 'utf8');
+
+  return dir;
+})();
+
+const runCfg = (over = {}) => ({ ...resolveConfig(runFixture), tokens: { transcriptRoot: RUN_STORE, ...over } });
+
+test('economics · a turn that wrote nothing takes the kind of its run, and `other` means the run wrote nothing', () => {
+  // The defect this replaces: classifying each turn by what that turn wrote put 83.4% of this repository's
+  // output in `other`, because the overwhelming majority of turns read, search, reason or run a command. The
+  // rule was wrong, not the code — `other` had come to mean "did not happen to write a file this turn".
+  const k = readTokenEconomics(runFixture, runCfg());
+  ok(k.available, k.reason || '');
+  eq(k.totals.output, 700, 'seven turns of 100');
+
+  const byKind = Object.fromEntries(k.kinds.map((x) => [x.kind, x]));
+  eq(byKind.coding.output, 300, 'the write, the turn before it and the turn nearer to it than to the next write');
+  eq(byKind.documentation.output, 200, 'the second write and the turn after it');
+  eq(byKind.other.output, 200, 'and only the sitting that wrote nothing at all is `other`');
+  eq(byKind.planning.output, 0);
+  eq(byKind.testing.output, 0);
+  eq(k.kinds.reduce((n, x) => n + x.output, 0), k.totals.output, 'the split must not invent or lose output');
+  eq([byKind.coding.writes, byKind.documentation.writes], [1, 1],
+    '`writes` still counts actual writes — inheritance moves output, never the write count');
+});
+
+test('economics · nothing is inherited across a silence longer than the run break', () => {
+  // The whole force of the rule is the break. Widen it past the 22-minute gap in the fixture and the two
+  // trailing turns join the documentation run; that is exactly the over-reach the measured threshold refuses.
+  const wide = readTokenEconomics(runFixture, runCfg({ sittingGapMinutes: 60 }));
+  const wideKinds = Object.fromEntries(wide.kinds.map((x) => [x.kind, x]));
+  eq(wideKinds.other.output, 0, 'at 60 minutes the trailing sitting is swallowed by the previous one');
+  eq(wideKinds.documentation.output, 400);
+
+  // And narrow it below the 30-second rhythm of the fixture and every turn is its own run again.
+  const narrow = readTokenEconomics(runFixture, runCfg({ sittingGapMinutes: 0 }));
+  const narrowKinds = Object.fromEntries(narrow.kinds.map((x) => [x.kind, x]));
+  eq(narrowKinds.other.output, 500, 'with no run at all, only the two writing turns are attributable');
+  eq(narrowKinds.coding.output, 100);
+
+  eq(DEFAULT_SITTING_GAP_MINUTES, 5, 'the default is the measured one, not whatever the last test set');
+});
+
+test('economics · the run break is stated with its percentile and sample, and `other` with what it means', () => {
+  // The same discipline as H17's 40-edit threshold: a number chosen from data has to arrive with the data.
+  const text = readTokenEconomics(runFixture, runCfg()).caveats.join(' ');
+  includes(text, '99.4th percentile', 'the threshold must arrive with its percentile');
+  includes(text, '8,319', 'and with the sample it was measured over');
+  includes(text, 'tokens.sittingGapMinutes', 'and with the setting that changes it');
+  includes(text, 'contiguous run', 'the rule itself must be stated, not just its effect');
+  includes(text, '83.4%', 'including what the rule it replaced measured, so the change is auditable');
+  includes(text, 'It does not mean "wrote no file this turn"', '`other` has to say what it now means');
+});
+
+test('economics · a turn near an attributed one joins its task, and what stays outside is still reported', () => {
+  // Coverage improves where it is genuinely recoverable — a turn seconds away from a turn inside a window is
+  // the same work — and the remainder stays visible. Making the unattributed share disappear by widening
+  // windows until everything is inside one would be the dishonest fix.
+  const k = readTokenEconomics(runFixture, runCfg());
+  eq(k.tasks.length, 1);
+  eq(k.tasks[0].output, 500, 'the whole first run joins the task whose window only one of its turns fell in');
+  eq(k.tasks[0].partial, false, 'inheritance is not overlap — one window overlaps nothing');
+
+  const text = k.caveats.join(' ');
+  includes(text, 'took the attribution of the nearest turn in the same run',
+    'output that was inherited rather than measured must say so');
+  includes(text, '28.6% of all output', 'and what is still attributed to no task stays printed as a share');
+  includes(text, 'no task window, near no turn that does', 'stated as what it is, not smoothed away');
+});
+
+test('economics · a task window too narrow to hold a turn reports zero, and says that is why', () => {
+  // The hook writes the whole list the first time it sees one, so a pre-existing list arrives as a burst of
+  // create-and-complete records sharing an instant. On this repository that is 9 of 11 windows. A zero there
+  // is a window narrower than a turn, and reading it as "this task cost nothing" is the wrong conclusion.
+  const dir = fixture('econ-instant', {
+    'project-atlas.config.json': JSON.stringify({ output: 'docs/_wiki', tokens: { transcriptRoot: RUN_STORE } }),
+    'docs/A.md': '# A\n',
+  });
+  fs.mkdirSync(path.join(dir, '.atlas'), { recursive: true });
+  fs.writeFileSync(path.join(dir, '.atlas', 'tasks-live.jsonl'), [
+    { at: '2026-03-01T09:00:00Z', op: 'create', id: '1', subject: 'Backfilled', status: 'pending' },
+    { at: '2026-03-01T09:00:00Z', op: 'update', id: '1', status: 'completed' },
+    { at: '2026-03-01T09:00:00Z', op: 'create', id: '2', subject: 'Still open', status: 'pending' },
+  ].map((r) => JSON.stringify(r)).join('\n') + '\n', 'utf8');
+
+  // Point it at the run fixture's transcripts so there is spend to attribute; the store is keyed by path, so
+  // this directory has none of its own and the reader has to be given one that exists.
+  const slug = path.basename(transcriptDir(dir, { tokens: { transcriptRoot: RUN_STORE } }));
+  fs.mkdirSync(path.join(RUN_STORE, slug), { recursive: true });
+  fs.copyFileSync(
+    path.join(RUN_STORE, path.basename(transcriptDir(runFixture, { tokens: { transcriptRoot: RUN_STORE } })), 'session.jsonl'),
+    path.join(RUN_STORE, slug, 'session.jsonl'));
+
+  const k = readTokenEconomics(dir, { ...resolveConfig(dir), tokens: { transcriptRoot: RUN_STORE } });
+  const text = k.caveats.join(' ');
+  includes(text, 'opened and closed inside one second and can contain no turn',
+    'a zero-width window has to explain its own zero');
+  includes(text, 'have no closing record and are still open',
+    'and an open-ended window has to say its figure is a running total');
+});
+
+test('economics · the reader bails on one stat when there is no store, because every build calls it', () => {
+  // Rule 1 in tokens.mjs used to say nothing but `atlas tokens` reads transcripts. C-10 made that false — the
+  // Economics view is a page, so a build renders it and `atlas watch` builds on every save. The rule now says
+  // what is true, and this is the property that keeps it safe to be true: the common case, a machine with no
+  // store for this path, must cost a stat and not a directory walk, a task-log read or a `git log`.
+  const nowhere = path.join(tmpRoot, 'econ-absent-root');
+  fs.mkdirSync(nowhere, { recursive: true });
+  const cfg = { tokens: { transcriptRoot: path.join(tmpRoot, 'econ-store-that-is-not-there') } };
+
+  const probe = hasTranscripts(nowhere, cfg);
+  eq(probe.present, false);
+  includes(probe.reason, 'No session transcripts', 'absent is a state with a reason, never a zero');
+  ok(probe.dir.startsWith(path.join(tmpRoot, 'econ-store-that-is-not-there')), 'and it names where it looked');
+
+  const k = readTokenEconomics(nowhere, cfg);
+  eq(k.available, false);
+  eq(k.totals, null, 'still never a spend of zero');
+  includes(k.reason, probe.reason, 'the reader reports exactly what the probe found');
+
+  // A store that exists but holds a file which is not a transcript is the same answer, one step later.
+  const empty = path.join(tmpRoot, 'econ-empty-store');
+  const slug = path.basename(transcriptDir(nowhere, { tokens: { transcriptRoot: empty } }));
+  fs.mkdirSync(path.join(empty, slug), { recursive: true });
+  fs.writeFileSync(path.join(empty, slug, 'notes.txt'), 'not a transcript\n', 'utf8');
+  eq(hasTranscripts(nowhere, { tokens: { transcriptRoot: empty } }).present, true, 'the directory is there');
+  const e = readTokenEconomics(nowhere, { tokens: { transcriptRoot: empty } });
+  eq(e.available, false);
+  includes(e.reason, 'nothing to attribute');
+});
+
+test('economics · rule 1 in the module header names the build, because the build reads transcripts', () => {
+  // The header is the only place this rule is written down, and a rule that contradicts the code teaches a
+  // reader to trust neither. `dashboard.mjs` calls `readTokenEconomics` when a panel on the page asks for it;
+  // that has to be in the header, together with why it is still safe.
+  const src = fs.readFileSync(path.join(REPO_ROOT, 'scripts', 'lib', 'tokens.mjs'), 'utf8');
+  // Unwrapped, because a claim must not be able to hide from this check by falling across a line break.
+  const header = src.slice(0, src.indexOf('import ')).replace(/\n\s*\*/g, ' ').replace(/\s+/g, ' ');
+  ok(!/Nothing reads transcripts unless `atlas tokens` is run/.test(header),
+    'the claim the build falsified must not still be in the header');
+  ok(/hasTranscripts/.test(header), 'the header must name the cheap door that keeps a per-save build honest');
+  ok(/Economics view/.test(header), 'and say which other surface reads the store');
+
+  const dash = fs.readFileSync(path.join(REPO_ROOT, 'scripts', 'lib', 'dashboard.mjs'), 'utf8');
+  ok(/readTokenEconomics/.test(dash), 'if this ever stops being true, the header above is wrong again');
 });
 
 console.log(`\n${pass} passed, ${fail} failed${skipped ? `, ${skipped} skipped on ${process.platform}` : ''}\n`);
