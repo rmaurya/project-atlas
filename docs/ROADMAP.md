@@ -40,7 +40,8 @@ measured against the code — the same distinction the tool preserves everywhere
 | C-7 | 100 | C-8 | 100 | | |
 | C-9 | 100 | A-31 | 100 | A-30 | 100 |
 | C-10 | 45 | C-11 | 10 | Q-4 | 10 |
-| Q-5 | 10 | A-32 | 0 | | |
+| Q-5 | 10 | A-32 | 0 | A-33 | 100 |
+| A-34 | 0 | | | | |
 
 ---
 
@@ -876,6 +877,41 @@ existed.*
 file browser over `.env` and `.git`; what is served is the exact set of documents the build indexed, written
 to `sources.json` and re-read per miss so a document added by the watcher resolves without a restart.
 Verified: the failing link returns 200, `package-lock.json` and `.git/config` still 404.*
+
+**A-33 · One commit, one set of bytes, on every machine** — **P1 · High**
+*Shipped.* Bare `toLocaleString()` reads the host locale. Under `en-IN` — the default where this tool is
+written — `126200000` renders `12,62,00,000`, so two people building one commit produced different output, in
+the form hardest to read: every number in the site appears to have changed.
+
+*Byte-identical rebuild is the property the build stamp asserts, the property that makes "derived and
+regenerable" checkable rather than promised, and the property a publish diff depends on to show only what
+changed.* All three were being decided by an environment variable. `format.mjs::num()` pins the locale;
+thirty-two call sites across eleven modules route through it, five of them in `render.mjs` and two in
+`worklog.mjs` that reach files under version control. A test walks every module and fails on a bare call,
+because this defect returns silently and on one machine only, so the guard has to be structural rather than
+remembered.
+
+**A-34 · The build changes an input to itself, so it is not idempotent from a clean tree** — **P1 · High**
+
+*Open, and found while verifying A-33.* `atlas build` writes `worklog/<today>/<contributor>.md`. That file is
+in the working tree, and the working tree is an **input** — `inflight.mjs` reads it for the work-in-flight
+panel and the rework figure. So the first build after a clean checkout produces different bytes from the
+second, and every build after that agrees with the second.
+
+Measured: build 1 from a clean tree hashed `3cc6bf0…`, builds 2 and 3 both hashed `5f7d8ea…`, and the only
+tree change between them was the worklog directory the build itself had just created.
+
+***Not the same defect as A-33, and fixing that one did not touch this.*** A-33 was two machines disagreeing
+about one commit. This is one machine disagreeing with itself, one run apart. This one is worse, because it
+means **the byte-identical property cannot be observed from a working checkout at all** unless you know to
+compare the second build against the third. Verifications done from a clean tree — including one in the
+session that filed this — were measuring the wrong pair and reported a pass they had not earned.
+
+*The fix is a boundary question, not a patch.* Either `build` stops writing the worklog — it is a report, and
+`atlas worklog` already exists — or `inflight.mjs` excludes the paths the build itself authors, which means it
+has to know what those are. The first is cleaner; the second is less disruptive. Decide before implementing:
+a build that quietly filters its own output out of its own input is easy to get subtly wrong, and the wrongness
+would look exactly like correctness.
 
 **A-32 · Work in flight survives the session that was doing it** — **P1 · High**
 
