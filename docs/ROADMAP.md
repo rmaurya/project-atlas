@@ -133,7 +133,7 @@ helpers: a unit test cannot fail when somebody re-derives the same thing elsewhe
 mode. One asserts the silent weeks the terminal counts are the silent weeks the page draws; the other asserts
 the routing table and the hotspot report name the same documented files, including that an ambiguous citation
 is coverage on neither. Each carries a structural half, so a third copy fails the suite rather than waiting to
-be noticed. **One copy is still outstanding**: `dashboard.mjs` holds a private `fillAxis`/`weeklyAxis`, and
+be noticed. **Both copies are now closed**: `dashboard.mjs` held a private `fillAxis`/`weeklyAxis`, and
 closing it is deleting those two functions plus `AXIS_MAX` and importing them from `./contrib.mjs` — a file
 that module already imports. The behavioural test above covers it either way, because it reads what the page
 says rather than where the page got it.
@@ -216,7 +216,7 @@ Fixed here, because a data layer over a source it only half reads is worse than 
 cannot be recovered.*** Both were printed in the tool's own caveats before anyone was asked to look at them,
 which is the point of a report that names its limits.
 
-**`other` was 98% of output, and the rule was what was wrong.** Classifying a turn by the files *that turn*
+**`other` was 83.4% of output, and the rule was what was wrong.** Classifying a turn by the files *that turn*
 wrote put 83.4% of output (on the larger store measured at the time of the fix) into `other`, because the
 overwhelming majority of turns read, search, reason or run a command and write nothing. `other` had come to
 mean *did not happen to write a file this turn* — a fact about the shape of a transcript, not about the work,

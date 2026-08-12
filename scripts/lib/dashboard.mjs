@@ -409,7 +409,11 @@ function statusChart(plan) {
 function healthChart(health, cfg) {
   const rows = Object.values(SIGNALS).filter((s) => !isOperatorSignal(s.id)).map((s) => ({
     id: s.id, title: s.title, count: health.counts[s.id] || 0,
-    blocking: (cfg.blocking || []).includes(s.id), why: s.why,
+    // Read the engine's own verdict, not the config. `runHealth` already resolved this per finding —
+    // `blockingFor` accounts for suppression and refuses operator signals outright — and recomputing it from
+    // `cfg.blocking` here means a suppressed signal named in the config renders as "Blocking" while the tool
+    // will happily let the commit through. `health.mjs:527` reads the flag; the renderers reimplemented it.
+    blocking: health.findings.some((f) => f.signal === s.id && f.blocking), why: s.why,
   })).filter((r) => r.count > 0);
 
   // "Every signal reports clean" is a claim about signals that RAN. A signal whose configured pattern was
@@ -1743,12 +1747,12 @@ function branchPanel(b) {
  * the provenance and the refusals — and travels, so the published page states why it is empty. A statement
  * about a set is not the set; the branch panel already draws that line in the other direction.
  *
- * **Nothing rendered by these panels may contain the marker's own name as text.** `stripLocalOnly` scans for
- * the bare substring and then deletes the element containing it — it does not require the attribute form — so
- * a card that documented the mechanism by printing `data-local-only` inside a `<code>` span had that span cut
- * out of the *published* copy, leaving "every other card on this page carries  and is cut from every publish".
- * Found here because this is the first page whose subject is the boundary itself. The prose says "the
- * local-only marker" instead; the stripper's substring match is filed as a defect where it belongs.
+ * **The marker's own name may appear as text here, and that is new.** `stripLocalOnly` used to scan for the
+ * bare substring and delete whatever element contained it, so a caption merely *naming* `data-local-only`
+ * removed itself from the published page — an authoring constraint that had to be worked around in prose.
+ * Q-6 narrowed the match to the attribute form, and a test pins that a paragraph naming the marker survives
+ * publication while a genuinely marked element does not. This comment previously described the old behaviour
+ * and called it a filed defect; it was fixed on the same branch that carried the description.
  */
 
 /** The window the day charts show. Anything trimmed is counted and named in the caption, never dropped. */
@@ -1765,16 +1769,18 @@ const dayAxis = (days) => fillAxis(days, {
 /**
  * A token count, grouped the same way on every machine.
  *
- * **The locale is pinned, and it has to be.** Bare `toLocaleString()` reads the host's locale: on this
- * machine, set to `en-IN`, 1,262,000,000 renders `12,62,00,000`. Every other figure on this site is grouped by
- * the same call and therefore already differs between two developers' checkouts of the same commit — which
- * quietly breaks the byte-identical rebuild `render.mjs` reads the build stamp off `git log` to protect, and
- * would make a Pages branch churn on nothing but who ran the build. Filed rather than fixed across the file:
- * changing the existing calls would move the bytes of four other views on the way past.
+ * **The locale is pinned, and it has to be.** A bare `toLocaleString()` reads the host locale, so on an
+ * `en-IN` machine 1,262,000,000 renders `12,62,00,000` and two developers build different bytes from one
+ * commit — which breaks the byte-identical rebuild the build stamp exists to assert.
  *
- * A missing figure is an em dash, never `0` — the rule the whole page is built on, applied to a cell.
+ * This comment used to end "filed rather than fixed across the file: changing the existing calls would move
+ * the bytes of four other views." A-33 fixed it. Every grouped number in this module now goes through
+ * `num()` from `format.mjs`, and a test walks every module and fails on a bare call.
  */
-const tok = (n) => (Number.isFinite(n) ? Math.round(n).toLocaleString('en-US') : '—');
+// `tok` was `num()` with the locale written out a second time — identical behaviour, a separate copy, and
+// invisible to A-33's structural guard because that only forbids the *bare* zero-arg call. Aliased rather
+// than renamed at 20 call sites: the name reads well at the point of use, and one definition is the point.
+const tok = num;
 
 /**
  * The same count, short enough to be a headline.
