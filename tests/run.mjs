@@ -8171,6 +8171,202 @@ test('render · neither renderer passes a data: URL through into a published hre
   }
 });
 
+/* ================================================================== the stated inventories (A-29) */
+
+console.log('\nstated inventories · the documents against the code');
+
+/**
+ * **A number stated in prose beside a list that grows is a defect waiting to happen**, and this repository has
+ * now proved it twice. A-29 found eight claims contradicted by the code; three workstreams later `FEATURES.md`
+ * said twenty-nine skills against thirty-eight on disk, nine views against eleven, twenty-seven panels against
+ * thirty-six, sixteen signals against seventeen, and nine commands "missing from `usage()`" that A-35 had
+ * already listed. None of it was findable by reading the pages: every one of them was internally consistent,
+ * and the count agreed with the list beside it because both had been written on the same stale day.
+ *
+ * H1–H16 cannot catch this. They check links, titles, citations and dates — the things comparable
+ * mechanically. A count *is* comparable mechanically. Nothing was doing the comparing.
+ *
+ * So each case below derives the figure from the source of truth and reads the document's own claim back out
+ * of the prose. **The regexes are coupled to the wording on purpose.** Rewording a sentence should make you
+ * look at the assertion; changing what the code ships without touching the document must fail.
+ *
+ * **Every case here is synchronous.** `pendingAsync` is drained thousands of lines above, so an `async` case
+ * appended here would be constructed, never awaited, and reported as a pass it never earned.
+ */
+
+const ONES = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten',
+  'eleven', 'twelve', 'thirteen', 'fourteen', 'fifteen', 'sixteen', 'seventeen', 'eighteen', 'nineteen'];
+const TENS = ['', '', 'twenty', 'thirty', 'forty', 'fifty', 'sixty', 'seventy', 'eighty', 'ninety'];
+
+/** "Thirty-Eight" and "thirty-eight" both read back as 38; anything else is not a number word. */
+function wordToNumber(word) {
+  const w = String(word).trim().toLowerCase();
+  const direct = ONES.indexOf(w);
+  if (direct !== -1) return direct;
+  const [tens, ones] = w.split('-');
+  const t = TENS.indexOf(tens);
+  if (t === -1) return null;
+  if (ones === undefined) return t * 10;
+  const o = ONES.indexOf(ones);
+  return o > 0 && o < 10 ? t * 10 + o : null;
+}
+
+const docText = (rel) => fs.readFileSync(path.join(REPO_ROOT, rel), 'utf8');
+
+/**
+ * Pull one figure out of a document's prose.
+ *
+ * A miss is a **failure**, never a skip. The commonest way for a check like this to rot is for the sentence it
+ * reads to be rewritten into something the regex no longer sees, at which point it passes forever while
+ * measuring nothing — the same shape as the bug it exists to catch.
+ */
+function statedFigure(rel, re, where) {
+  const m = re.exec(docText(rel));
+  ok(m, `${rel}: no sentence matched ${re} — ${where}. If the wording changed, update this assertion; do not delete it.`);
+  const n = wordToNumber(m[1]);
+  ok(n !== null, `${rel}: "${m[1]}" is not a number word, in: ${m[0]}`);
+  return n;
+}
+
+/** Every skill directory that actually ships a SKILL.md — the authority both maps claim to follow. */
+function shippedSkills() {
+  const dir = path.join(REPO_ROOT, 'skills');
+  return fs.readdirSync(dir).filter((n) => fs.existsSync(path.join(dir, n, 'SKILL.md'))).sort();
+}
+
+test('inventory · FEATURES.md has a row for every skill that ships, and none for a skill that does not', () => {
+  // The six `git-*` skills and pause/resume/stop shipped into `skills/` and never reached this table. A reader
+  // asking "what can I type?" got a list that was nine short and said nothing about being short.
+  const skills = shippedSkills();
+  const text = docText('docs/FEATURES.md');
+  eq(skills.filter((s) => !text.includes(`skills/${s}/SKILL.md`)), [],
+    'these skills ship and §3 of FEATURES.md has no row for them');
+
+  const cited = [...new Set([...text.matchAll(/`skills\/([a-z0-9-]+)\/SKILL\.md`/g)].map((m) => m[1]))].sort();
+  eq(cited.filter((s) => !skills.includes(s)), [],
+    'FEATURES.md names these skills and no such directory exists');
+
+  eq(statedFigure('docs/FEATURES.md', /\*\*([A-Za-z-]+) `SKILL\.md` files under `skills\/`\*\*/, 'the §3 headline count'),
+    skills.length, 'the figure §3 states does not match the directories on disk');
+});
+
+test('inventory · the help map names every slash command, and states how many there are', () => {
+  // `skills/help/SKILL.md` is read by a model in every repository this is installed in, which makes it the
+  // highest-cost place for a stale count. It said twenty-nine, and told the reader an `/atlas:git-*` family
+  // "is being added on another branch and is deliberately not listed here yet" — shipped commands described
+  // as future work, in the file whose job is to say what exists.
+  const skills = shippedSkills();
+  for (const rel of ['skills/help/SKILL.md', 'plugins/atlas/skills/help/SKILL.md']) {
+    const text = docText(rel);
+    const missing = skills.filter((s) => !new RegExp(`/atlas:${s}(?![a-z0-9-])`).test(text));
+    eq(missing, [], `${rel}: these skills ship and the map never names them`);
+    eq(statedFigure(rel, /([A-Za-z-]+) slash commands is too many to list/, "the map's own headline count"),
+      skills.length, `${rel}: the stated number of slash commands is wrong`);
+  }
+});
+
+test('inventory · FEATURES.md §1 has a row for every command the CLI dispatches', () => {
+  // The counterpart to the two `usage()` cases above. `usage()` is now checked against the dispatch table, but
+  // nothing checked the *documentation* against it — so `git-insights`, `pause`, `resume` and `stop` shipped,
+  // reached `atlas help`, and never reached the page that calls itself the verified inventory.
+  const text = docText('docs/FEATURES.md');
+  const missing = dispatchedCommands().filter((c) => !mentionsCommand(text, c));
+  eq(missing, [], 'these commands dispatch and FEATURES.md never names them — add a row, or an alias line');
+});
+
+test('inventory · every document that enumerates signals enumerates all of them', () => {
+  // `health-signals.md` calls itself "the full catalogue" and `skills/build/SKILL.md` links to it as one. It
+  // documented H1-H9 for as long as H10-H16 had been shipping, so the page other pages delegate to was missing
+  // half its subject — worse than a stale sentence, because the delegation is what hides it.
+  const ids = Object.keys(SIGNALS);
+  eq(ids.length, Object.keys(CORPUS_SIGNALS).length + 1,
+    'exactly one operator signal is expected; if a second lands, every prose figure below needs revisiting');
+
+  const noRowIn = (text) => (id) => !new RegExp(`^\\|\\s*\\*{0,2}${id}\\*{0,2}\\s*\\|`, 'm').test(text);
+  eq(ids.filter(noRowIn(docText('docs/FEATURES.md'))), [], 'FEATURES.md §2 has no table row for these signals');
+  eq(ids.filter(noRowIn(docText('README.md'))), [], 'the README signal table has no row for these signals');
+
+  const catalogue = docText('docs/references/health-signals.md');
+  eq(ids.filter((id) => !new RegExp(`^## ${id} ·`, 'm').test(catalogue)), [],
+    'health-signals.md calls itself the full catalogue and has no section for these signals');
+
+  // And the reverse, so a retired signal cannot linger in prose after it leaves the code.
+  const named = [...new Set([...catalogue.matchAll(/^## (H\d+) ·/gm)].map((m) => m[1]))];
+  eq(named.filter((id) => !ids.includes(id)), [], 'health-signals.md documents signals the code does not ship');
+});
+
+test('inventory · the stated signal counts match the catalogue', () => {
+  const corpus = Object.keys(CORPUS_SIGNALS).length;
+  const all = Object.keys(SIGNALS).length;
+
+  eq(statedFigure('docs/FEATURES.md', /\*\*([A-Za-z-]+) signals ship: [a-z-]+ about the corpus/, '§2 headline'),
+    all, 'FEATURES.md §2 states the wrong total');
+  eq(statedFigure('docs/FEATURES.md', /\*\*[A-Za-z-]+ signals ship: ([a-z-]+) about the corpus/, '§2 corpus split'),
+    corpus, 'FEATURES.md §2 states the wrong corpus count');
+  eq(statedFigure('docs/references/health-signals.md', /\*\*([A-Za-z-]+) mechanical checks: [a-z-]+ about the corpus/, 'the catalogue headline'),
+    all, 'health-signals.md states the wrong total');
+  eq(statedFigure('README.md', /runs \*\*([a-z-]+) mechanical checks over the indexed corpus\*\*/, 'the README health section'),
+    corpus, 'the README states the wrong number of corpus checks');
+  eq(statedFigure('README.md', /a \*\*health report\*\* of ([a-z-]+) mechanical rot signals/, 'the README opening'),
+    corpus, 'the README opening states the wrong number of rot signals');
+  eq(statedFigure('skills/health/SKILL.md', /\*\*([A-Za-z-]+) signals ship, not nine\.\*\*/, 'the health skill'),
+    all, 'skills/health/SKILL.md states the wrong total');
+});
+
+test('inventory · the blocking set is the same five wherever it is written down', () => {
+  // It was "three blocking (H1, H3, H8)" in `skills/health/SKILL.md` and `health-signals.md` long after H10 and
+  // H12 joined the set — an instruction file telling a model that two blocking signals are advisory, which is
+  // the one direction of error that gets a bad commit past the gate.
+  const blocking = DEFAULT_CONFIG.blocking;
+  ok(blocking.length >= 3, 'sanity: the default blocking set was read');
+
+  // Each document says it in its own register, so each is checked in its own — but every expected string is
+  // built from `blocking`, so adding or removing one signal fails all four at once with the same cause.
+  includes(docText('docs/references/health-signals.md'), `${blocking.map((b) => `\`${b}\``).join(', ')} by default`,
+    'health-signals.md must name the whole default blocking set');
+  includes(docText('docs/FEATURES.md'), `[${blocking.map((b) => `'${b}'`).join(', ')}]`,
+    'FEATURES.md §2 must quote the default blocking set as the code writes it');
+  includes(docText('README.md'), `block by default: ${blocking.slice(0, -1).join(', ')} and ${blocking[blocking.length - 1]}.`,
+    'the README must name the whole blocking set');
+
+  const skill = docText('skills/health/SKILL.md');
+  eq(statedFigure('skills/health/SKILL.md', /\*\*([A-Za-z-]+) signals block by default\*\*/, 'the health skill'),
+    blocking.length, 'skills/health/SKILL.md states the wrong number of blocking signals');
+  eq(blocking.filter((b) => !new RegExp(`\\b${b}\\b`).test(skill)), [],
+    'skills/health/SKILL.md must name every blocking signal, because a model reads it instead of the config');
+});
+
+test('inventory · the stated view and panel counts match views.mjs', () => {
+  // The Repository and Economics views shipped and FEATURES.md still said nine, naming the other nine. A count
+  // beside a list of names is two claims; the list is the half that makes the page look checked.
+  eq(statedFigure('docs/FEATURES.md', /\*\*([A-Za-z-]+) views ship\*\*/, '§6 view count'),
+    DEFAULT_VIEWS.length, 'FEATURES.md states the wrong number of views');
+  eq(statedFigure('docs/FEATURES.md', /\*\*([A-Za-z-]+) panels are defined\*\*/, '§6 panel count'),
+    Object.keys(PANELS).length, 'FEATURES.md states the wrong number of panels');
+  eq(statedFigure('README.md', /client-side search and ([a-z-]+) role-specific views/, 'the README opening'),
+    DEFAULT_VIEWS.length, 'the README states the wrong number of views');
+
+  const sentence = /\*\*[A-Za-z-]+ views ship\*\* \(`scripts\/lib\/views\.mjs:[\d-]+`\): ([^.]+)\./
+    .exec(docText('docs/FEATURES.md'));
+  ok(sentence, 'FEATURES.md §6 must list the views by title beside the count');
+  eq(DEFAULT_VIEWS.map((v) => v.title).filter((t) => !sentence[1].includes(t)), [],
+    'these views ship and FEATURES.md §6 does not name them');
+});
+
+test('inventory · the README quotes the real length of install.sh and the real size of the suite', () => {
+  // "It is 40 lines" invites the reader to skim a script they are about to pipe into `sh`. It is 120, and the
+  // difference is exactly the part a cautious reader would have wanted to read.
+  const lines = fs.readFileSync(path.join(REPO_ROOT, 'install.sh'), 'utf8').replace(/\n$/, '').split('\n').length;
+  includes(docText('README.md'), `it is ${lines} lines`, 'the README misstates the length of install.sh');
+
+  // Counted statically rather than by running the suite, so this holds under `--filter` and cannot become a
+  // fixed point that depends on its own result.
+  const cases = casesInFile('tests/run.mjs',
+    fs.readFileSync(path.join(REPO_ROOT, 'tests', 'run.mjs'), 'utf8')).length;
+  includes(docText('README.md'), `The suite holds ${cases} test cases.`,
+    'add a test and this fails until the README says so — which is the whole point of this block');
+});
+
 console.log(`\n${pass} passed, ${fail} failed${skipped ? `, ${skipped} skipped on ${process.platform}` : ''}\n`);
 if (fail) {
   console.log('Failures:');
