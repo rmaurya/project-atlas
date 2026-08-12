@@ -54,3 +54,20 @@
 {"at":"2026-08-12T00:23:31.623Z","agent":"subagent","kind":"progress","text":"a subagent finished on fix/pages-bypassed-strip at 426947a","refs":["fix/pages-bypassed-strip@426947a"]}
 {"at":"2026-08-12T00:42:53.310Z","agent":"main","kind":"progress","text":"work landed on main — now at 4a9b054","refs":["main@4a9b054"]}
 {"at":"2026-08-12T00:42:59.350Z","agent":"subagent","kind":"progress","text":"a subagent finished on main at 4a9b054","refs":["main@4a9b054"]}
+{"at":"2026-08-12T00:50:31.987Z","agent":"main","kind":"progress","text":"work landed on main — now at 9e6fc66","refs":["main@9e6fc66"]}
+{"at":"2026-08-12T00:50:39.884Z","agent":"subagent","kind":"progress","text":"a subagent finished on main at 9e6fc66","refs":["main@9e6fc66"]}
+{"at":"2026-08-12T00:55:41.296Z","agent":"subagent","kind":"progress","text":"a subagent finished on feat/git-health-view at 9e6fc66","refs":["feat/git-health-view@9e6fc66"]}
+{"at":"2026-08-12T01:02:05.277Z","agent":"subagent","kind":"progress","text":"a subagent finished on feat/git-insight-commands at 9e6fc66","refs":["feat/git-insight-commands@9e6fc66"]}
+{"at":"2026-08-12T01:09:56.134Z","agent":"subagent","kind":"progress","text":"a subagent finished on feat/git-insight-commands at 9e6fc66","refs":["feat/git-insight-commands@9e6fc66"]}
+{"at":"2026-08-12T01:15:02.757Z","agent":"subagent","kind":"progress","text":"a subagent finished on feat/git-insight-commands at 9e6fc66","refs":["feat/git-insight-commands@9e6fc66"]}
+{"at":"2026-08-12T01:18:59.906Z","agent":"subagent","kind":"progress","text":"a subagent finished on feat/git-insight-commands at 9e6fc66","refs":["feat/git-insight-commands@9e6fc66"]}
+{"at":"2026-08-12T01:21:29.601Z","agent":"subagent","kind":"progress","text":"a subagent finished on feat/git-insight-commands at 9e6fc66","refs":["feat/git-insight-commands@9e6fc66"]}
+{"at":"2026-08-12T01:23:47.098Z","agent":"subagent","kind":"progress","text":"a subagent finished on feat/manual-command-surface at 9e6fc66","refs":["feat/manual-command-surface@9e6fc66"]}
+{"at":"2026-08-12T01:29:49.899Z","agent":"subagent","kind":"progress","text":"a subagent finished on feat/git-insight-commands at 9e6fc66","refs":["feat/git-insight-commands@9e6fc66"]}
+{"at":"2026-08-12T01:35:10.934Z","agent":"subagent","kind":"progress","text":"a subagent finished on feat/git-insight-commands at 9e6fc66","refs":["feat/git-insight-commands@9e6fc66"]}
+{"at":"2026-08-12T01:36:22.381Z","agent":"compaction","kind":"progress","text":"context compacted on feat/git-insight-commands at 9e6fc66 — anything not journalled before this is gone","refs":["feat/git-insight-commands@9e6fc66"]}
+{"at":"2026-08-12T01:38:30.679Z","agent":"subagent","kind":"progress","text":"a subagent finished on feat/git-insight-commands at 9e6fc66","refs":["feat/git-insight-commands@9e6fc66"]}
+{"at":"2026-08-12T01:47:07.068Z","agent":"subagent","kind":"progress","text":"a subagent finished on feat/git-insight-commands at 9e6fc66","refs":["feat/git-insight-commands@9e6fc66"]}
+{"at":"2026-08-12T01:50:18.213Z","agent":"subagent","kind":"progress","text":"a subagent finished on feat/git-insight-commands at 9e6fc66","refs":["feat/git-insight-commands@9e6fc66"]}
+{"at":"2026-08-12T02:09:34.171Z","agent":"main","kind":"progress","text":"work landed on fix/hook-build-stamp — now at 53f5a35","refs":["fix/hook-build-stamp@53f5a35"]}
+{"at":"2026-08-12T02:09:37.946Z","agent":"subagent","kind":"progress","text":"a subagent finished on fix/hook-build-stamp at 53f5a35","refs":["fix/hook-build-stamp@53f5a35"]}
