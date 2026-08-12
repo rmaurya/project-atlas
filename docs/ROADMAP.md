@@ -38,6 +38,7 @@ measured against the code — the same distinction the tool preserves everywhere
 | A-25 | 100 | A-26 | 100 | A-27 | 100 |
 | A-28 | 100 | M-4 | 100 | A-29 | 100 |
 | C-7 | 100 | C-8 | 100 | A-30 | 10 |
+| C-9 | 100 | | | | |
 
 ---
 
@@ -131,6 +132,25 @@ step while the rows still carried week labels. **No surviving-lines panel** — 
 precisely because blame runs to minutes, and this page builds on every `atlas watch`. **No hour-of-day
 heatmap** — on a single-author repository that is a timesheet of one person. **No bus-factor number** where
 there is one committer; the tile prints an em dash and says why.
+
+**C-9 · Every capability reachable by hand** — **P2 · Medium**
+*Shipped.* The CLI had thirty-three commands and thirteen slash commands over them. The twenty that were
+missing were not the unimportant ones — `ownership`, `contrib`, `surviving`, `tasks`, `state`, `handoff`,
+`note`, `sessions`, `tokens`, `worklog`, `caps`, `design`, `prompt`, `version`, `branch`, `community` — they
+were simply the ones nobody had written a skill for. A capability an agent can reach and a person cannot is a
+capability the person has to be told about, every time.
+
+Sixteen new skills, and four existing ones amended. The amendment matters as much as the additions: with a
+surface this size the failure is never a missing command, it is three commands a reader cannot tell apart. So
+`status`, `changes`, `diff` and `help` now each carry a **nearest-neighbour** paragraph naming the commands
+they are most likely to be confused with and saying which question each one actually answers — `/atlas:status`
+is the corpus, `/atlas:tasks` is the plan, `/atlas:state` is the session.
+
+`help` was rewritten as a map by intent rather than an alphabetical list, for the same reason.
+
+*`docs/FEATURES.md` was re-verified against `skills/` on the day of this change by running every command in the
+repository, and the Slash column now carries a dash with a stated reason wherever no command exposes a
+capability — an absence that is explained is not an oversight.*
 
 ## Track 2 — Product
 

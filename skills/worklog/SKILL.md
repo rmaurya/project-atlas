@@ -1,0 +1,39 @@
+---
+description: The day's worklog — what landed, which plan items moved, and the commits behind them, measured from git. Use when the user asks what was done today, wants a standup note, or types /atlas:worklog.
+disable-model-invocation: true
+---
+
+# The day's worklog
+
+!`atlas worklog --stdout`
+
+> **If the block above is empty**, `atlas` is not on `PATH` — the plugin is not installed where this is
+> running. Say so; do not read an empty section as "nothing landed today".
+
+---
+
+`--stdout` was passed, so **nothing was written**. The block is a preview of the file the build already keeps
+current under `worklog/<date>/` — every `atlas build` refreshes today's entry, so it is usually on disk
+already and this command is how you read it without opening it.
+
+Give the user the standup version:
+
+1. **What landed** — commits and lines, in one line.
+2. **Which plan items moved**, by id and title. This is the part a person actually reports.
+3. **Whether the day ended clean** — the blocking-findings count at the bottom of the entry.
+
+**Rules:**
+
+- **Everything here is measured from git and the corpus.** No prompt text, no transcript, and nothing that
+  scores how anyone worked. If the user wants how the session went, that is `/atlas:sessions`.
+- **The commit list is not the summary.** Do not read the subjects back one by one; say what the day added
+  and name the two or three commits that carry it.
+- **A day with commits and no plan items is worth noticing** — either the work was unplanned, or the messages
+  named no id and the plan gate let them through. Say which, if the messages make it clear.
+- **`atlas worklog` without `--stdout` writes the file**, and `--day <YYYY-MM-DD>` regenerates an earlier one.
+  Offer either; the write is idempotent and the file is derived, so it is safe, but it is still a write.
+- **An empty day is one line.** "No commits today" and stop — do not pad it with yesterday's.
+
+**Nearest neighbour.** `/atlas:worklog` is **one day, in prose, from git**. `/atlas:contrib` is **the whole
+history, as figures**. `/atlas:changes` is **right now, uncommitted** — the only one of the three that sees
+work that has not been committed yet.

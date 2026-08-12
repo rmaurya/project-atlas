@@ -36,3 +36,8 @@ just moved. Offer to check one; do not assert it is stale.
 - If a changed document introduces a new blocking signal, say so before anything else — that is a defect
   going into the commit.
 - If nothing changed, say so in one line and stop.
+
+**Nearest neighbour.** `/atlas:changes` covers **every changed file, without the diffs**, and adds the
+documents that cite them. `/atlas:diff <path>` covers **one file, with its diff, explained**. `/atlas:review`
+runs over the same changes but answers a different question — what this diff breaks or fixes before it is
+committed. Ask for changes to see the shape, diff to see a file, review to decide whether to commit.
