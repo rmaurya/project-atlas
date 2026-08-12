@@ -18,7 +18,9 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { execFileSync } from 'node:child_process';
 import { designRecord, blueprint, undesigned, citationHealth, isDesignDoc } from './design.mjs';
+import { areaOf, ownership, summariseOwnership } from './ownership.mjs';
 import { escapeHtml, escapeAttr, renderMarkdown } from './markdown.mjs';
 import { SIGNALS } from './health.mjs';
 import { taskCoverage } from './contrib.mjs';
@@ -131,7 +133,14 @@ export function viewPage(view, ctx, shell) {
   const wantsFlight = view.panels.some((id) => id === 'tiles' || id === 'inflight');
   const flight = wantsFlight ? readInflight(cfg.__root || process.cwd(), cfg, { index, plan }) : null;
 
-  const built = view.panels.map((id) => ({ id, html: panel(id, { ...ctx, view, flight }) }));
+  // Same reasoning, one axis over. `repoRisk` walks every file of every commit and `branchInventory` shells
+  // out twice; three of the four repository panels want the first and two want the second, so computing them
+  // inside each panel would do that work five times to produce five identical answers.
+  const has = (...ids) => view.panels.some((id) => ids.includes(id));
+  const risk = has('repoTiles', 'churn', 'hotspots') ? repoRisk(contrib) : null;
+  const branches = has('repoTiles', 'branches') ? branchInventory(cfg) : null;
+
+  const built = view.panels.map((id) => ({ id, html: panel(id, { ...ctx, view, flight, risk, branches }) }));
   const rendered = built.filter((b) => b.html);
   const omitted = built.filter((b) => !b.html).map((b) => b.id);
 
@@ -207,7 +216,7 @@ ${omitted.length ? `<section class="card muted"><h2>Not shown on this page</h2>
 }
 
 /** Returns the panel's HTML, or null when it has nothing to say. */
-function panel(id, { index, health, plan, cfg, contrib, view, nameFor, repo, flight }) {
+function panel(id, { index, health, plan, cfg, contrib, view, nameFor, repo, flight, risk, branches }) {
   const hasPlan = plan && !plan.missing;
   if (id === 'decisions') return decisionsPanel(index, cfg, cfg.__root, nameFor);
   const hasContrib = contrib && contrib.available;
@@ -233,6 +242,10 @@ function panel(id, { index, health, plan, cfg, contrib, view, nameFor, repo, fli
     case 'people': return hasContrib ? peopleTable(contrib) : null;
     case 'desks': return hasContrib ? desksChart(contrib) : null;
     case 'coverage': return hasContrib && hasPlan ? coverageChart(contrib, plan) : null;
+    case 'repoTiles': return hasContrib ? repoTiles(risk, repo, branches) : null;
+    case 'churn': return hasContrib ? churnPanel(risk) : null;
+    case 'hotspots': return hasContrib ? hotspotPanel(risk) : null;
+    case 'branches': return branchPanel(branches);
     case 'changes': return changesPanel(cfg, index, pageOf);
     case 'documents': return documentsPanel(index, health, view, pageOf);
     case 'recent': return hasContrib ? recentPanel(contrib, plan) : null;
@@ -241,7 +254,7 @@ function panel(id, { index, health, plan, cfg, contrib, view, nameFor, repo, fli
     case 'blueprint': return blueprintPanel(index, pageOf);
     case 'undesigned': return undesignedPanel(repo, index);
     case 'citations': return citationsPanel(index, pageOf);
-    case 'caveats': return caveats(plan, health, contrib);
+    case 'caveats': return caveats(plan, health, contrib, view, risk);
     default: return null;
   }
 }
@@ -401,13 +414,29 @@ function clusterChart(index) {
 </figure>`;
 }
 
-function hbar(rows) {
+/**
+ * `display` overrides what the value column prints, and changes nothing about the bar.
+ *
+ * Added for the churn panel, whose figures run to five digits: `15937` set in tabular numerals beside `5924`
+ * is two blocks of glyphs a reader has to count rather than two numbers they can compare. The bar is still
+ * driven by `value`, so a caller cannot make the picture disagree with the label by formatting it — the only
+ * thing this can change is the typography of a number the geometry already committed to.
+ *
+ * `stack` puts the label on its own line above the bar, and exists because **the default row shape hides the
+ * label when the label is a path.** `.bl` is `minmax(84px,30%)` with an ellipsis, which inside a 391px masonry
+ * column resolves to 105px — measured on the Repository view at a 1500px viewport, where
+ * `plugins/atlas/.codex-plugin/plugin.json` wanted 262px and was cut to roughly thirteen characters. On a
+ * chart whose entire content is *which file*, that is the axis being thrown away to make room for the bar.
+ * The stacked shape is not new: it is exactly what `.bar` already becomes under 520px, applied here because a
+ * narrow column and a narrow screen are the same problem.
+ */
+function hbar(rows, { stack = false } = {}) {
   if (!rows.length) return '<p class="empty">Nothing to chart.</p>';
-  return `<div class="bars">${rows.map((r) => `
+  return `<div class="bars${stack ? ' stack' : ''}">${rows.map((r) => `
     <div class="bar">
       <span class="bl">${escapeHtml(r.label)}</span>
       <span class="bt"><span class="bf t-${toneClass(r.tone)}${r.estimated ? ' est' : ''}" style="width:${Math.max(2, (r.value / (r.max || 1)) * 100)}%"></span></span>
-      <span class="bv">${r.value}${r.suffix || ''}<span class="bh">${escapeHtml(r.hint || '')}</span></span>
+      <span class="bv">${escapeHtml(r.display ?? String(r.value))}${r.suffix || ''}<span class="bh">${escapeHtml(r.hint || '')}</span></span>
     </div>`).join('')}</div>`;
 }
 
@@ -997,9 +1026,40 @@ function noPlanning(cfg) {
   Set <code>planning.source</code> in <code>project-atlas.config.json</code> to a task list such as <code>docs/TASKS.md</code>.</p></figure>`;
 }
 
-function caveats(plan, health, contrib) {
+/**
+ * `view` and `risk` arrive so this panel can say what *this page's* panels cannot see, rather than only what
+ * the plan and the corpus cannot.
+ *
+ * The Repository view made the omission impossible to ignore. Its four panels introduce four blind spots that
+ * exist nowhere else in the tool — merge commits are outside the history they read, a rename splits one file
+ * into two shorter ones, a deleted file still ranks, and only branches on this machine are visible — and a
+ * caveats card that listed none of them while sitting under a heading promising to state what the page omits
+ * would be the most misleading thing on it. The panel's own note says a dashboard that silently omits reads
+ * as one that found nothing; that has to be true of the panel too.
+ */
+function caveats(plan, health, contrib, view = null, risk = null) {
   const notes = [...(plan && !plan.missing ? plan.notes : []), ...health.notChecked,
                  ...(contrib?.available ? contrib.caveats.map((c) => c.replace(/\*\*/g, '')) : [])];
+
+  const shows = (id) => !!view?.panels?.includes(id);
+  if (risk && (shows('churn') || shows('hotspots') || shows('repoTiles'))) {
+    notes.push('Churn and touch counts read only non-merge commits, because that is what the contribution ' +
+      'analysis collects. Work that reached the trunk through a merge commit is outside every figure on those panels.');
+    notes.push('A file is followed by path, not by identity. Git is not asked to trace renames, so a file ' +
+      'moved during its life appears as two shorter histories — one under each name — and neither shows how ' +
+      'often the thing itself has actually been edited.' +
+      (risk.renames ? ` ${risk.renames} rename record(s) are in this history.` : ''));
+    notes.push('Every file a commit has ever touched is ranked, including files that were later deleted, so ' +
+      'a path in that list is not a promise that it still exists.');
+    notes.push('Concentration is a fact about where editing happened and not a judgement of it. A directory ' +
+      'absorbing most of the churn may be the one under active development, the one with the hardest problem, ' +
+      'or the one nobody has managed to get right — nothing here can tell those apart.');
+  }
+  if (shows('branches')) {
+    notes.push('The branch inventory sees only branches that exist in this checkout. A branch pushed by ' +
+      'somebody else and never fetched here is invisible to it, so "nothing unmerged" is a statement about ' +
+      'this machine rather than about the project.');
+  }
   // **The plan has no past, and the omission has to be said rather than left to be noticed.**
   //
   // Every delivery figure on these pages carries a history, because git keeps one. Completion does not: the
@@ -1076,19 +1136,36 @@ function deliveryTiles(contrib) {
 a repository cannot see a prompt. These are outcomes under their real names.</p>`;
 }
 
+/**
+ * **This chart was closing up its own silences, on the two most-read pages in the tool.**
+ *
+ * It plotted `contrib.weeks` directly, and `aggregateWeeks` creates an entry only for a week that contains a
+ * commit — so a month of nothing was not a flat stretch here, it was *absent*, and the bar after the gap sat
+ * flush against the bar before it. Worse than a line chart making the same mistake: these rows are labelled
+ * with their week, so the page rendered `2026-01-05` immediately above `2026-02-09` as consecutive rows of a
+ * series called "per week", which is a claim about the calendar that is simply untrue. `weeklyAxis` was
+ * written for exactly this and the chart wall next door has used it since; this one was never converted.
+ *
+ * The window is then taken **off the continuous axis rather than off the sparse one**, so "the last 12 weeks"
+ * means twelve weeks of calendar and not twelve weeks that happened to contain work — which on a repository
+ * with four busy weeks spread over a year is a completely different picture and the one people meant.
+ */
 function velocityChart(contrib) {
-  const weeks = contrib.weeks.slice(-12);
+  const axis = weeklyAxis(contrib.weeks);
+  const weeks = axis.slice(-12);
   if (!weeks.length) return null;
-  const trimmed = contrib.weeks.length - weeks.length;
+  const trimmed = axis.length - weeks.length;
+  const quiet = weeks.filter((w) => w.silent).length;
   const max = Math.max(...weeks.map((w) => w.commits), 1);
   return `
 <figure class="card">
   <figcaption><h2>Commits per week</h2>
-    <p class="cap">${weeks.length} week(s) shown${trimmed ? `, the most recent of ${contrib.weeks.length} — the earlier ${trimmed} are omitted for width, not because they were empty` : ''}.
-    Commit count measures rhythm, not value.</p></figcaption>
+    <p class="cap">${weeks.length} week(s) shown${trimmed ? `, the most recent of ${axis.length} — the earlier ${trimmed} are omitted for width, not because they were empty` : ''}.
+    ${quiet ? `${quiet} of them contain no commit and are drawn as zero rather than skipped — git history is complete over its own span, so an empty week is one that was looked at. ` : ''}Commit count measures rhythm, not value.</p></figcaption>
   ${hbar(weeks.map((w) => ({
-    label: w.week, value: w.commits, max, tone: 'high',
-    hint: `${w.ai} AI-assisted · +${w.added.toLocaleString()} / −${w.removed.toLocaleString()}`,
+    label: w.week, value: w.commits, max, tone: w.silent ? 'none' : 'high',
+    hint: w.silent ? 'no commit this week'
+      : `${w.ai} AI-assisted · +${w.added.toLocaleString()} / −${w.removed.toLocaleString()}`,
   })))}
 </figure>`;
 }
@@ -1161,6 +1238,384 @@ function coverageChart(contrib, plan) {
       hint: cov.claimedButUnreferenced ? `${cov.claimedButUnreferenced} of these report progress` : '' },
   ])}
 </figure>`;
+}
+
+/* ------------------------------------------------------------------ repository */
+
+/**
+ * A `--numstat` path, with git's rename notation resolved to the file that exists afterwards.
+ *
+ * **`contrib.mjs` reads the path column verbatim, and for a renamed file that column is not a path.** Git
+ * writes a rename two ways — `ROADMAP.md => docs/ROADMAP.md` when the whole path changed, and
+ * `docs/{HANDOFF.md => handoff/SHARED.md}` when it can factor out a common prefix — and the regex there
+ * captures the entire expression. `areaOf` then splits *that* on `/` and invents a directory out of whichever
+ * fragment it lands on. Verified against this repository's own history: fourteen such records produce five
+ * directories that have never existed, among them `ROADMAP.md => docs` and `docs/{HANDOFF.md => handoff`,
+ * and `atlas ownership` is shipping them today as areas with a bus factor of one.
+ *
+ * Resolved here rather than in `contrib.mjs` because that module is shared — `ownership.mjs` and `kb.mjs`
+ * both key on these paths — and changing what a path *is* underneath three consumers is a larger change than
+ * one view should make on its way past. The defect is filed; this keeps these panels from printing a
+ * directory that has never existed while it waits.
+ *
+ * Resolving to the **new** name rather than the old, because every other figure here is about the tree as it
+ * stands: a hotspot list that names the file you would open beats one faithful to a path deleted in March.
+ * The cost is stated in the caveats — touches a file collected under its old name stay filed under that name,
+ * so a renamed file reads as two shorter histories.
+ */
+const unrename = (p) => String(p)
+  .replace(/\{([^{}]*?) => ([^{}]*?)\}/g, '$2')    // docs/{A.md => b/C.md}  →  docs/b/C.md
+  .replace(/^.* => /, '')                          // A.md => docs/A.md      →  docs/A.md
+  .replace(/\/{2,}/g, '/')                         // docs/{ => sub}/a.md leaves an empty segment behind
+  .replace(/^\//, '');
+
+/**
+ * Where the change has landed, keyed on **the tree instead of the calendar**.
+ *
+ * Every other git-derived figure in this tool aggregates commits by time or by person. This one throws both
+ * away and buckets by path, which is the only way to answer the question a maintainer actually asks about
+ * a repository they have inherited: *what does the work keep coming back to.* Delivery can tell you 127
+ * commits happened; it cannot tell you that 46% of every line ever changed here landed in one directory.
+ *
+ * Reads `contrib.commits`, which `render.mjs` already walked out of `git log --numstat` — so this costs one
+ * more pass over an array in memory rather than another traversal of history.
+ *
+ * ## Binary files are counted as touches and excluded from churn, which is not the same as calling them zero
+ *
+ * `git log --numstat` prints `-` for both columns of a binary file, and `contrib.mjs` carries that through as
+ * `added: 0, removed: 0` with `binary: true`. Summing those into a churn figure would put an image edited
+ * forty times at the bottom of a ranking of what moves most — the file would be reported as *unchanging*
+ * because its change is unmeasurable, which is the exact inversion of the truth. So a binary touch increments
+ * the touch count, contributes nothing to churn, and is counted separately so both panels can say how many
+ * they had to leave out. Unknown is not zero; it is the rule this project applies to plan items, and a
+ * numstat dash is the same kind of hole.
+ *
+ * ## Half the churn, rather than a top-N share
+ *
+ * The concentration headline is "how few areas hold half of it" rather than "what share the top three hold",
+ * because the second needs a magic constant that has to be defended on every repository it ever runs on.
+ * Three is arbitrary on a tree with six directories and arbitrary on one with four hundred. *How many buckets
+ * does it take to reach half* is scale-free, needs no threshold, and reads as the sentence a person would say
+ * out loud.
+ */
+function repoRisk(contrib) {
+  if (!contrib?.available) return null;
+
+  const areas = new Map();
+  const files = new Map();
+  let churn = 0, binaryTouches = 0, renames = 0;
+
+  for (const c of contrib.commits) {
+    const day = c.date.slice(0, 10);
+    for (const f of c.files) {
+      const raw = f.path;
+      const p = unrename(raw);
+      if (p !== raw) renames++;
+      const moved = f.binary ? 0 : (f.added || 0) + (f.removed || 0);
+      if (f.binary) binaryTouches++; else churn += moved;
+
+      const key = areaOf(p);
+      const a = areas.get(key) || { area: key, churn: 0, files: new Set(), commits: new Set() };
+      a.churn += moved; a.files.add(p); a.commits.add(c.hash);
+      areas.set(key, a);
+
+      const g = files.get(p) ||
+        { path: p, churn: 0, touches: 0, binaryTouches: 0, first: day, last: day };
+      g.touches++; g.churn += moved;
+      if (f.binary) g.binaryTouches++;
+      // `readContrib` sorts oldest-first, so the last commit seen for a path is the most recent one.
+      g.last = day;
+      files.set(p, g);
+    }
+  }
+  if (!areas.size) return null;
+
+  // `minCommits: 1`, against this function's default of 2. That filter exists so a bus-factor *report* is not
+  // drowned by every directory created in the last week; here the ranking is by churn, where a one-commit
+  // area sorts to the bottom on its own and needs no help. Silently inheriting a filter written for a
+  // different question would drop rows from a total the panel then presents as complete.
+  //
+  // Handed normalised paths, or its area keys would be the fabricated ones above and would fail to join
+  // against the churn rows here — leaving the authorship column blank on precisely the directories a rename
+  // has passed through, which is not a category anyone would guess from a blank cell.
+  const own = ownership(
+    contrib.commits.map((c) => ({ ...c, files: c.files.map((f) => ({ ...f, path: unrename(f.path) })) })),
+    { minCommits: 1 });
+  const byArea = new Map(own.map((a) => [a.area, a]));
+
+  const areaRows = [...areas.values()]
+    .map((a) => ({
+      area: a.area, churn: a.churn, files: a.files.size, commits: a.commits.size,
+      busFactor: byArea.get(a.area)?.busFactor ?? null,
+    }))
+    .sort((x, y) => y.churn - x.churn || y.files - x.files || x.area.localeCompare(y.area));
+
+  // How many buckets it takes to reach half. A repository whose churn is perfectly even needs half its areas;
+  // one with a single hot directory needs one, and the gap between those two numbers is the finding.
+  let acc = 0, half = 0;
+  for (const a of areaRows) { acc += a.churn; half++; if (acc * 2 >= churn) break; }
+
+  const fileRows = [...files.values()]
+    .map((g) => {
+      const measured = g.touches - g.binaryTouches;
+      return {
+        ...g,
+        // A file every one of whose touches was binary has no churn to report, and reports none rather than
+        // a `0` that would read as "nothing moved here".
+        churn: measured ? g.churn : null,
+        perTouch: measured ? Math.round(g.churn / measured) : null,
+      };
+    })
+    .sort((x, y) => y.touches - x.touches || (y.churn ?? -1) - (x.churn ?? -1) || x.path.localeCompare(y.path));
+
+  const authors = new Set(contrib.commits.map((c) => c.email || c.author)).size;
+  return {
+    areas: areaRows, files: fileRows, churn, binaryTouches, renames, authors,
+    concentration: churn ? half : null,
+    soleAuthored: own.filter((a) => a.busFactor === 1).length,
+    ownershipNote: summariseOwnership(own, authors),
+  };
+}
+
+/** How many rows the two ranked panels show. Whatever falls past it is counted and named, never dropped. */
+const RISK_ROWS = 12;
+
+/**
+ * Every local branch, how far behind the repository's own newest commit it sits, and whether it still holds
+ * anything the trunk does not.
+ *
+ * **Staleness is measured against the newest commit in the repository, not against the clock.** `render.mjs`
+ * goes out of its way to read the build stamp off `git log -1 --format=%cI` precisely so that a rebuild with
+ * no source change produces a byte-identical file, and an age computed from `new Date()` would put a
+ * different integer on this page every single run and quietly undo that. Measuring branch-to-branch is also
+ * the more useful question on a repository that has been idle for a month: "eleven days behind the last thing
+ * that happened here" is a fact about the branch, where "eleven days old" would mostly be a fact about today.
+ *
+ * Returns `null` when git cannot be read at all, so the panel is omitted and said rather than rendered as a
+ * repository with no branches.
+ */
+function branchInventory(cfg) {
+  const root = cfg.__root || process.cwd();
+  const main = cfg.branching?.main || 'main';
+  const git = (args) => {
+    try {
+      return execFileSync('git', ['-C', root, ...args],
+        { encoding: 'utf8', maxBuffer: 1 << 24, stdio: ['ignore', 'pipe', 'ignore'] });
+    } catch { return null; }
+  };
+
+  // `unix` for the arithmetic and `short` for the display, deliberately: `iso-strict` carries each committer's
+  // own UTC offset, so sorting those strings compares `+05:30` against `Z` and orders by typography rather
+  // than by time. The same mismatch cost `inflight.mjs` its journal window.
+  const raw = git(['for-each-ref', 'refs/heads',
+    '--format=%(refname:short)\x1f%(committerdate:short)\x1f%(committerdate:unix)\x1f%(HEAD)']);
+  if (raw === null) return null;
+
+  const rows = raw.split('\n').filter(Boolean).map((line) => {
+    const [name, date, unix, head] = line.split('\x1f');
+    return { name, date, unix: Number(unix) || 0, current: head.trim() === '*' };
+  });
+  if (!rows.length) return null;
+
+  // `--no-merged` answers the question that matters in one call. Counting how far ahead each branch is would
+  // be one `rev-list` per branch, which on a repository with a hundred stale branches is a hundred processes
+  // spawned to colour a column nobody sorts by.
+  const unmergedRaw = git(['branch', '--no-merged', main, '--format=%(refname:short)']);
+  const unmerged = unmergedRaw === null ? null : new Set(unmergedRaw.split('\n').filter(Boolean));
+
+  const newest = Math.max(...rows.map((r) => r.unix));
+  for (const r of rows) {
+    r.daysBehind = Math.floor((newest - r.unix) / 86400);
+    r.unmerged = r.name === main ? false : unmerged ? unmerged.has(r.name) : null;
+  }
+
+  return {
+    main,
+    // `null` when the comparison could not be made — a repository whose trunk is called something else, or a
+    // fresh clone with no local `main`. Reporting "0 unmerged" there would be a measurement nobody made.
+    mergeKnown: unmerged !== null,
+    hasMain: rows.some((r) => r.name === main),
+    unmergedCount: unmerged ? rows.filter((r) => r.unmerged).length : null,
+    rows: rows.sort((a, b) =>
+      Number(b.unmerged === true) - Number(a.unmerged === true) || b.daysBehind - a.daysBehind ||
+      a.name.localeCompare(b.name)),
+  };
+}
+
+/**
+ * The four numbers this page exists to put in front of somebody, none of which appears anywhere else on the
+ * site.
+ *
+ * The fourth is the interesting one. On a repository with a single committer every area has exactly one
+ * author, so "sole-author areas: 30" is arithmetic dressed as a risk report — it measures the project's age,
+ * not its exposure. `ownership.mjs` already refuses to let that read as a finding and says so in prose; the
+ * tile says the same thing with an em dash where the figure would be, because a number a reader can act on
+ * and a number that cannot mean anything yet must not look alike.
+ */
+function repoTiles(risk, repo, branches) {
+  if (!risk) return null;
+  const t = [];
+
+  const tracked = repo?.files?.length || 0;
+  const gap = risk.files.length - tracked;
+  t.push(tile(String(risk.files.length), 'files under change',
+    !tracked ? 'counted from git history; the tracked file list could not be read'
+      : gap > 0 ? `${tracked} tracked today — the other ${gap} were renamed or deleted`
+        : gap < 0 ? `of ${tracked} tracked — the rest were added before the window this history covers`
+          : 'every tracked file has been touched at least once'));
+
+  t.push(risk.concentration
+    ? tile(String(risk.concentration), 'areas hold half the churn',
+        `of ${risk.areas.length} that have ever been committed to`)
+    : tile('—', 'areas hold half the churn', 'no measurable line change in this history', 'warning'));
+
+  if (branches) {
+    t.push(!branches.mergeKnown
+      ? tile(String(branches.rows.length), 'local branches',
+          `no \`${branches.main}\` here to compare against, so merge state is unknown`, 'warning')
+      : tile(String(branches.rows.length), 'local branches',
+          branches.unmergedCount
+            ? `${branches.unmergedCount} still hold commits ${branches.main} does not`
+            : `every one merged into ${branches.main} — nothing here is unfinished`,
+          branches.unmergedCount ? 'warning' : 'good'));
+  }
+
+  t.push(risk.authors <= 1
+    ? tile('—', 'sole-author areas',
+        'one committer in this whole history, so every area has one and the count would say nothing', 'warning')
+    : tile(String(risk.soleAuthored), 'sole-author areas',
+        `of ${risk.areas.length} — if that person stops, nobody left has edited them`,
+        risk.soleAuthored ? 'warning' : 'good'));
+
+  return `
+<section class="tiles">${t.join('')}</section>
+<p class="cap sect">Bucketed by <strong>path</strong>, not by author or by week — those are on Delivery. Churn is
+lines added plus lines removed, which is cheap to compute and measures neither difficulty nor worth; it says
+where the editing happened, and nothing whatever about whether it was any good.</p>`;
+}
+
+/**
+ * Churn by area of the tree — the panel the whole view was built around.
+ *
+ * **The authorship column only appears when there is more than one author to have.** Rendered
+ * unconditionally it prints "1 author" on every row of a single-committer repository: thirty identical cells
+ * that look like thirty findings and are one fact about the project's age. `summariseOwnership` already
+ * writes that distinction as a sentence, so the sentence runs as the caption and the column stays away until
+ * a second person makes it mean something.
+ */
+function churnPanel(risk) {
+  if (!risk?.areas.length) return null;
+  const rows = risk.areas.slice(0, RISK_ROWS);
+  const rest = risk.areas.length - rows.length;
+  const max = Math.max(...rows.map((r) => r.churn), 1);
+  const multi = risk.authors > 1;
+
+  return `
+<figure class="card">
+  <figcaption><h2>Where the churn lands</h2>
+    <p class="cap">Lines added plus removed, summed per directory — the first two path segments, so
+    <code>scripts/lib</code> and <code>skills/ask</code> stay apart. ${escapeHtml(risk.ownershipNote || '')}</p></figcaption>
+  ${hbar(rows.map((a) => ({
+    label: a.area, value: a.churn, display: a.churn.toLocaleString(), max, tone: 'high',
+    hint: `${a.files} file(s) · ${a.commits} commit(s)` +
+      (multi && a.busFactor ? ` · ${a.busFactor} author(s)` : ''),
+  })), { stack: true })}
+  <p class="chart-note">${rest ? `${rest} further area(s) fall below these and are not drawn. ` : ''}${
+    risk.binaryTouches ? `${risk.binaryTouches} binary file change(s) are counted nowhere here — <code>--numstat</code> reports a dash for both columns, and a dash is unmeasurable rather than zero.`
+      : 'No binary file has been changed in this history, so nothing is missing from these totals.'}</p>
+</figure>`;
+}
+
+/**
+ * The files the work keeps returning to — and the ratio that separates two files with identical touch counts
+ * into two completely different kinds of thing.
+ *
+ * On this repository as it is written, `.claude-plugin/plugin.json` and `tests/run.mjs` sit one row apart at
+ * 71 and 70 commits. A panel that ranked by touches alone would present them as the same finding. They are
+ * not remotely: the first has moved 172 lines in all that time because it is a version stamp that every
+ * release bumps, and the second has moved 5,924, because it is where the work is. **Lines per commit is what
+ * tells them apart**, so it is on every row rather than left for the reader to divide.
+ *
+ * Ranked by touches rather than churn on purpose. Churn already has a panel — the one above, at the level
+ * where it is actionable — and a second ranking of the same measure one directory deeper would be the
+ * duplicate page this whole view had to argue its way out of being. "What does the work come back to" is a
+ * different question from "where did the most lines move", and the two lists genuinely disagree.
+ */
+function hotspotPanel(risk) {
+  if (!risk?.files.length) return null;
+  const rows = risk.files.slice(0, RISK_ROWS);
+  const rest = risk.files.length - rows.length;
+  const max = Math.max(...rows.map((r) => r.touches), 1);
+
+  return `
+<figure class="card">
+  <figcaption><h2>What the work keeps returning to</h2>
+    <p class="cap">Commits that changed each file. Read it with the <strong>lines-per-commit</strong> figure
+    beside it: a heavily touched file that barely moves is mechanical — a version stamp, a changelog, a
+    generated manifest — while one that moves a long way every time is where a regression would come from.
+    Neither is a defect; the pair is what tells you which is which.</p></figcaption>
+  ${hbar(rows.map((g) => ({
+    label: g.path, value: g.touches, display: String(g.touches), max, tone: 'mid',
+    hint: g.churn === null
+      ? `binary · lines not measurable · last ${g.last}`
+      : `${g.churn.toLocaleString()} lines · ${g.perTouch}/commit · last ${g.last}`,
+  })), { stack: true })}
+  ${rest ? `<p class="chart-note">${rest} further file(s) have been touched and are not drawn.</p>` : ''}
+</figure>`;
+}
+
+/**
+ * The branch inventory — and the one panel on this view that never leaves the machine.
+ *
+ * **`data-local-only`, for exactly the reason the in-flight panel carries it.** `publish.mjs` learned this the
+ * hard way: a standalone export went out carrying the subject lines of a private task list and the paths of
+ * every uncommitted file, because each panel was correct and derived and nobody had asked who was going to
+ * read it. A branch name is the same category of thing. `fix/acme-outage-postmortem` is true, derived, useful
+ * on a dashboard served to loopback, and nobody else's business — and unlike a file path it is frequently the
+ * name of a customer.
+ *
+ * **The count survives the strip and the names do not**, which is not an inconsistency but the boundary this
+ * project already draws twice. The journal contributes "3 records since the last commit" to a published page
+ * and never a sentence of its text; the decisions panel publishes how many decisions are unwritten and none
+ * of what they were. A statistic about a set is not the set. So the tile strip keeps "28 local branches, all
+ * merged" and this table, which names them, is cut before anything ships.
+ */
+function branchPanel(b) {
+  if (!b) return null;
+  const rows = b.rows.slice(0, 15);
+  const rest = b.rows.length - rows.length;
+
+  return `
+<section class="card" id="branches" data-local-only="1">
+  <h2>Branches <span class="count">${b.rows.length}</span></h2>
+  <p class="cap">Local branches only, and <strong>local to this machine</strong> — this card is stripped from
+  every publish and every standalone export, because a branch name is often the name of a customer. Staleness
+  is measured against the newest commit in the repository rather than against the clock, so a rebuild that
+  changes nothing produces the same page.${
+    b.mergeKnown ? '' : ` No <code>${escapeHtml(b.main)}</code> branch exists here, so <em>holds</em> could not be answered and says so rather than reading as a clean no.`}</p>
+  <ul class="doclist">
+    ${rows.map((r) => {
+      // A list rather than a table, and the reason is measurable. Four columns of branch metadata inside a
+      // 391px masonry column — measured on this page at a 1500px viewport — put `.mini-table`'s 520px floor
+      // against a 391px box and cut the last two columns off behind a scroll affordance. `doclist` has no
+      // minimum, wraps, and is the shape this data already is: a name and a line of facts about it.
+      const state = r.name === b.main ? 'the trunk'
+        : r.unmerged === null ? 'merge state not checked'
+          : r.unmerged ? 'holds commits the trunk does not' : `merged into ${b.main}`;
+      return `<li>
+      <span class="rsub">${escapeHtml(r.name)}</span>${r.current ? ' <span class="ref">checked out</span>' : ''}
+      <span class="dm">${escapeHtml(r.date)} · ${
+        r.daysBehind === 0 ? 'level with the newest commit'
+          : `${r.daysBehind} day${r.daysBehind === 1 ? '' : 's'} behind`} ·
+        <span class="${r.unmerged ? 'warn' : r.unmerged === null ? 'cap' : 'ok'}">${escapeHtml(state)}</span></span>
+    </li>`;
+    }).join('')}
+  </ul>
+  <p class="det">${rest ? `${rest} further branch(es) are not listed. ` : ''}${
+    b.mergeKnown && !b.unmergedCount
+      ? `Nothing here is unfinished — every branch is fully merged into ${escapeHtml(b.main)} and could be deleted.`
+      : b.mergeKnown ? `${b.unmergedCount} branch(es) hold commits ${escapeHtml(b.main)} does not.` : ''}</p>
+</section>`;
 }
 
 /**
@@ -1481,6 +1936,23 @@ figcaption { display:block; }
 .bar { display:grid; grid-template-columns:minmax(84px,30%) 1fr auto; align-items:center; gap:12px; font-size:13.5px; }
 @media (max-width:520px) { .bar { grid-template-columns:1fr auto; } .bar .bt { grid-column:1 / -1; order:3; } }
 .bl { color:var(--ink); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+/* Stacked rows, for bars whose label is a path.
+ *
+ * The default row spends 30% of its width on the label and ellipses whatever will not fit, which is right
+ * when the label is "Not started" and destroys the chart when it is a path such as
+ * plugins/atlas/.codex-plugin/plugin.json — measured at 105px of column against 262px of text. Same geometry
+ * the 520px breakpoint below already applies, hoisted to a modifier so a narrow *column* gets it too.
+ * overflow-wrap:anywhere rather than break-word: a long path has no spaces to break at, so the softer rule
+ * would leave it overflowing exactly as before.
+ *
+ * The 55% floor is load-bearing, and 1fr alone was not enough. .bv carries the hint as a block child, so its
+ * auto track is sized by the whole of "1,244 lines · 18/commit · last 2026-08-12" — measured in a 391px card:
+ * 223px to the hint and 114px left for the path, which put docs/ROADMAP.md onto two lines while the figure
+ * beside it sat on one. A minimum on the label track makes the hint wrap instead, which is the right thing to
+ * sacrifice: the hint is a footnote and the path is the row's subject. */
+.bars.stack .bar { grid-template-columns:minmax(55%,1fr) auto; row-gap:5px; }
+.bars.stack .bl { white-space:normal; overflow:visible; overflow-wrap:anywhere; font-size:13px; }
+.bars.stack .bt { grid-column:1 / -1; order:3; }
 .bt { background:var(--code-bg); border-radius:4px; height:16px; overflow:hidden; }
 .bf { display:block; height:100%; border-radius:0 4px 4px 0; }
 .bv { color:var(--ink); font-variant-numeric:tabular-nums; font-size:13px; text-align:right; min-width:52px; }

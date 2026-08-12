@@ -37,7 +37,7 @@ measured against the code — the same distinction the tool preserves everywhere
 | A-23 | 100 | A-24 | 100 | M-3 | 40 |
 | A-25 | 100 | A-26 | 100 | A-27 | 100 |
 | A-28 | 100 | M-4 | 100 | A-29 | 100 |
-| C-7 | 100 | | | | |
+| C-7 | 100 | C-8 | 100 | A-30 | 10 |
 
 ---
 
@@ -110,6 +110,27 @@ and as a private function in `dashboard.mjs`; the reverse citation index exists 
 inside `kb.mjs`. Neither is exported, both modules were owned by other work in the session that wrote this,
 and re-deriving eight lines was the lesser evil against editing them. Hoisting one of each pair into a shared
 helper is the follow-up.
+
+**C-8 · Where the work lands** — **P2 · Medium**
+*Shipped.* A Repository view. Delivery's unit of analysis is the commit and the person — how many, by whom,
+in which week, with which model assisting — and not one of its eleven panels ever names a path. **Where** is
+orthogonal to **when** and **who**, not a filter on them, and this tool had no page that answered it.
+
+Six panels: tiles, where the churn lands by area, what the work keeps returning to, branches, in-flight and
+caveats. The hotspot table carries **lines-per-commit** on every row, which is the column that separates a
+version stamp touched seventy-one times two lines at a time from the test file touched seventy times at
+eighty-five — Delivery ranks both by commit count and cannot tell them apart.
+
+Staleness is measured against the repository's newest commit rather than the wall clock, so a rebuild an hour
+later is byte-identical. "The areas holding half the churn" rather than a top-three share: no magic constant
+to defend at any repository size.
+
+*Four things it refuses.* **No weekly chart** — Delivery owns the time axis three times over; the fix went
+there instead, where `velocityChart` had been plotting weeks by index so a silent fortnight closed into one
+step while the rows still carried week labels. **No surviving-lines panel** — `surviving.mjs` is opt-in
+precisely because blame runs to minutes, and this page builds on every `atlas watch`. **No hour-of-day
+heatmap** — on a single-author repository that is a timesheet of one person. **No bus-factor number** where
+there is one committer; the tile prints an em dash and says why.
 
 ## Track 2 — Product
 
@@ -760,6 +781,22 @@ repository, and it had been describing a different tool for seven releases. The 
 stated in prose beside a list that grows is a defect waiting to happen. The broad one is that "the
 documentation is clean" and "the documentation is true" are different claims, and this tool only measures the
 first.*
+
+**A-30 · Rename notation reaches `areaOf` as though it were a path** — **P2 · Medium**
+*Open.* `git log --numstat` writes a rename as `ROADMAP.md => docs/ROADMAP.md` in the path column.
+`contrib.mjs::readContrib` keeps that column verbatim, so `areaOf` reads the arrow and everything around it as
+a directory name and manufactures areas that have never existed. Fourteen records produce five fictional ones
+here, and **`atlas ownership` ships them today as bus-factor-1 risks** — the exact output C-6 exists to make
+actionable, naming directories nobody can go and look at.
+
+Resolve in `contrib.mjs`, at the read, so every consumer is fixed at once — `ownership`, `kb.mjs` and the
+Repository view each bucket on `areaOf` and each is wrong in the same way. The local `unrename` added in
+`dashboard.mjs` for C-8 is a stopgap and should be deleted in the same change.
+
+*The open question is whether history should follow renames at all.* Without `-M`, a moved file reads as two
+shorter histories, so a file's true churn is split across its old and new home and neither figure is the one a
+reader wants. Turning it on changes every number on two shipped pages, which is why this is a plan item rather
+than a patch.
 
 **A-7 · The boundary holds** — **P0 · Critical**
 *Shipped in 0.1.55.*

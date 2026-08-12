@@ -28,7 +28,7 @@ import { readDeck } from '../scripts/lib/deck.mjs';
 import { RAMP, STATUS, INK, viewPage } from '../scripts/lib/dashboard.mjs';
 import { CAT, CAT_MAX, donut, lineChart, sparkbars } from '../scripts/lib/charts.mjs';
 import { automationAllows } from '../scripts/lib/config.mjs';
-import { buildWikiPages, wikiPageName, isSafePageName, exportSingleFile, exportBundle, RESERVED, gitlabPagesJob, stageWiki } from '../scripts/lib/publish.mjs';
+import { buildWikiPages, wikiPageName, isSafePageName, exportSingleFile, exportBundle, RESERVED, gitlabPagesJob, stageWiki, stripLocalOnly } from '../scripts/lib/publish.mjs';
 import { readContrib, estimateHours, taskCoverage } from '../scripts/lib/contrib.mjs';
 import { readTokens, formatTokens, formatSessions, assertNotPublishable, transcriptDir } from '../scripts/lib/tokens.mjs';
 import { readChanges, fileDiff, formatChanges } from '../scripts/lib/changes.mjs';
@@ -1299,6 +1299,25 @@ test('bundle · no link points at a file, because there are no files beside it',
   for (const m of html.matchAll(/data-go="([\w.-]+)"/g)) {
     ok(html.includes(`data-page="${m[1]}"`), `nothing in the bundle answers to #${m[1]}`);
   }
+});
+
+test('bundle · the standalone bundle strips local-only panels, exactly as the single-page export does', () => {
+  // `exportSingleFile` has stripped `data-local-only` since the incident that created the marker: an export
+  // handed to somebody carried a private task list and the path of every uncommitted file. This is the other
+  // half of the same command — `--target export` with `which === 'all'` — and it read each page straight off
+  // disk, so the in-flight panel travelled in the bundle from all five views that carry it. The marker was
+  // doing its job; only one of the two exit doors was checking for it.
+  const cfg = resolveConfig(pubRepo);
+  const index = buildIndex(pubRepo, cfg);
+  renderSite(index, runHealth(index, cfg, pubRepo), cfg, pubRepo);
+
+  const built = fs.readFileSync(path.join(pubRepo, cfg.output, 'dashboard.html'), 'utf8');
+  ok(built.includes('data-local-only'),
+    'the built site must actually carry a local-only panel, or this test proves nothing');
+
+  const html = exportBundle(pubRepo, cfg);
+  eq(html.includes('data-local-only'), false, 'no local-only panel may reach a file made to be handed over');
+  eq(html.includes('Work in flight'), false, 'and the panel itself is gone, not merely unmarked');
 });
 
 test('bundle · a page\'s own stylesheet travels with it', () => {
@@ -3214,6 +3233,163 @@ test('views · the Executive page renders full width and answers spec-to-build, 
   const html = viewPage(exec, { ...ctx, contrib: readContrib(ctx.dir, ctx.cfg) }, (o) => o.body);
   includes(html, 'class="dash-flow"', 'the shipped Executive view must not be laid out in columns');
   includes(html, 'Spec to build', 'and it carries the coverage panel it names');
+});
+
+/* ================================================================== the repository view */
+
+console.log('\nrepository view');
+
+/** A view context whose git root is the fixture, not the checkout the test runner happens to be sitting in. */
+function repoCtx(name, extra = {}) {
+  const ctx = execCtx(name, extra);
+  return { ...ctx, cfg: { ...ctx.cfg, __root: ctx.dir } };
+}
+
+/** Like `commitAt`, but under a second identity — the only way to get a repository with two authors. */
+function commitAs(dir, iso, who, file, body) {
+  fs.writeFileSync(path.join(dir, file), body, 'utf8');
+  execFileSync('git', ['add', '-A'], { cwd: dir, stdio: 'ignore' });
+  execFileSync('git', ['-c', `user.email=${who}@example.com`, '-c', `user.name=${who}`,
+    'commit', '-qm', `chore: ${file}`],
+    { cwd: dir, stdio: 'ignore', env: { ...process.env, GIT_AUTHOR_DATE: iso, GIT_COMMITTER_DATE: iso } });
+}
+
+test('dashboard · a renamed file does not invent a directory that has never existed', () => {
+  // `git log --numstat` writes a rename as `OLD.md => docs/moved/NEW.md`, and contrib.mjs keeps that whole
+  // expression as the path — so `areaOf` splits it on `/` and manufactures a directory out of the fragment it
+  // lands on. Verified against this repository's own history: fourteen rename records produce five areas that
+  // have never existed, `ROADMAP.md => docs` among them, and `atlas ownership` prints them today as areas with
+  // a bus factor of one.
+  const ctx = repoCtx('repo-rename', { 'OLD.md': 'x\n'.repeat(40) });
+  execFileSync('git', ['mv', 'OLD.md', 'docs/moved-NEW.md'], { cwd: ctx.dir, stdio: 'ignore' });
+  execFileSync('git', ['-c', 'user.email=t@example.com', '-c', 'user.name=Test', 'commit', '-qm', 'chore: move'],
+    { cwd: ctx.dir, stdio: 'ignore' });
+
+  const contrib = readContrib(ctx.dir, ctx.cfg);
+  const raw = contrib.commits.flatMap((c) => c.files.map((f) => f.path));
+  ok(raw.some((p) => p.includes(' => ')),
+    'the fixture must actually produce a rename record, or this test proves nothing');
+
+  const html = viewPage({ id: 'repository', title: 'R', panels: ['churn', 'hotspots'] },
+    { ...ctx, contrib }, (o) => o.body);
+  eq(/=&gt;|=>/.test(html), false, 'no panel may print git rename notation as if it were a path');
+  eq(/\{|\}/.test(html.replace(/<[^>]*>/g, '')), false, 'nor the braced form of it');
+  includes(html, 'docs/moved-NEW.md', 'the file is named where it lives now, not where it used to');
+});
+
+test('dashboard · what the work returns to is ranked by touches, and where churn lands by lines', () => {
+  // The two lists deliberately disagree, and that disagreement is the whole reason both exist. A version
+  // stamp bumped by every release is the most-touched file in most repositories and among the least-changed;
+  // ranking either panel by the other's measure would collapse them into one page saying one thing twice.
+  const ctx = repoCtx('repo-rank');
+  for (let i = 0; i < 4; i++) commitAt(ctx.dir, `2026-01-0${5 + i}T10:00:00Z`, 'stamp.txt', `v${i}\n`);
+  commitAt(ctx.dir, '2026-01-09T10:00:00Z', 'docs/big.md', '# Big\n\n' + 'line\n'.repeat(300));
+
+  const contrib = readContrib(ctx.dir, ctx.cfg);
+  const html = viewPage({ id: 'repository', title: 'R', panels: ['hotspots', 'churn'] },
+    { ...ctx, contrib }, (o) => o.body);
+
+  // Read the bar labels in order rather than searching the markup: every caption on these panels names a
+  // path as an example, so a bare indexOf would happily match the prose above the chart it is asserting on.
+  const labels = (section) => [...section.matchAll(/<span class="bl">([^<]*)<\/span>/g)].map((m) => m[1].trim());
+  const hot = labels(html.slice(html.indexOf('What the work keeps returning to'), html.indexOf('Where the churn lands')));
+  const churn = labels(html.slice(html.indexOf('Where the churn lands')));
+
+  ok(hot.indexOf('stamp.txt') !== -1 && hot.indexOf('stamp.txt') < hot.indexOf('docs/big.md'),
+    `the file touched four times outranks the one touched once, however few lines it moved: ${hot.join(', ')}`);
+  includes(html, '/commit', 'and every row carries lines-per-commit, which is what tells the two kinds apart');
+  ok(churn.indexOf('docs') !== -1 && churn.indexOf('docs') < churn.indexOf('(root)'),
+    `while the churn panel puts the 300-line directory above the four-line one: ${churn.join(', ')}`);
+});
+
+test('dashboard · branch names never leave the machine, and the count does', () => {
+  // publish.mjs learned this by shipping it: a standalone export went out carrying a private task list and
+  // every uncommitted path, because each panel was correct and nobody had asked who would read it. A branch
+  // name is the same category and frequently worse — it is often the name of a customer. The count is a
+  // statistic about a set rather than the set, which is the line the journal panel already draws.
+  const ctx = repoCtx('repo-branches');
+  commitAt(ctx.dir, '2026-01-05T10:00:00Z', 'a.txt', 'one');
+  execFileSync('git', ['switch', '-c', 'fix/acme-outage-postmortem'], { cwd: ctx.dir, stdio: 'ignore' });
+
+  const html = viewPage({ id: 'repository', title: 'R', panels: ['repoTiles', 'branches'] },
+    { ...ctx, contrib: readContrib(ctx.dir, ctx.cfg) }, (o) => o.body);
+  includes(html, 'fix/acme-outage-postmortem', 'the local page names the branch, which is the point of it');
+  includes(html, 'data-local-only', 'and marks the card so the publisher can find it');
+
+  const shipped = stripLocalOnly(html);
+  eq(shipped.includes('fix/acme-outage-postmortem'), false, 'a publish must not carry the name');
+  includes(shipped, 'local branches', 'but the count survives — a statistic about a set is not the set');
+});
+
+test('dashboard · a repository with one committer refuses to report a bus factor', () => {
+  // "30 sole-author areas" on a single-committer repository is arithmetic wearing the costume of a risk
+  // report: it measures the project's age, not its exposure, and every area would say the same thing.
+  // ownership.mjs already refuses this in prose; the tile refuses it with an em dash where a figure would go,
+  // because a number somebody can act on must not look like one that cannot mean anything yet.
+  const solo = repoCtx('repo-solo');
+  commitAt(solo.dir, '2026-01-05T10:00:00Z', 'a.txt', 'one');
+  const one = viewPage({ id: 'repository', title: 'R', panels: ['repoTiles'] },
+    { ...solo, contrib: readContrib(solo.dir, solo.cfg) }, (o) => o.body);
+  includes(one, 'one committer in this whole history');
+  includes(one, '—</p><p class="tl">sole-author areas</p>',
+    'the figure is withheld with an em dash, not printed as a count nobody can act on');
+
+  // Two authors, and the same tile becomes answerable.
+  // `a.txt` at the root by one author, `docs/b.md` by the other — so `(root)` has a sole author and `docs`
+  // does not, and the tile has something real to count rather than a repository-wide constant.
+  const duo = repoCtx('repo-duo');
+  commitAt(duo.dir, '2026-01-05T10:00:00Z', 'a.txt', 'one');
+  commitAs(duo.dir, '2026-01-06T10:00:00Z', 'Second', 'docs/b.md', '# Two\n');
+  const two = viewPage({ id: 'repository', title: 'R', panels: ['repoTiles'] },
+    { ...duo, contrib: readContrib(duo.dir, duo.cfg) }, (o) => o.body);
+  eq(two.includes('one committer in this whole history'), false, 'with two authors the refusal is withdrawn');
+  includes(two, 'nobody left has edited them', 'and the tile states what a sole author actually means');
+});
+
+test('dashboard · commits per week no longer closes a silent fortnight into one step', () => {
+  // The chart plotted `contrib.weeks` straight, and aggregateWeeks creates an entry only for a week that
+  // contained a commit — so silence was not flat here, it was absent, and the bar after a gap sat flush
+  // against the bar before it. Worse than the line charts making the same mistake, because these rows are
+  // labelled with their week: the page printed 2026-01-05 immediately above 2026-01-26 as consecutive rows of
+  // a series called "per week". weeklyAxis was written for exactly this and this chart never used it.
+  const ctx = repoCtx('repo-velocity');
+  execFileSync('git', ['-c', 'user.email=t@example.com', '-c', 'user.name=Test',
+    'commit', '-q', '--amend', '--no-edit', '--date=2026-01-05T09:00:00Z'],
+    { cwd: ctx.dir, stdio: 'ignore', env: { ...process.env, GIT_COMMITTER_DATE: '2026-01-05T09:00:00Z' } });
+  commitAt(ctx.dir, '2026-01-05T10:00:00Z', 'a.txt', 'one');
+  commitAt(ctx.dir, '2026-01-26T10:00:00Z', 'b.txt', 'two');
+
+  const html = viewPage({ id: 'x', title: 'X', panels: ['velocity'] },
+    { ...ctx, contrib: readContrib(ctx.dir, ctx.cfg) }, (o) => o.body);
+  includes(html, '2026-01-12', 'the empty week between the two is drawn');
+  includes(html, 'no commit this week', 'and says so on the row rather than being a gap in the labels');
+  includes(html, '2 of them contain no commit and are drawn as zero rather than skipped',
+    'the filled weeks are counted and stated, never slipped in');
+});
+
+test('views · the Repository page states what its own panels cannot see', () => {
+  // The caveats card had no idea which page it was on, so it listed what the plan and the corpus cannot show
+  // and nothing about the four new blind spots underneath it. A card headed "what this dashboard does not
+  // show" that omits the omissions is the most misleading thing that could sit on the page.
+  const view = DEFAULT_VIEWS.find((v) => v.id === 'repository');
+  ok(view, 'the view ships');
+  ok(!view.panels.includes('velocity') && !view.panels.includes('people'),
+    'and does not simply re-run Delivery under another name');
+
+  const ctx = repoCtx('repo-caveats');
+  commitAt(ctx.dir, '2026-01-05T10:00:00Z', 'a.txt', 'one');
+  const contrib = readContrib(ctx.dir, ctx.cfg);
+  const here = viewPage(view, { ...ctx, contrib }, (o) => o.body);
+  includes(here, 'A file is followed by path, not by identity');
+  includes(here, 'read only non-merge commits');
+  includes(here, 'only branches that exist in this checkout');
+  includes(here, 'including files that were later deleted');
+
+  // Scoped to the page, not bolted onto every page — Delivery has none of these panels and must claim none
+  // of these limits, or the caveat list stops being readable as a description of what is above it.
+  const delivery = viewPage(DEFAULT_VIEWS.find((v) => v.id === 'delivery'), { ...ctx, contrib }, (o) => o.body);
+  eq(delivery.includes('only branches that exist in this checkout'), false,
+    'a page without the branch panel must not carry the branch panel\'s caveat');
 });
 
 /* ================================================================== the drift path, actually run */
