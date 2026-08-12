@@ -32,7 +32,23 @@ const US = '\x1f';
 function gitLsFiles(root) {
   try {
     const out = execFileSync('git', ['ls-files', '-z'], { cwd: root, encoding: 'utf8', maxBuffer: 1 << 28, stdio: ['ignore', 'pipe', 'pipe'] });
-    return out.split(NUL).filter(Boolean);
+    /*
+     * **Deduplicated, because `ls-files` is not a list of files during a merge.**
+     *
+     * An unmerged path has three index entries — stage 1 base, stage 2 ours, stage 3 theirs — and plain
+     * `ls-files` prints the path once per stage. So while a conflict is open, every conflicted document is
+     * discovered three times, indexed three times, and reported as three documents claiming one title.
+     *
+     * That is H3, which is **blocking**. The result is a deadlock with no exit: resolving the conflict
+     * requires a commit, the commit guard refuses because H3 is firing, and H3 is firing *because* the
+     * conflict is unresolved. Hit for real while merging four branches — the guard blocked the very
+     * resolution that would have cleared it, and the report said "duplicate title, also claimed by" with
+     * nothing after it, because the document was duplicating itself.
+     *
+     * A `Set` is the whole fix. Ordering is preserved, which matters: discovery order decides document
+     * order in the derived layer, and a rebuild has to be byte-identical.
+     */
+    return [...new Set(out.split(NUL).filter(Boolean))];
   } catch (err) {
     const msg = String(err?.stderr || err?.message || err);
     if (/not a git repository|does not have any commits|ENOENT/i.test(msg)) return null;

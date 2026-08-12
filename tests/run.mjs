@@ -8112,6 +8112,48 @@ test('build · a claim from some other directory does not authorise deleting thi
   eq(fs.readFileSync(path.join(dir, 'docs', 'handwritten.txt'), 'utf8'), 'months of work\n');
 });
 
+/* ============================================ discovery during a merge (A-37) */
+
+console.log('\ndiscovery during a merge');
+
+test('scan · a conflicted path is one document, not one per merge stage', () => {
+  // `git ls-files` prints an unmerged path once for each index stage — 1 base, 2 ours, 3 theirs. Undeduped,
+  // every conflicted document was discovered three times and reported as three documents claiming one title,
+  // which is H3, which is **blocking**.
+  //
+  // That is a deadlock with no exit. Resolving the conflict needs a commit; the commit guard refuses because
+  // H3 is firing; H3 is firing because the conflict is unresolved. Hit for real while merging four branches:
+  // the guard blocked the very resolution that would have cleared it, and the finding read "duplicate title,
+  // also claimed by" with nothing after it, because the document was duplicating itself.
+  const dir = fixture('scan-merge', { 'README.md': '# Front\n' });
+  fs.mkdirSync(path.join(dir, 'docs'), { recursive: true });
+  const g = (...a) => execFileSync('git', a, { cwd: dir, stdio: 'ignore' });
+  const commit = (m) => execFileSync('git',
+    ['-c', 'user.email=t@example.com', '-c', 'user.name=T', 'commit', '-q', '-am', m], { cwd: dir, stdio: 'ignore' });
+
+  fs.writeFileSync(path.join(dir, 'docs', 'PLAN.md'), '# Plan\n\nbase\n', 'utf8');
+  g('add', '-A'); commit('base');
+  g('branch', 'other');
+  fs.writeFileSync(path.join(dir, 'docs', 'PLAN.md'), '# Plan\n\nours\n', 'utf8'); commit('ours');
+  g('checkout', '-q', 'other');
+  fs.writeFileSync(path.join(dir, 'docs', 'PLAN.md'), '# Plan\n\ntheirs\n', 'utf8'); commit('theirs');
+  g('checkout', '-q', '-');
+  try { execFileSync('git', ['merge', 'other'], { cwd: dir, stdio: 'ignore' }); } catch { /* expected to conflict */ }
+
+  // The precondition: git really is reporting the path three times, or this proves nothing.
+  const raw = execFileSync('git', ['ls-files', 'docs/PLAN.md'], { cwd: dir, encoding: 'utf8' })
+    .split('\n').filter(Boolean);
+  eq(raw.length, 3, 'the fixture must actually be mid-conflict with three staged entries');
+
+  const index = buildIndex(dir, resolveConfig(dir));
+  const plans = index.documents.filter((d) => d.path === 'docs/PLAN.md');
+  eq(plans.length, 1, 'a conflicted document is one document');
+
+  // And the blocking signal it used to trip stays silent.
+  const h3 = runHealth(index, resolveConfig(dir), dir).findings.filter((f) => f.signal === 'H3');
+  eq(h3.length, 0, `H3 must not fire against a document duplicating itself: ${JSON.stringify(h3)}`);
+});
+
 console.log(`\n${pass} passed, ${fail} failed${skipped ? `, ${skipped} skipped on ${process.platform}` : ''}\n`);
 if (fail) {
   console.log('Failures:');

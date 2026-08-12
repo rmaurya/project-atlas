@@ -42,7 +42,7 @@ measured against the code — the same distinction the tool preserves everywhere
 | C-10 | 45 | C-11 | 10 | Q-4 | 10 |
 | Q-5 | 10 | A-32 | 100 | A-33 | 100 |
 | A-34 | 100 | A-35 | 100 | Q-6 | 100 |
-| A-36 | 0 | | | | |
+| A-36 | 0 | A-37 | 100 | | |
 
 ---
 
@@ -960,6 +960,26 @@ thirty-two call sites across eleven modules route through it, five of them in `r
 `worklog.mjs` that reach files under version control. A test walks every module and fails on a bare call,
 because this defect returns silently and on one machine only, so the guard has to be structural rather than
 remembered.
+
+**A-37 · A conflicted file is one document, not one per merge stage** — **P1 · High**
+*Shipped.* `git ls-files` prints an unmerged path once for **each index stage** — 1 base, 2 ours, 3 theirs.
+Undeduped, every conflicted document was discovered three times, indexed three times, and reported as three
+documents claiming one title. That is H3, and H3 is **blocking**.
+
+***The result is a deadlock with no exit.*** Resolving a conflict requires a commit; the commit guard refuses
+because H3 is firing; H3 is firing *because* the conflict is unresolved. Hit for real while merging four
+branches: the guard blocked the very resolution that would have cleared it, and the finding read
+`"roadmap — project-atlas" also claimed by` with nothing after it — because the document was duplicating
+itself and the reporter had stripped the self-reference.
+
+*Fixed in all four readers, not one.* `scan.mjs::gitLsFiles` is the one that caused the block; `health.mjs`
+would have trebled a conflicted code file in coverage, `render.mjs` its counts, and `surviving.mjs` a file's
+surviving lines. Leaving three of them is the duplicated-derivation problem this tool exists to detect. Order
+is preserved through the `Set`, because discovery order decides document order and a rebuild must be
+byte-identical.
+
+*The test builds a real conflict* — two branches, one file, an actual failed `git merge` — and asserts the
+precondition that git really is reporting three entries before asserting that the index holds one.
 
 **A-36 · The build changes an input to itself, so it is not idempotent from a clean tree** — **P1 · High**
 

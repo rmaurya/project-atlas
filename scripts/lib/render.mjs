@@ -266,8 +266,10 @@ export function renderSite(index, health, cfg, root) {
   // three times would make the build slower for no answer it did not already have.
   let repo = { files: [], code: [], tests: null };
   try {
-    const files = execFileSync('git', ['-C', root, 'ls-files'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })
-      .split('\n').filter(Boolean);
+    // Deduplicated: `ls-files` prints an unmerged path once per stage, so counts on the page would treble
+    // mid-merge. Same reason as `scan.mjs::gitLsFiles`.
+    const files = [...new Set(execFileSync('git', ['-C', root, 'ls-files'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })
+      .split('\n').filter(Boolean))];
     repo = {
       files,
       code: files.filter((f) => /\.(m?[jt]sx?|py|go|rs|java|rb|swift|kt|c|h|cpp|cs|php|sh)$/i.test(f)),

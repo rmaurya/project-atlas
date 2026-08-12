@@ -48,7 +48,9 @@ export function blameFile(root, file) {
  */
 export function survivingLines(root, { limit = 400, include = /\.(m?js|ts|tsx|jsx|py|go|rs|java|rb|swift|kt|c|h|cpp|cs|php|sh|sql|json|ya?ml|md|css|html)$/i } = {}) {
   let files;
-  try { files = git(root, ['ls-files', '-z']).split('\0').filter(Boolean); }
+  // Deduplicated: an unmerged path appears once per index stage, and blaming it three times would treble
+  // its surviving-line count. Same reason as `scan.mjs::gitLsFiles`.
+  try { files = [...new Set(git(root, ['ls-files', '-z']).split('\0').filter(Boolean))]; }
   catch { return { available: false, reason: 'not a git repository' }; }
 
   const candidates = files.filter((f) => include.test(f));

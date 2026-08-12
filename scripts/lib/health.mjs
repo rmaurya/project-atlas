@@ -432,8 +432,10 @@ export function runHealth(index, cfg, root, opts = {}) {
   // section exists to prevent.
   let codeFiles = null;
   try {
-    codeFiles = execFileSync('git', ['-C', root, 'ls-files'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })
-      .split('\n').filter(Boolean)
+    // Deduplicated: an unmerged path is printed once per index stage, so a conflicted code file would be
+    // counted three times in coverage. Same reason as `scan.mjs::gitLsFiles`.
+    codeFiles = [...new Set(execFileSync('git', ['-C', root, 'ls-files'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })
+      .split('\n').filter(Boolean))]
       .filter((f) => /\.(m?[jt]sx?|py|go|rs|java|rb|swift|kt|c|h|cpp|cs|php|sh)$/i.test(f));
   } catch { /* handled below, as an absence of evidence rather than evidence of absence */ }
 
