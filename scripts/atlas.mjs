@@ -44,6 +44,7 @@ import { communityAssets, writeCommunity } from './lib/community.mjs';
 import { branchStatus, createBranch, formatBranch, TYPES } from './lib/branch.mjs';
 import { readTokens, formatTokens, formatSessions, transcriptDir, assertNotPublishable,
          readTokenEconomics, formatEconomics, writeTokenSnapshot } from './lib/tokens.mjs';
+import { pauseSession, readParked, verifyParked, stopSession, WIP_PREFIX } from './lib/session.mjs';
 import { readChanges, formatChanges, fileDiff } from './lib/changes.mjs';
 import { readGitInsight, formatGitInsight, GITINSIGHT_SECTIONS } from './lib/gitinsight.mjs';
 import { formatVersion, updateNotice, isPluginCache } from './lib/version.mjs';
@@ -1114,6 +1115,48 @@ async function main() {
    * page rather than fighting for the port, because "make the dashboard appear" is what the person meant
    * both times.
    */
+  /*
+   * `atlas pause` / `atlas resume` / `atlas stop` — the state of the *work*, not of the documents. (A-32)
+   *
+   * Everything else here derives from files that are still on disk when you come back. These three exist for
+   * the thing that is not: an agent that was mid-task when the session ended. The first time that happened,
+   * three of them were, and 92K of uncommitted work survived only because somebody went and looked.
+   */
+  if (cmd === 'pause' || cmd === 'resume' || cmd === 'stop') {
+    const c = paint(color);
+    if (cmd === 'pause') {
+      const r = pauseSession(root, {
+        storeDir: transcriptDir(root, cfg),
+        dryRun: !!flag('dry-run'),
+        label: typeof flag('label') === 'string' ? flag('label') : null,
+      });
+      if (!r.available) { console.error(r.reason); process.exitCode = 1; return; }
+      if (flag('json')) { console.log(JSON.stringify(r, null, 2)); return; }
+      say(formatPause(r, c));
+      return;
+    }
+
+    if (cmd === 'resume') {
+      const p = readParked(root);
+      if (!p.available) {
+        say(p.reason);
+        // Not an error: "nothing is parked" is the normal state of a repository nobody paused.
+        return;
+      }
+      const agents = verifyParked(root, p);
+      if (flag('json')) { console.log(JSON.stringify({ ...p, agents }, null, 2)); return; }
+      say(formatResume({ ...p, agents }, c));
+      return;
+    }
+
+    // `stop`
+    const r = stopSession(root, { force: !!flag('force'), dryRun: !!flag('dry-run') });
+    if (flag('json')) { console.log(JSON.stringify(r, null, 2)); return; }
+    say(formatStop(r, c));
+    if (r.kept.length && !r.forced) process.exitCode = 1;
+    return;
+  }
+
   if (cmd === 'serve') {
     const st = serverStatus(root);
 
@@ -1354,12 +1397,129 @@ async function main() {
   process.exitCode = 2;
 }
 
-/** A terminal view of the planning document: progress bars, grouped by track. */
-function formatTasks(plan, filter, useColor) {
-  const c = useColor
+/**
+ * The ANSI palette, in one place.
+ *
+ * `formatTasks` grew its own copy first; `pause`/`resume`/`stop` would have made three. The `Proxy` is what
+ * lets every call site write `c.dim(x)` unconditionally — a `--no-color` run returns the string untouched
+ * rather than making each formatter branch.
+ */
+function paint(useColor) {
+  return useColor
     ? { dim: (s) => `\x1b[2m${s}\x1b[0m`, bold: (s) => `\x1b[1m${s}\x1b[0m`, blue: (s) => `\x1b[34m${s}\x1b[0m`,
         green: (s) => `\x1b[32m${s}\x1b[0m`, red: (s) => `\x1b[31m${s}\x1b[0m`, yellow: (s) => `\x1b[33m${s}\x1b[0m` }
     : new Proxy({}, { get: () => (s) => s });
+}
+
+/** What `atlas pause` parked, and the one thing it could not park. */
+function formatPause(r, c) {
+  const L = [];
+  const agents = r.agents.filter((a) => !a.isMain);
+  const parked = agents.filter((a) => a.wipRef);
+  L.push('');
+  L.push(r.dryRun
+    ? c.bold('Dry run — nothing was written.')
+    : `${c.bold('Parked')} at ${r.at}${r.label ? ` — ${r.label}` : ''}`);
+  L.push('');
+  if (!agents.length) {
+    L.push('  No agent worktrees. Nothing was in flight to park.');
+    L.push('');
+    L.push(c.dim('  Your own uncommitted changes are left alone — pause parks agents, not your edits.'));
+    return L.join('\n');
+  }
+  for (const a of agents) {
+    const head = `  ${c.bold(a.id)}  ${a.label ? a.label : c.dim('(no label in the transcript)')}`;
+    L.push(head);
+    L.push(`     branch   ${a.branch || c.dim('(detached)')}`);
+    if (a.wipRef) {
+      // In a rehearsal nothing has been committed yet, so the honest figure is what *would* be — the dirty
+      // count. Printing `committed` there reads as "0 files", which is the opposite of what is about to happen.
+      L.push(r.dryRun
+        ? `     would    checkpoint ${a.dirty} file(s) to ${c.green(a.wipRef)}`
+        : `     parked   ${c.green(a.wipRef)}  ${a.committed} file(s) checkpointed`);
+    } else {
+      L.push(`     parked   ${c.dim(a.note || 'nothing to park')}`);
+    }
+    if (a.commitsAhead) L.push(`     ahead    ${a.commitsAhead} commit(s) not on main`);
+    L.push('');
+  }
+  L.push(`  ${c.bold(String(parked.length))} of ${agents.length} worktree(s) had work to checkpoint.`);
+  L.push('');
+  L.push(c.dim('  These are checkpoints, not finished changes — squash or amend before they land.'));
+  L.push(c.dim('  `atlas resume` reads this back. `atlas stop` clears it and keeps every branch.'));
+  return L.join('\n');
+}
+
+/**
+ * The re-spawn plan.
+ *
+ * States what cannot be restored **first**, before listing anything, because the whole risk of this command
+ * is that it reads like the agents are still alive.
+ */
+function formatResume(p, c) {
+  const L = [];
+  const agents = p.agents || [];
+  L.push('');
+  L.push(`${c.bold(`${agents.filter((a) => !a.isMain).length} agent(s) parked`)} at ${p.at}${p.label ? ` — ${p.label}` : ''}`);
+  L.push('');
+  L.push(c.yellow('  Their context is gone.') + ' A subagent\'s reasoning lives in the process that ran it.');
+  L.push('  What follows is the work, not the agents: branch, worktree, and what each had reached.');
+  L.push('  Re-spawn from these briefs — that is a fresh agent picking up a real tree, not a continuation.');
+  L.push('');
+  let n = 0;
+  for (const a of agents) {
+    if (a.isMain) continue;
+    n += 1;
+    L.push(`  ${c.bold(`[${n}]`)} ${a.label || a.id}`);
+    L.push(`      branch     ${a.branch || c.dim('(detached)')}`);
+    L.push(`      worktree   ${a.worktreePresent ? a.dir : c.red(`${a.dir}  — GONE`)}`);
+    if (a.wipRef) {
+      L.push(`      checkpoint ${a.wipRefPresent ? c.green(a.wipRef) : c.red(`${a.wipRef} — ref missing`)}` +
+        `  ${a.committed} file(s)`);
+    }
+    if (a.commitsAhead) L.push(`      progress   ${a.commitsAhead} commit(s) ahead of main`);
+    if (!a.worktreePresent && a.wipRef) {
+      L.push(c.dim(`      the worktree is gone but the checkpoint is not — \`git log ${a.wipRef}\``));
+    }
+    L.push('');
+  }
+  if (!n) L.push('  Nothing was parked under an agent worktree.');
+  L.push(c.dim('  `atlas stop` clears this state. Branches and checkpoints are never deleted by it.'));
+  return L.join('\n');
+}
+
+/** What `atlas stop` removed, what it refused to, and why the refusal is the useful part. */
+function formatStop(r, c) {
+  const L = [];
+  L.push('');
+  L.push(r.dryRun ? c.bold('Dry run — nothing was removed.') : c.bold('Stopped.'));
+  L.push('');
+  for (const x of r.removed) L.push(`  ${c.green('removed')}  ${x.id}  ${c.dim(x.dir)}`);
+  for (const x of r.kept) L.push(`  ${c.yellow('kept')}     ${x.id}  ${x.why}${x.dirty ? ` (${x.dirty} file(s))` : ''}`);
+  if (!r.removed.length && !r.kept.length) L.push('  No agent worktrees to clear.');
+  L.push('');
+  // A rehearsal that reports "cleared" is worse than no rehearsal: the whole point of `--dry-run` is to be
+  // believed about what has not happened yet.
+  L.push(`  Session state: ${
+    !r.hadManifest ? c.dim('none was recorded')
+      : r.dryRun ? 'would be cleared'
+        : 'cleared'}.`);
+  if (r.wipRefs.length) {
+    L.push(`  ${c.bold(String(r.wipRefs.length))} checkpoint branch(es) kept: ${r.wipRefs.join(', ')}`);
+    L.push(c.dim('  Nothing that reached git is deleted here. Remove them yourself when you are sure.'));
+  }
+  if (r.kept.length && !r.forced) {
+    L.push('');
+    L.push(c.yellow('  Some worktrees were kept because they still hold uncommitted work.'));
+    L.push('  `atlas pause` checkpoints it to a branch first, which is what makes stopping safe.');
+    L.push('  `atlas stop --force` discards it instead. That is not recoverable.');
+  }
+  return L.join('\n');
+}
+
+/** A terminal view of the planning document: progress bars, grouped by track. */
+function formatTasks(plan, filter, useColor) {
+  const c = paint(useColor);
 
   let items = plan.items;
   if (filter) {
@@ -1607,6 +1767,9 @@ function usage() {
   atlas build                generate the static site (index, dashboard, deck, health)
   atlas watch [--serve]      rebuild on change; --serve hosts it live at http://127.0.0.1:4173
   atlas all                  scan + health + build
+  atlas pause [--dry-run]    checkpoint every agent worktree to a wip/agent-* ref, and record the session
+  atlas resume               print the re-spawn plan for a paused session — branch, worktree, checkpoint
+  atlas stop [--force]       clear session state and agent worktrees; every branch and checkpoint survives
   atlas publish              stage a target; NOTHING is pushed without --push
     --target wiki            GitHub Wiki — flattened markdown, links rewritten, drift-guarded
     --target pages           the full site to a gh-pages branch (dashboard + deck survive)

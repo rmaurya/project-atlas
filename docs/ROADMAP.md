@@ -40,7 +40,7 @@ measured against the code — the same distinction the tool preserves everywhere
 | C-7 | 100 | C-8 | 100 | | |
 | C-9 | 100 | A-31 | 100 | A-30 | 100 |
 | C-10 | 45 | C-11 | 10 | Q-4 | 10 |
-| Q-5 | 10 | | | | |
+| Q-5 | 10 | A-32 | 0 | | |
 
 ---
 
@@ -857,6 +857,28 @@ existed.*
 file browser over `.env` and `.git`; what is served is the exact set of documents the build indexed, written
 to `sources.json` and re-read per miss so a document added by the watcher resolves without a restart.
 Verified: the failing link returns 200, `package-lock.json` and `.git/config` still 404.*
+
+**A-32 · Work in flight survives the session that was doing it** — **P1 · High**
+
+*Three subagents were mid-task when a session ended. Nothing in this tool knew they existed.* Their branches,
+their worktrees and 92K of uncommitted work in one of them were recoverable only because somebody went and
+looked, by hand, at `git worktree list` and three `git diff HEAD`s. **An agent's work is the most expensive
+thing this tool touches and it was the only thing with no record.**
+
+`atlas pause` commits each dirty worktree to a `wip/agent-<id>` ref on its own branch and writes a manifest.
+**Git is the store, not a temp directory** — a patch under `.atlas/` dies with the disk, and this is precisely
+the state you reach for after losing something. `atlas resume` reads the manifest back and prints a re-spawn
+plan. `atlas stop` clears the state and the worktrees and keeps every branch.
+
+***What `resume` deliberately does not claim.*** A subagent's context lives in the process and dies with it.
+Nothing on disk can reconstitute its reasoning, and a command that said "resumed" while silently starting a
+fresh agent on an old brief would be the most expensive lie this tool could tell. So `resume` restores what is
+restorable — branch, worktree, diff, label, what was established — and hands the session a plan to act on
+rather than pretending the agents are still alive.
+
+*The manifest carries the agent's **label**, never its prompt.* The transcript sidecar holds `description`, a
+three-word title like "Economics dashboard view", and that is what is stored. Prompt text does not reach disk
+here, the same boundary the journal holds.
 
 **A-31 · A rebuild the open page cannot see is worse than no rebuild** — **P1 · High**
 *The hooks added for A-25 ran `atlas build --auto --quiet` without `--stamp`.* Every build clears the output

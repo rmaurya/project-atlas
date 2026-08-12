@@ -29,3 +29,6 @@ docs/_wiki/
 # Which build last built here, so a second one can say it disagrees. It names an absolute path on one
 # machine, so committing it would put someone else's checkout location in everybody's diff.
 .atlas/build.owner.json
+
+# Session state for `atlas pause`/`resume` — carries agent labels, never prompts. Machine-local.
+.atlas/parked.json

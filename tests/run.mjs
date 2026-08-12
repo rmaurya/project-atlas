@@ -35,6 +35,8 @@ import { buildWikiPages, wikiPageName, isSafePageName, exportSingleFile, exportB
 // not exist yet fails at module load — which would take the whole suite down rather than one test.
 import * as healthModule from '../scripts/lib/health.mjs';
 import { readContrib, estimateHours, taskCoverage } from '../scripts/lib/contrib.mjs';
+import { pauseSession, readParked, verifyParked, stopSession, worktrees, agentIdOf, PARKED_FILE }
+  from '../scripts/lib/session.mjs';
 import { readTokens, formatTokens, formatSessions, assertNotPublishable, transcriptDir,
          readTokenEconomics, formatEconomics, writeTokenSnapshot, snapshotLine, classifyWrite,
          taskWindows, overlapWindows, transcriptFiles, WORK_KINDS } from '../scripts/lib/tokens.mjs';
@@ -7240,6 +7242,187 @@ test('signals · an operator signal is never counted as corpus rot', () => {
       eq(chart.includes(`>${id}<`), false, `${id} is not a documentation-health finding`);
     }
   }
+});
+
+/* ================================================================== pause / resume / stop (A-32) */
+
+/**
+ * **Synchronous, like everything appended below the drain.** `pendingAsync` is emptied hundreds of lines
+ * above; an `async` case down here is constructed, never awaited, and reported as a pass it never earned.
+ *
+ * Each case builds a real repository with a real linked worktree — `git worktree add` — because every claim
+ * this module makes is about git's view of the tree, and a mocked worktree would prove nothing about the one
+ * command whose entire job is to not lose somebody's work.
+ */
+
+console.log('\nsession · pause, resume, stop');
+
+/** `git rev-parse --verify` exits non-zero for a missing ref, so it must not be called bare. */
+function refSha(dir, ref) {
+  try {
+    return execFileSync('git', ['rev-parse', '--verify', '-q', ref],
+      { cwd: dir, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+  } catch { return ''; }
+}
+
+/** A repository with `n` agent worktrees, each optionally dirty. Returns the root. */
+function sessionFixture(name, agents) {
+  const dir = fixture(name, { 'README.md': '# S\n' });
+  const g = (cwd, ...a) => execFileSync('git', a, { cwd, stdio: 'ignore' });
+  g(dir, '-c', 'user.email=t@example.com', '-c', 'user.name=T', 'commit', '-q', '--allow-empty', '-m', 'base');
+  // `main` must exist by name: pauseSession counts `main..HEAD` to report progress.
+  g(dir, 'branch', '-f', 'main', 'HEAD');
+  for (const [id, dirty] of Object.entries(agents)) {
+    const wt = path.join(dir, '.claude', 'worktrees', `agent-${id}`);
+    fs.mkdirSync(path.dirname(wt), { recursive: true });
+    g(dir, 'worktree', 'add', '-q', '-b', `feat/${id}`, wt, 'HEAD');
+    if (dirty) fs.writeFileSync(path.join(wt, 'work.txt'), `${dirty}\n`, 'utf8');
+  }
+  return dir;
+}
+
+test('session · pause checkpoints an agent\'s uncommitted work to a ref that survives the worktree', () => {
+  // The failure this exists for: three agents were mid-task when a session ended, and 92K of uncommitted work
+  // in one of them was recoverable only by hand. A patch under `.atlas/` would not have been enough — losing
+  // the disk is the case you reach for this in — so the checkpoint is a commit and git owns the bytes.
+  const dir = sessionFixture('sess-park', { aaa: 'in progress' });
+  const r = pauseSession(dir, { now: '2026-01-01T00:00:00Z' });
+  ok(r.available, r.reason);
+
+  const a = r.agents.find((x) => x.id === 'aaa');
+  ok(a, 'the agent worktree is discovered from git, not from a list somebody maintains');
+  eq(a.wipRef, 'wip/agent-aaa');
+  eq(a.committed, 1, 'the uncommitted file is in the checkpoint');
+
+  // The ref resolves from the MAIN checkout, which is what makes it survive worktree removal.
+  const sha = execFileSync('git', ['rev-parse', '--verify', 'wip/agent-aaa'],
+    { cwd: dir, encoding: 'utf8' }).trim();
+  ok(/^[0-9a-f]{40}$/.test(sha), 'the checkpoint is a real commit object');
+  const files = execFileSync('git', ['show', '--name-only', '--format=', 'wip/agent-aaa'],
+    { cwd: dir, encoding: 'utf8' });
+  includes(files, 'work.txt', 'and it contains the work that was in flight');
+
+  // Removing the worktree must not take the work with it.
+  execFileSync('git', ['worktree', 'remove', '--force', path.join(dir, '.claude', 'worktrees', 'agent-aaa')],
+    { cwd: dir, stdio: 'ignore' });
+  const after = execFileSync('git', ['rev-parse', '--verify', 'wip/agent-aaa'],
+    { cwd: dir, encoding: 'utf8' }).trim();
+  eq(after, sha, 'the checkpoint outlives the worktree it came from — the whole point of using a ref');
+});
+
+test('session · pause never invents a commit, and never touches your own checkout', () => {
+  // Two silent lies this could tell. An empty checkpoint would put "work was parked" in the log for a
+  // worktree that had none. And parking the operator's own uncommitted edits would mean `atlas pause` quietly
+  // committed on their behalf — it parks agents, not you.
+  const dir = sessionFixture('sess-clean', { bbb: null });
+  fs.writeFileSync(path.join(dir, 'mine.txt'), 'my own edit\n', 'utf8');
+
+  const r = pauseSession(dir, { now: '2026-01-01T00:00:00Z' });
+  const b = r.agents.find((x) => x.id === 'bbb');
+  eq(b.wipRef, null, 'a clean worktree gets no checkpoint');
+  eq(b.note, 'clean');
+  eq(refSha(dir, 'wip/agent-bbb'), '',
+  'and no ref is created for it');
+
+  const main = r.agents.find((x) => x.isMain);
+  eq(main.wipRef, null, 'the main checkout is never committed');
+  includes(fs.readFileSync(path.join(dir, 'mine.txt'), 'utf8'), 'my own edit');
+  eq(execFileSync('git', ['status', '--porcelain', '--', 'mine.txt'],
+    { cwd: dir, encoding: 'utf8' }).trim().startsWith('??'), true, 'the operator\'s edit is left exactly as it was');
+});
+
+test('session · a dry run writes nothing at all', () => {
+  // A rehearsal that changes state is not a rehearsal, and this command's whole job is to be trusted before
+  // it is run for real.
+  const dir = sessionFixture('sess-dry', { ccc: 'wip' });
+  const r = pauseSession(dir, { dryRun: true, now: '2026-01-01T00:00:00Z' });
+  eq(r.dryRun, true, 'the report says it was a rehearsal, so the caller can headline it as one');
+  eq(fs.existsSync(path.join(dir, PARKED_FILE)), false, 'no manifest');
+  eq(refSha(dir, 'wip/agent-ccc'), '', 'no ref');
+  eq(execFileSync('git', ['status', '--porcelain'],
+    { cwd: path.join(dir, '.claude', 'worktrees', 'agent-ccc'), encoding: 'utf8' }).trim().length > 0, true,
+  'and the work is still uncommitted, exactly where it was');
+});
+
+test('session · resume re-verifies the manifest against the tree instead of believing it', () => {
+  // A manifest is a claim about the past; the worktree is the present. They diverge — somebody removes a
+  // worktree between pausing and resuming — and a resume that read the file and stopped there would send an
+  // agent to a directory that is not there.
+  const dir = sessionFixture('sess-verify', { ddd: 'wip' });
+  pauseSession(dir, { now: '2026-01-01T00:00:00Z' });
+  execFileSync('git', ['worktree', 'remove', '--force', path.join(dir, '.claude', 'worktrees', 'agent-ddd')],
+    { cwd: dir, stdio: 'ignore' });
+
+  const p = readParked(dir);
+  ok(p.available, p.reason);
+  const [a] = verifyParked(dir, p).filter((x) => x.id === 'ddd');
+  eq(a.worktreePresent, false, 'the vanished worktree is reported as vanished');
+  eq(a.wipRefPresent, true, 'and the checkpoint that outlived it is reported as present');
+});
+
+test('session · a torn manifest says where the work is, rather than reporting nothing was parked', () => {
+  // The worst available failure: tell somebody their work is gone while it is sitting in a ref. "Unreadable"
+  // and "nothing was parked" are different states and must not render the same.
+  const dir = sessionFixture('sess-torn', { eee: 'wip' });
+  pauseSession(dir, { now: '2026-01-01T00:00:00Z' });
+  fs.writeFileSync(path.join(dir, PARKED_FILE), '{"version":1,"agents":[', 'utf8');
+
+  const p = readParked(dir);
+  eq(p.available, false);
+  includes(p.reason, 'wip/agent-', 'the reason names where to look');
+  includes(p.reason, 'git branch --list', 'and gives the command that finds it');
+
+  // Distinct from the empty case, which is not an error at all.
+  fs.rmSync(path.join(dir, PARKED_FILE));
+  includes(readParked(dir).reason, 'Nothing is parked');
+});
+
+test('session · stop keeps every branch, and refuses a worktree that still holds work', () => {
+  // "Stop" means finish cleanly. Deleting uncommitted work on the way past is the opposite, so the refusal is
+  // the feature — and it points at `atlas pause`, which is what makes stopping safe.
+  const dir = sessionFixture('sess-stop', { fff: 'wip', ggg: null });
+  pauseSession(dir, { now: '2026-01-01T00:00:00Z' });          // parks fff, leaves ggg clean
+  fs.writeFileSync(path.join(dir, '.claude', 'worktrees', 'agent-ggg', 'late.txt'), 'after\n', 'utf8');
+
+  const r = stopSession(dir, {});
+  eq(r.removed.map((x) => x.id), ['fff'], 'the clean worktree is removed');
+  eq(r.kept.map((x) => x.id), ['ggg'], 'the dirty one is kept');
+  includes(r.kept[0].why, 'uncommitted');
+
+  // Branches and checkpoints are never deleted by stop.
+  ok(r.wipRefs.includes('wip/agent-fff'), 'the checkpoint is listed');
+  eq(refSha(dir, 'wip/agent-fff').length, 40,
+  'and it still exists afterwards');
+  eq(refSha(dir, 'feat/fff').length, 40,
+  'as does the feature branch');
+  eq(fs.existsSync(path.join(dir, PARKED_FILE)), false, 'the session state is cleared');
+});
+
+test('session · the manifest carries the agent\'s label and never its prompt', () => {
+  // `agent-<id>.meta.json` holds `description` — a three-word title — beside the brief. The brief is the
+  // prompt in miniature and does not reach disk here, the same boundary tokens.mjs holds over the same
+  // directory. A planted secret proves the reader cannot carry one out.
+  const dir = sessionFixture('sess-label', { hhh: 'wip' });
+  const store = path.join(dir, 'store');
+  fs.mkdirSync(path.join(store, 'sess-1', 'subagents'), { recursive: true });
+  fs.writeFileSync(path.join(store, 'sess-1', 'subagents', 'agent-hhh.meta.json'), JSON.stringify({
+    agentType: 'general-purpose',
+    description: 'Economics dashboard view',
+    prompt: 'SHIBBOLETH-do-not-store-this',
+  }), 'utf8');
+
+  const r = pauseSession(dir, { storeDir: store, now: '2026-01-01T00:00:00Z' });
+  eq(r.agents.find((x) => x.id === 'hhh').label, 'Economics dashboard view');
+  const raw = fs.readFileSync(path.join(dir, PARKED_FILE), 'utf8');
+  eq(raw.includes('SHIBBOLETH'), false, 'no prompt text reaches the manifest');
+  eq(raw.includes('"prompt"'), false, 'not even the key');
+});
+
+test('session · the manifest is gitignored, because how you worked is not a fact about the repository', () => {
+  const ignore = fs.readFileSync(path.join(REPO_ROOT, '.gitignore'), 'utf8');
+  includes(ignore, PARKED_FILE, 'the parked manifest must never be committed');
+  eq(execFileSync('git', ['check-ignore', PARKED_FILE], { cwd: REPO_ROOT, encoding: 'utf8' }).trim(),
+    PARKED_FILE, 'and git agrees');
 });
 
 console.log(`\n${pass} passed, ${fail} failed${skipped ? `, ${skipped} skipped on ${process.platform}` : ''}\n`);
