@@ -46,7 +46,8 @@
       "blurb": "What the system is required to do, stated formally.",
       "match": [
         "docs/design/SRS.md",
-        "docs/design/PRD.md"
+        "docs/design/PRD.md",
+        "docs/specs/**"
       ]
     },
     {

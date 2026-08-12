@@ -39,7 +39,8 @@ measured against the code — the same distinction the tool preserves everywhere
 | A-28 | 100 | M-4 | 100 | A-29 | 100 |
 | C-7 | 100 | C-8 | 100 | | |
 | C-9 | 100 | A-31 | 100 | A-30 | 100 |
-| C-10 | 0 | C-11 | 0 | Q-4 | 0 |
+| C-10 | 45 | C-11 | 0 | Q-4 | 0 |
+| Q-5 | 10 | | | | |
 
 ---
 
@@ -175,6 +176,17 @@ in-flight panel — it renders on the machine that has the transcripts and is st
 export. `atlas tokens --snapshot`, gated on `tokens.snapshot`, writes a counts-only rollup to
 `.atlas/tokens.jsonl` for a repository that wants the history to survive a cleared transcript and reach a
 clone. No prompt text, no paths, ever, on either path.
+
+*The data layer is built; the panel and the charts are not, and the figure says so.* `readTokenEconomics`
+returns the shape in [the data contract](specs/token-economics.md), `atlas tokens` prints the attribution
+beneath the totals it already printed, and `--snapshot` writes the rollup.
+
+***And it found the source was being read from the wrong place.*** A subagent writes to
+`<store>/<session-id>/subagents/agent-<id>.jsonl`, one directory down, and `readTokens` had always listed the
+store with a flat `readdirSync`. **20 files, 4,569 records and 1,085,725 output tokens — 30% of all output —
+were invisible to every figure `atlas tokens` has ever printed**, and invisible in exactly one direction:
+every token a subagent spent. The axis C-11 is built on read a flat zero and presented it as a measurement.
+Fixed here, because a data layer over a source it only half reads is worse than none.
 
 **C-11 · Atlas argues for parallelism, and then measures whether it happened** — **P2 · Medium**
 
@@ -359,6 +371,21 @@ reader to discover. It cannot block a commit, because "you should have paralleli
 blocking set is reserved for claims about the repository being wrong.
 
 *It is unevaluated, not "ok", when no transcript is present* — the Not-checked discipline A-29 was filed for.
+
+**Q-5 · A page can be rendered from the wrong repository, and a test passes because of it** — **P2 · Medium**
+
+*`viewPage` reads the working tree with `readInflight(cfg.__root || process.cwd(), …)`
+(`scripts/lib/dashboard.mjs:134`), and `__root` is attached in exactly one place — `renderSite`
+(`scripts/lib/render.mjs:200`).* Any other caller falls through to `process.cwd()`, so the in-flight card
+describes **whatever repository the process happens to be standing in** rather than the one being rendered.
+The same fallback is on three more lines of the same file.
+
+*It is already producing a false green.* `views · a panel spans because of its own outermost element` builds
+a fixture, writes `.atlas/tasks-live.jsonl` into it, and asserts the session-task section renders — but the
+panel it renders is read from the developer's own checkout, so the case passes only on a machine that happens
+to have a gitignored `.atlas/tasks-live.jsonl` of its own and fails everywhere else, including CI. **It fails
+on `main` today.** Found while building C-10 and deliberately not fixed there: the fix belongs in the
+dashboard, which was being changed concurrently by another line of work.
 
 ## Track 4 — Delivery
 

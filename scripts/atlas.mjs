@@ -42,7 +42,8 @@ import { readContrib, formatContrib } from './lib/contrib.mjs';
 import { detectHost, probeCapabilities, gateTarget, formatCapabilities } from './lib/host.mjs';
 import { communityAssets, writeCommunity } from './lib/community.mjs';
 import { branchStatus, createBranch, formatBranch, TYPES } from './lib/branch.mjs';
-import { readTokens, formatTokens, formatSessions, transcriptDir, assertNotPublishable } from './lib/tokens.mjs';
+import { readTokens, formatTokens, formatSessions, transcriptDir, assertNotPublishable,
+         readTokenEconomics, formatEconomics, writeTokenSnapshot } from './lib/tokens.mjs';
 import { readChanges, formatChanges, fileDiff } from './lib/changes.mjs';
 import { readGitInsight, formatGitInsight, GITINSIGHT_SECTIONS } from './lib/gitinsight.mjs';
 import { formatVersion, updateNotice, isPluginCache } from './lib/version.mjs';
@@ -827,14 +828,31 @@ async function main() {
     const k = await readTokens(root, cfg, { onProgress: (m) => live && process.stderr.write(m + '\r') });
     if (live) process.stderr.write(' '.repeat(48) + '\r');
 
-    if (flag('json')) { console.log(JSON.stringify(k, null, 2)); return; }
-    const report = formatTokens(k, color);
+    // C-10. The attribution layer is a second pass over the same store, answering the joins the totals above
+    // cannot: what a task cost, what kind of work it was, what ran in a subagent. The totals report is
+    // unchanged — this is printed after it, never instead of it.
+    const econ = readTokenEconomics(root, cfg);
+
+    if (flag('json')) { console.log(JSON.stringify({ ...k, economics: econ }, null, 2)); return; }
+
+    const render = (useColor) => formatTokens(k, useColor) + '\n\n' + formatEconomics(econ, useColor);
     if (out) {
-      fs.writeFileSync(path.resolve(root, out), formatTokens(k, false) + '\n', 'utf8');
+      fs.writeFileSync(path.resolve(root, out), render(false) + '\n', 'utf8');
       say(`Wrote ${out}`);
     } else {
-      say(report);
+      say(render(color));
     }
+
+    // Never implicit, never on a build: only this flag, and only with `tokens.snapshot` set.
+    if (flag('snapshot')) {
+      const snap = writeTokenSnapshot(root, cfg, econ);
+      say('');
+      if (!snap.written) say(`Snapshot not written — ${snap.reason}`);
+      else if (!snap.appended) say(`Snapshot up to date — ${snap.file} already records all ${snap.days} day(s).`);
+      else say(`Snapshot: appended ${snap.appended} day(s) to ${snap.file}` +
+        (snap.unchanged ? `, ${snap.unchanged} already recorded unchanged.` : '.'));
+    }
+
     if (!k.available) process.exitCode = 1;
     return;
   }
@@ -1572,6 +1590,7 @@ function usage() {
   atlas changes [--json]     what changed, and which documents cite it
   atlas diff <file>          that file's diff — uncommitted, else across the branch
   atlas tokens [--out FILE]  token accounting from local session transcripts — opt-in, never published
+    --snapshot               append the counts-only day rollup to .atlas/tokens.jsonl (needs tokens.snapshot)
   atlas sessions [--out F]   how sessions went — turns, interruptions, friction, rework
   atlas prompt [--out FILE]  a system prompt assembled from this repository's own rules and state
   atlas mcp                  serve the corpus over MCP on stdio — read-only, no dependency
