@@ -234,6 +234,64 @@ subjective would train people to suppress it.
 health says now — as a **prompt for a human to write the rest**, never as the file itself. The distinction is
 the same one the tool makes everywhere: it reports, and the words stay yours.
 
+## Parallelism — one worktree per agent
+
+Autonomy is mostly about what a single session may do unattended. This is the other half: what happens when a
+session stops being single.
+
+**The default is to fan independent work out to subagents.** Work with no data dependency between its parts
+should not be done one part at a time, and the tool's own instruction file now says so
+([`skills/build/SKILL.md`](../../skills/build/SKILL.md)). What follows is the constraint that makes it safe,
+and it was paid for rather than reasoned out.
+
+**Three subagents were run against one shared working tree and one shared `HEAD`.** They all edited at once,
+none of them committed, and the changes arrived interleaved in a single tree with no record of authorship.
+Recovering it took a session: a 408-line diff in one test file, split by hunk and argued back to the branch
+each hunk belonged on. Nothing failed loudly at any point — that is the part worth remembering.
+
+The failure has the same shape as the one that produced one handoff directory per contributor above, and the
+same fix. It is not a discipline problem:
+
+| What is shared | What goes wrong | Loud? |
+|---|---|---|
+| `HEAD` | one agent branching moves the branch under the others | no |
+| the working tree | uncommitted hunks have no author once two agents have touched a file | no |
+| a single file | the later write wins; the earlier one is gone | no |
+| the whole diff | every agent declines to commit a tree it does not recognise | no |
+
+**So: one git worktree per agent, disjoint file ownership stated in the brief, and a report back naming
+anything the agent needed from a sibling's file rather than reaching across for it.** Merge one branch at a
+time, reading each diff. Scaling parallel work is not a matter of discipline about who edits what; it is a
+matter of there being nothing to contend over.
+
+The honest exceptions are stated in the skill and belong here too: work with a genuine dependency chain has to
+run in order, and a task small enough that the briefing costs more than the parallelism is correctly done
+alone.
+
+One signal, and it is unlike every other one this tool has:
+
+| Signal | Fires when | Class |
+|---|---|---|
+| **H17** | a session made 40 or more edits in its main thread and delegated no turn to a subagent | advisory, never blocking |
+
+**H17 measures the operator, not the corpus.** H1–H16 are claims about the repository, settled by reading the
+files; H17 is a claim about how somebody worked. It reads local session transcripts rather than the corpus, it
+reports **unevaluated — never "ok"** wherever no transcript was supplied, and it cannot be added to the
+blocking set. Blocking is reserved for claims that the repository is wrong. "You should have parallelised" is
+advice.
+
+**Where that last guarantee actually lives is worth stating, because the obvious answer is wrong.** H17 is
+deliberately absent from the catalogue in `scripts/lib/signals.mjs` that `scripts/lib/config.mjs` validates
+`blocking` against — but an unknown-yet-well-formed signal id there is a **warning, not a refusal**, so that a
+config written for a newer project-atlas still loads. `"blocking": ["H17"]` therefore survives validation
+intact. The refusal is in `scripts/lib/health.mjs`, at the line that decides whether a finding blocks, and the
+test that covers it exists because the first draft of this paragraph claimed the config layer did it.
+
+The threshold is 40 because that is the 25th percentile of the edit counts of the sessions that *did* fan out,
+across the 29 transcripts available when the signal was written. It is a stated default like every other one
+here — `tokens.parallelismEdits` changes it, and a repository that disagrees should change it rather than
+suppress the signal.
+
 ## SOPs
 
 An SOP is a document that is *wrong* rather than merely stale when it drifts, so it carries obligations an

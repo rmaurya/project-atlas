@@ -18,7 +18,9 @@ import { fileURLToPath } from 'node:url';
 
 import { globToRegExp, resolveConfig, DEFAULT_CLUSTERS, DEFAULT_CONFIG, clusterFor, unsafeRegexReason, AUTOMATION_KEYS } from '../scripts/lib/config.mjs';
 import { buildIndex } from '../scripts/lib/scan.mjs';
-import { runHealth, formatReport, SIGNALS } from '../scripts/lib/health.mjs';
+import { runHealth, formatReport, SIGNALS, OPERATOR_SIGNALS, readParallelism,
+         DEFAULT_PARALLELISM_EDITS, CORPUS_SIGNALS as HEALTH_CORPUS_SIGNALS } from '../scripts/lib/health.mjs';
+import { SIGNALS as CORPUS_SIGNALS } from '../scripts/lib/signals.mjs';
 import { renderSite } from '../scripts/lib/render.mjs';
 import { renderMarkdown, inline } from '../scripts/lib/markdown.mjs';
 import { readPlanning, DEFAULT_PLANNING } from '../scripts/lib/planning.mjs';
@@ -376,7 +378,11 @@ test('H7 · a pathological config pattern is declined and named, never run', () 
   ok(Date.now() - started < 5000, 'the run must finish rather than backtrack');
 
   eq(sig(health, 'H7').length, 0);
-  eq(health.unevaluated, ['H7'], 'the signal must be marked unevaluated, not left looking clean');
+  // Filtered to the corpus catalogue on purpose. H17 measures the operator and is always unevaluated in a
+  // fixture that supplies no session data, so an exact list here would now be asserting something about the
+  // operator signal rather than about the declined pattern this case is for.
+  eq(health.unevaluated.filter((id) => CORPUS_SIGNALS[id]), ['H7'],
+    'the signal must be marked unevaluated, not left looking clean');
   const nc = health.notChecked.join(' ');
   includes(nc, '(a+)+$', 'the offending pattern must be named');
   includes(nc, 'NOT evaluated');
@@ -397,7 +403,7 @@ test('H9 · an invalid crossref pattern is reported, not thrown', () => {
   const { health } = analyse(cfgRepo, {
     crossref: [{ id: 'plan', a: 'docs/BACKLOG.md', b: 'docs/TASKS.md', pattern: '\\b([A-Z' }],
   });
-  eq(health.unevaluated, ['H9']);
+  eq(health.unevaluated.filter((id) => CORPUS_SIGNALS[id]), ['H9']);   // see the H7 case for the filter
   includes(health.notChecked.join(' '), 'not a valid regular expression');
 });
 
@@ -6586,6 +6592,201 @@ test('tokens · the totals report counts subagent transcripts too, and does not 
   // had produced an assistant turn every later file counted as a session whether it held anything or not.
   eq(k.outcomes.sessions, 1, 'three transcripts, one session');
   includes(k.notChecked.join(' '), 'subagents/', 'and the report says where they were found');
+});
+
+/* ================================================================== the operator signal (Q-4 / H17) */
+
+/*
+ * `H17` — the one signal that judges how a session was run rather than what is in the repository.
+ *
+ * **Every case here is synchronous, deliberately.** `pendingAsync` is drained around line 4170, thousands of
+ * lines above this point, so an `async` case registered down here is never awaited and passes by never
+ * running — the same trap the kb and serve-adoption sections already document. Each case below was checked by
+ * reverting the change and watching it fail.
+ */
+
+console.log('\nH17 · the operator signal');
+
+/** A repository with nothing wrong in it, so an H17 assertion is never confounded by a corpus finding. */
+const H17_FIXTURE = {
+  'project-atlas.config.json': JSON.stringify({ blocking: ['H1'] }),
+  'docs/README.md': '# Index\n\n[A](A.md)\n',
+  'docs/A.md': '# A\n\nBack to the [index](README.md).\n',
+};
+
+test('H17 · measures the operator, not the corpus, and says so in its own description', () => {
+  // The distinction is the reason this signal is allowed to exist at all. H1–H16 are claims about the
+  // repository; a reader who takes H17 for one of them concludes that a file is broken when nothing is.
+  const why = SIGNALS.H17.why;
+  includes(why.toLowerCase(), 'operator', 'H17 must name what it measures');
+  includes(why.toLowerCase(), 'not the corpus', 'and must name what it does not measure');
+  includes(why, String(DEFAULT_PARALLELISM_EDITS), 'the threshold must appear in the signal text');
+  includes(why, '25th percentile', 'and the evidence for the threshold, not just the number');
+  includes(why, '29 transcripts', 'and the sample that evidence was measured over — a percentile of what?');
+
+  // The catalogue split is what makes the distinction structural rather than a comment: `signals.mjs` is the
+  // corpus catalogue, and `config.mjs`, `prompt.mjs` and `kb.mjs` read it when they mean "rot signals".
+  ok(!CORPUS_SIGNALS.H17, 'H17 must not be in the corpus catalogue');
+  ok(OPERATOR_SIGNALS.H17 && SIGNALS.H17, 'but it must still be in the report catalogue');
+  ok(SIGNALS.H17.operator === true, 'and be marked as an operator signal for the renderers');
+
+  // The two counts a renderer needs, both reachable from this module. A card headed "Rot signals" that counts
+  // the combined catalogue calls H17 a rot signal — so `health.mjs` re-exports the corpus set rather than
+  // leaving a renderer to reach into `signals.mjs` or, more likely, not to notice there was a choice.
+  eq([Object.keys(HEALTH_CORPUS_SIGNALS).length, Object.keys(OPERATOR_SIGNALS).length,
+      Object.keys(SIGNALS).length], [16, 1, 17],
+    'sixteen claims about the repository, one about the operator, seventeen rows to render');
+  eq(Object.keys(HEALTH_CORPUS_SIGNALS), Object.keys(CORPUS_SIGNALS),
+    'the re-export must be the same catalogue signals.mjs holds, not a second copy of it');
+});
+
+test('H17 · unevaluated, never ok, when there is no transcript to read', () => {
+  // A-29: a signal that could not run and printed "ok" is the failure the Not-checked section exists to
+  // prevent. `runHealth` is called here exactly as `atlas health` calls it — with no session data at all.
+  const dir = fixture('h17-unevaluated', H17_FIXTURE);
+  const cfg = resolveConfig(dir);
+  const index = buildIndex(dir, cfg);
+  const health = runHealth(index, cfg, dir);
+
+  ok(health.unevaluated.includes('H17'), 'H17 must be unevaluated when no session data was supplied');
+  eq(health.counts.H17, 0, 'and it reports no findings');
+  ok(health.notChecked.some((n) => n.startsWith('H17 was NOT evaluated')),
+    'and the report states that it did not run, and why');
+
+  const report = formatReport(health, index, { color: false });
+  includes(report, 'H17', 'the row must be present');
+  ok(!/H17\s+ok\b/.test(report), 'and must never read "ok" — that is the A-29 lie');
+  includes(report, 'not evaluated');
+  includes(report, 'measures the operator, not the corpus',
+    'the terminal row must say which kind of claim this is');
+});
+
+test('H17 · an empty transcript store is unevaluated too, not clean', () => {
+  // "The store was read and holds nothing" is still no evidence about how anyone worked. Reporting ok here
+  // would mean a machine that has never run a session gets a clean bill for its parallelism.
+  const empty = readParallelism({ available: true, sessions: [] });
+  ok(!empty.available);
+  includes(empty.reason, 'no transcript');
+
+  const unreadable = readParallelism({ available: false, reason: 'no session transcripts for this repository' });
+  ok(!unreadable.available);
+  includes(unreadable.reason, 'no session transcripts for this repository',
+    'the token layer\'s own reason must survive into the report');
+});
+
+test('H17 · fires on a large solo session, and on nothing else', () => {
+  const dir = fixture('h17-fires', H17_FIXTURE);
+  const cfg = resolveConfig(dir);
+  const index = buildIndex(dir, cfg);
+  const sessions = [
+    { id: 'solo-big', edits: 139, subagentTurns: 0 },     // the shape this signal exists for
+    { id: 'solo-small', edits: 16, subagentTurns: 0 },    // below the threshold: correctly done alone
+    { id: 'fanned-out', edits: 694, subagentTurns: 21 },  // large, but it delegated — never a finding
+    { id: 'at-threshold', edits: DEFAULT_PARALLELISM_EDITS, subagentTurns: 0 },
+    { id: 'under-by-one', edits: DEFAULT_PARALLELISM_EDITS - 1, subagentTurns: 0 },
+  ];
+  const health = runHealth(index, cfg, dir, { sessions });
+
+  ok(!health.unevaluated.includes('H17'), 'supplied with data, it must actually run');
+  eq(sig(health, 'H17').map((f) => f.session).sort(), ['at-threshold', 'solo-big'],
+    'only sessions at or above the threshold with no subagent turn');
+  const big = sig(health, 'H17').find((f) => f.session === 'solo-big');
+  includes(big.detail, '139 edit(s)');
+  includes(big.detail, String(DEFAULT_PARALLELISM_EDITS), 'the finding states the threshold it was judged against');
+  ok(big.corpus === true, 'a session has no document page, so it must not be rendered as a link');
+
+  // A *fired* H17 sits in the same column as sixteen counts of things wrong with the repository, so the row
+  // has to say which kind of claim it is there too — not only on the unevaluated row above.
+  const report = formatReport(health, index, { color: false });
+  includes(report, 'H17', 'the fired row must be present');
+  includes(report, 'measures the operator, not the corpus',
+    'a fired operator signal must still be labelled as one');
+});
+
+test('H17 · the threshold is a stated default, changeable rather than suppressible', () => {
+  // Every other threshold in this tool is configurable for the same reason: a number the reader cannot argue
+  // with gets the whole report ignored.
+  const dir = fixture('h17-threshold', H17_FIXTURE);
+  const cfg = resolveConfig(dir);
+  const index = buildIndex(dir, cfg);
+  const sessions = [{ id: 's', edits: 20, subagentTurns: 0 }];
+
+  eq(sig(runHealth(index, cfg, dir, { sessions }), 'H17').length, 0, '20 edits is below the default of 40');
+  const tuned = { ...cfg, tokens: { parallelismEdits: 10 } };
+  eq(sig(runHealth(index, tuned, dir, { sessions }), 'H17').length, 1, 'and above a configured 10');
+});
+
+test('H17 · cannot block, even when the config file names it in the blocking set', () => {
+  // **Keeping H17 out of `signals.mjs` is not the enforcement, and this test is why that sentence is here.**
+  // The first draft of the comment above `blockingFor` claimed the config validator refused
+  // `"blocking": ["H17"]`. It does not: an unknown-but-well-formed signal id is a *warning*, deliberately, so
+  // a config written for a newer project-atlas still loads. The id therefore survives into `cfg.blocking`
+  // exactly as H99 does, and only the check in `blockingFor` stops "you should have parallelised" from
+  // refusing somebody's commit.
+  const dir = fixture('h17-never-blocks', {
+    ...H17_FIXTURE,
+    'project-atlas.config.json': JSON.stringify({ blocking: ['H1', 'H17'] }),
+  });
+  const cfg = resolveConfig(dir);
+  ok(cfg.blocking.includes('H17'),
+    'the config layer keeps an id it does not know — so it is not what protects this');
+
+  const health = runHealth(buildIndex(dir, cfg), cfg, dir,
+    { sessions: [{ id: 'big', edits: 500, subagentTurns: 0 }] });
+  eq(sig(health, 'H17').length, 1, 'the finding is still reported');
+  eq(health.findings.filter((f) => f.signal === 'H17' && f.blocking).length, 0, 'and it never blocks');
+  eq(health.blockingCount, 0, 'so nothing is refused over it');
+});
+
+test('H17 · a session missing either count is dropped and said so, never assumed innocent', () => {
+  const r = readParallelism([
+    { id: 'complete', edits: 100, subagentTurns: 0 },
+    { id: 'no-edits' },
+    { id: 'no-subagent-count', edits: 100 },
+  ]);
+  eq(r.considered, 1);
+  eq(r.incomplete, 2);
+  eq(r.flagged.map((f) => f.id), ['complete']);
+
+  const dir = fixture('h17-incomplete', H17_FIXTURE);
+  const cfg = resolveConfig(dir);
+  const health = runHealth(buildIndex(dir, cfg), cfg, dir, { sessions: [{ id: 'x' }] });
+  ok(health.unevaluated.includes('H17'), 'nothing judgeable means unevaluated, not clean');
+});
+
+/* ================================================================== the parallelism instruction (C-11) */
+
+test('C-11 · the skill tells a session to fan out, and gives one worktree per agent as the reason', () => {
+  // The instruction is cheap and the constraint is what was expensive: three subagents on one shared tree and
+  // one shared HEAD cost a session of splitting a 408-line diff by hunk. A skill that says "use subagents"
+  // without saying that is an instruction to repeat it.
+  const skill = fs.readFileSync(path.join(REPO_ROOT, 'skills', 'build', 'SKILL.md'), 'utf8');
+  includes(skill, 'one worktree per agent', 'the constraint must be stated in those words');
+  includes(skill, 'subagents by default', 'and fanning out must be the default, not an option');
+  includes(skill, '408-line', 'with the cost that was actually paid, so it reads as a reason not a rule');
+  includes(skill, 'When not to fan out', 'and the honest exceptions');
+  includes(skill, 'depend on each other', 'a dependency chain is not parallelisable');
+  includes(skill, 'coordination costs more than the parallelism', 'and neither is a task that is too small');
+  includes(skill, 'H17', 'the skill names the signal that measures whether any of this happened');
+
+  // Both runtimes ship the same words. `sync-runtimes --check` is asserted elsewhere; this pins the content
+  // rather than the mechanism, because a mirror that is identically wrong still passes that check.
+  const mirror = fs.readFileSync(path.join(REPO_ROOT, 'plugins', 'atlas', 'skills', 'build', 'SKILL.md'), 'utf8');
+  includes(mirror, 'one worktree per agent', 'the Codex package must carry it too');
+});
+
+test('C-11 · the skill and the reference guide agree that H17 measures the operator', () => {
+  // The tool's own instruction file drifting from the tool is the failure it detects for a living — and this
+  // section of the skill has already done it once, claiming "nine, three blocking" for seven releases.
+  const skill = fs.readFileSync(path.join(REPO_ROOT, 'skills', 'build', 'SKILL.md'), 'utf8');
+  includes(skill, 'measures the operator, not the corpus');
+  includes(skill, 'never blocking');
+  includes(skill, 'unevaluated');
+
+  const guide = fs.readFileSync(path.join(REPO_ROOT, 'docs', 'references', 'autonomy.md'), 'utf8');
+  includes(guide, 'H17 measures the operator, not the corpus');
+  includes(guide, 'one worktree per agent');
+  includes(guide, '408-line');
 });
 
 console.log(`\n${pass} passed, ${fail} failed${skipped ? `, ${skipped} skipped on ${process.platform}` : ''}\n`);

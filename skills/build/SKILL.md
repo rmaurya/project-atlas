@@ -176,12 +176,66 @@ prevent.
 
 Full rules: `docs/references/branching.md`.
 
+## Work in parallel — one worktree per agent
+
+**Fan independent work out to subagents by default.** When a request contains parts that do not need each
+other's output — three reference guides to audit, a signal to add and a dashboard panel to draw, six clusters
+to classify — send them at once, in a single message with one tool call per agent, and spend your own context
+on the judgement calls instead of the typing. Doing five independent things one after another is not caution;
+it is five times the wall-clock and five times the context for the same result.
+
+### The part that is expensive to learn twice
+
+**Give every agent its own git worktree.** Not a directory, not a convention about who touches which file — a
+worktree, so each agent has its own working tree and its own `HEAD`.
+
+This repository ran three subagents against one shared checkout and one shared `HEAD`. Nothing crashed and
+nothing warned. What happened is that all three edited at once, none of them committed, and their changes
+arrived interleaved in a single working tree with no record of whose was whose. Untangling it took a whole
+session: a 408-line diff in one test file, split by hunk, each hunk read and argued back to the branch it
+belonged on. The parallelism saved perhaps an hour and the reconciliation cost a day.
+
+It is worth being precise about *why* a shared tree fails, because the failure is not carelessness:
+
+- **`HEAD` is per worktree, not per agent.** One agent branching moves the branch under the other two, and
+  the second one to run `atlas branch` "carries the uncommitted work across" — including work it did not do.
+- **Uncommitted changes have no author.** A diff in a shared tree cannot say which agent wrote which hunk.
+  Once two agents have touched one file, the attribution genuinely no longer exists anywhere.
+- **Two agents editing one file lose writes silently.** Not a conflict — a conflict would at least be
+  reported. The later write wins and the earlier one is gone with nothing to notice.
+- **Nobody commits.** Each agent sees a tree full of changes it does not recognise and correctly declines to
+  commit it, so the work sits unattributed until a human sorts it out.
+
+Separate worktrees remove all four, because there is nothing to contend over — the same argument
+`docs/references/autonomy.md` makes for one handoff directory per contributor. Each agent branches, commits
+and reports on its own tree; you merge them one at a time, reading each diff. **Tell each agent which files it
+owns and which files it must not touch**, and have it report anything it needed from a sibling's file rather
+than reaching across.
+
+### When not to fan out
+
+Parallelism has a real cost — a brief to write, a contract to agree, worktrees to make and merge, and a
+reviewer who now has several diffs instead of one. Do the work in one thread when:
+
+- **The steps genuinely depend on each other.** Scan, then act on the signals, then rebuild, then commit is a
+  chain: agent two cannot start until agent one has finished, so splitting it only adds handovers. Look for a
+  real data dependency, not merely a habit of doing things in an order.
+- **The task is small enough that coordination costs more than the parallelism.** Two file edits and a test
+  run is one session's work. Writing three briefs to save four minutes is a loss.
+- **The parts cannot be given disjoint file ownership.** If two halves of the work must edit the same file,
+  they are one piece of work wearing two hats. Split it differently or do it in one thread.
+
+Saying "these three are independent, these two are a chain" out loud before you start is most of the skill.
+`atlas health` reports **H17** when a session made 40 or more edits and never delegated once — advisory, and
+it measures you rather than the repository, which is exactly why it never blocks anything.
+
 ## Rot signals
 
-**Sixteen, all mechanical**, five of them blocking. Full catalogue with detection details and legitimate
-exceptions in `docs/references/health-signals.md`. *This section said "nine, three blocking" for seven
-releases after H10–H16 shipped — the tool's own instruction file drifting from the tool, which is the failure
-it detects for a living.*
+**Sixteen over the corpus, all mechanical**, five of them blocking — and **one, H17, that is not about the
+corpus at all**. Full catalogue with detection details and legitimate exceptions in
+`docs/references/health-signals.md`. *This section said "nine, three blocking" for seven releases after
+H10–H16 shipped — the tool's own instruction file drifting from the tool, which is the failure it detects for
+a living.*
 
 | | Signal | Default |
 |---|---|---|
@@ -201,6 +255,14 @@ it detects for a living.*
 | H14 | Design document cites code that moved | advisory |
 | H15 | Expected design artifact absent | advisory |
 | H16 | Undesigned area | advisory |
+| H17 | Large session, no subagent — **measures the operator, not the corpus** | advisory, never blocking |
+
+**H17 is a different kind of claim, and the table says so on purpose.** H1–H16 are statements about the
+repository, settled by reading the files. H17 is a statement about how a *session* was run: 40 or more edits
+in one main thread with nothing ever delegated. It reads local transcripts rather than the corpus, so it is
+**unevaluated — never "ok"** — wherever no transcript was supplied, and it can never be added to the blocking
+set. "You should have parallelised" is advice about somebody's working method; blocking is reserved for the
+repository being wrong.
 
 **H10 and H12 are blocking for a reason worth stating.** An SOP that has drifted is not out of date — it is
 *incorrect*, and someone may follow it today.

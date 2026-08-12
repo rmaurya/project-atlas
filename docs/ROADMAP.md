@@ -39,7 +39,7 @@ measured against the code — the same distinction the tool preserves everywhere
 | A-28 | 100 | M-4 | 100 | A-29 | 100 |
 | C-7 | 100 | C-8 | 100 | | |
 | C-9 | 100 | A-31 | 100 | A-30 | 100 |
-| C-10 | 45 | C-11 | 0 | Q-4 | 0 |
+| C-10 | 45 | C-11 | 10 | Q-4 | 10 |
 | Q-5 | 10 | | | | |
 
 ---
@@ -188,14 +188,23 @@ were invisible to every figure `atlas tokens` has ever printed**, and invisible 
 every token a subagent spent. The axis C-11 is built on read a flat zero and presented it as a measurement.
 Fixed here, because a data layer over a source it only half reads is worse than none.
 
-**C-11 · Atlas argues for parallelism, and then measures whether it happened** — **P2 · Medium**
+**C-11 · Fan independent work out, one worktree per agent** — **P1 · High**
+*The skill tells a session to do independent work in parallel, and states the constraint that makes it safe.*
 
-*Serial work is the default failure mode of a coding agent, and nothing in this tool has ever said so.*
-Three places, because instruction alone has not worked: `skills/build/SKILL.md` tells a session to fan
-independent work out to subagents **one worktree per agent** — three agents sharing one tree cost a full
-session to untangle, and that lesson belongs where it is read; a panel shows the main-versus-subagent split
-and peak concurrency from `isSidechain`, so the habit is visible and not merely asserted; and Q-4 flags its
-absence.
+The instruction is cheap; the constraint is not, and it was paid for. Three subagents were run here against
+one shared working tree and one shared `HEAD`. Nothing crashed and nothing warned: they all edited at once,
+none of them committed, and the changes arrived interleaved with no record of whose was whose. Untangling it
+took a full session — a 408-line diff in one test file, split by hunk and argued back to the branch each hunk
+belonged on. The parallelism saved about an hour; the reconciliation cost a day.
+
+So the rule is written as its reason rather than as an instruction to obey: `HEAD` is per worktree, an
+uncommitted hunk has no author, the later write to a shared file wins silently, and an agent handed a tree it
+does not recognise correctly refuses to commit it. One worktree per agent removes all four, because there is
+nothing left to contend over — the same argument that produced one handoff directory per contributor.
+
+Stated with its exceptions, because a default that never says "not this time" gets applied to work with a
+genuine dependency chain and to two-file tasks where writing the briefs costs more than the parallelism saves.
+Designed in [`docs/references/autonomy.md`](references/autonomy.md).
 
 ## Track 2 — Product
 
@@ -362,15 +371,27 @@ The four hook tests execute POSIX shell blocks and cannot run on Windows. They a
 counted in the summary** rather than dropped — a suite that quietly runs 202 of 206 on one platform reports a
 green tick for coverage it did not have.
 
-**Q-4 · H17 · Serial work that could have fanned out** — **P3 · Low**
+**Q-4 · A signal that measures whether the advice was taken** — **P1 · High**
+*H17: a session that made many edits and never delegated one. Advisory, and it measures the operator.*
 
-*Advisory, never blocking, and openly a different kind of claim than the other sixteen.* H1–H16 measure the
-corpus: a link, a citation, a title, a design artifact. **H17 measures the operator** — a session with many
-edits and no subagent — and that distinction is stated in the signal's own description rather than left for a
-reader to discover. It cannot block a commit, because "you should have parallelised" is advice and the
-blocking set is reserved for claims about the repository being wrong.
+An instruction nobody can check is a preference. C-11 tells a session to fan independent work out; H17 is the
+number that says whether it did — 40 or more edits in one main thread with no subagent turn anywhere in it.
 
-*It is unevaluated, not "ok", when no transcript is present* — the Not-checked discipline A-29 was filed for.
+**Three properties are the whole design, and dropping any one of them makes it worse than nothing.** It is
+**never blocking**: the blocking set is reserved for claims that the repository is *wrong*, and "you should
+have parallelised" is advice about somebody's working method. Its own description states plainly that it
+**measures the operator, not the corpus** — H1–H16 are settled by reading files, this one is not, and putting
+it in the same table without saying so would be smuggling. And it reports **unevaluated, never "ok"**, when
+there is no transcript to read, which is the rule A-29 was filed for.
+
+The threshold is a stated default with its evidence in the signal's own text rather than a constant somebody
+liked the look of: 40 is the 25th percentile of the edit counts of the sessions that *did* fan out, across
+the 29 transcripts available when it was written. On that sample it fires twice, which is a note rather than
+a nag.
+
+**It does not read transcripts itself.** `atlas tokens` is the only thing that opens them — rule 1 of
+`scripts/lib/tokens.mjs`, because those files hold every prompt that passed through a session — so the
+aggregate is passed in by the caller and H17 is unevaluated until it is.
 
 **Q-5 · A page can be rendered from the wrong repository, and a test passes because of it** — **P2 · Medium**
 
