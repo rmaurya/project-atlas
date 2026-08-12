@@ -7443,11 +7443,20 @@ test('format · a grouped number does not depend on where the machine thinks it 
   eq(num(undefined), '—');
   eq(num(Number.NaN), '—');
 
-  // The pin is the whole point: assert it against a locale that groups differently, so this fails if the
-  // implementation ever drops its explicit locale argument.
+  // **The assertions above cannot fail on CI, and that was the whole defect.** They compare `num()` to
+  // `en-US` output, and CI runs under `en_US.UTF-8` — so reverting `format.mjs` to a bare `toLocaleString()`
+  // left this test green there and red only on the author's own `en_IN` machine. A guard that fires on one
+  // developer's laptop and nowhere else is not a guard.
+  //
+  // Fixed by running the implementation in a child process under a locale that groups differently, so the
+  // pin is exercised on every machine regardless of what the host locale happens to be.
   eq(num(126200000), (126200000).toLocaleString('en-US'));
-  ok((126200000).toLocaleString('en-IN') !== num(126200000),
-    'en-IN really does group differently — if this ever stops being true the test above proves nothing');
+  const probe = execFileSync(process.execPath, ['-e',
+    "import('./scripts/lib/format.mjs').then(m => process.stdout.write(m.num(126200000)))"],
+  { cwd: REPO_ROOT, encoding: 'utf8', env: { ...process.env, LANG: 'en_IN.UTF-8', LC_ALL: 'en_IN.UTF-8' } });
+  eq(probe, '126,200,000', 'under en_IN the implementation must still group the en-US way');
+  ok((126200000).toLocaleString('en-IN') !== '126,200,000',
+    'en-IN really does group differently — if this ever stops being true the probe proves nothing');
 });
 
 test('format · no module reintroduces a bare toLocaleString', () => {
@@ -7455,7 +7464,9 @@ test('format · no module reintroduces a bare toLocaleString', () => {
   // convention somebody remembers. Comments are exempt: the reasoning names the thing it forbids.
   const offenders = [];
   for (const f of fs.readdirSync(path.join(REPO_ROOT, 'scripts', 'lib'))) {
-    if (!f.endsWith('.mjs') || f === 'format.mjs') continue;
+    // `format.mjs` is NOT exempt. Exempting it excused the single call that is allowed to name a locale —
+    // and left the one file where a bare call is fatal unchecked, which is how a reverted fix passed.
+    if (!f.endsWith('.mjs')) continue;
     const src = fs.readFileSync(path.join(REPO_ROOT, 'scripts', 'lib', f), 'utf8');
     src.split('\n').forEach((line, i) => {
       if (/\.toLocaleString\(\s*\)/.test(line) && !/^\s*[*/]/.test(line)) offenders.push(`${f}:${i + 1}`);
