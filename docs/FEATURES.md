@@ -437,7 +437,7 @@ user's call.
 | `.gitattributes` | Marks the tree `linguist-generated`. | `scripts/lib/render.mjs:287` |
 | `README.md` | A note that this directory is derived. | `scripts/lib/render.mjs:288` |
 | `kb/` | The same derived facts as markdown, for an agent with only `Read` and `Grep`. | `scripts/lib/render.mjs:302`, `scripts/lib/kb.mjs:298` |
-| `build-stamp.txt` | Written only with `--stamp` or under `watch`; the page polls it to patch itself. | `scripts/lib/render.mjs:328` |
+| `build-stamp.txt` | Written only with `--stamp` or under `watch`; the page polls it to patch itself, and the footer reads it to say when the site was last built. Absent on a plain `atlas build`, and the footer then says "not recorded" rather than guessing. | `scripts/lib/render.mjs:399`, `scripts/lib/render.mjs:663` |
 | `.atlas-build-claim.json` | Present only while a build is running here, or died here. Deleted on success. | `scripts/lib/render.mjs:128`, `scripts/lib/render.mjs:145` |
 | `all.standalone.html` | The whole site as one file, refreshed after an automated build. | `scripts/atlas.mjs:1859` |
 

@@ -12,8 +12,28 @@ versions follow [Semantic Versioning](https://semver.org/).
   command reports which files more than one branch would touch, which plan-item ids more than one branch
   *introduces*, and the next free id per prefix. It refuses nothing except a duplicate id, which has no
   legitimate cause. `skills/build/SKILL.md` now carries the bill with its four measured causes.
+- **Every page's footer says when the site was last built, local and UTC** (A-27). The header clock says when
+  *now* is; a reader who has left a dashboard open all day is asking the other half of that question, and
+  until now only the dashboard and the role views answered it, with a bare `· built 14:03:22` — no date, no
+  zone. The value is never written into the HTML, because a rebuild with no source change must stay
+  byte-identical: it is read at load from `build-stamp.txt`, the file `writeBuildStamp` already puts beside
+  the pages. Where the live-reload poll is already asking for that file the footer listens to it instead of
+  requesting it twice. **And where there is no stamp it says "not recorded"** — a plain `atlas build` writes
+  none — rather than a dash, a blank, or the time the reader opened the page.
 
 ### Fixed
+- **The single-file export shipped a live-reload poller it believed it had removed** (A-27). It was cut out
+  with a regex encoding the punctuation of a function it does not own — `poll(); setInterval(poll, \d+);` —
+  and the call site became `poll(); timer = setInterval(poll, STEPS[0]);` when polling grew a back-off. The
+  pattern has matched nothing since, and the export reported success either way. Every standalone file handed
+  to somebody has been requesting `build-stamp.txt` against whatever directory it was opened from, three
+  times, on every open. It now sets the same `__ATLAS_SNAPSHOT__` flag the bundle uses, first thing in the
+  body: a flag cannot half-work.
+- **The bundle rewrote a comment into a claim about an element that has never existed** (A-27).
+  `exportBundle` namespaces every id two pages share by plain string replacement across each page's script,
+  and cannot tell code from prose. Id literals are now kept out of the footer wire, with the explanation in
+  the module source where nothing rewrites it, and `builtAt` joins the chrome ids the bundler must not rename
+  — one footer, ten copies of the script looking for it by that name.
 - **H17 was filed as shipped and had never evaluated once** (Q-4). `readParallelism` was correct and tested,
   and not one of the eight `runHealth(` call sites passed a fourth argument — so every report on every machine
   printed *"H17 — (not evaluated)"*. `healthOpts` now supplies the aggregate at the six call sites that show a
