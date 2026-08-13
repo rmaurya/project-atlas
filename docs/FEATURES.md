@@ -431,7 +431,7 @@ user's call.
 | `index.html` | Home — corpus figures, health headline, clusters, optional hand-written analysis. | `scripts/lib/render.mjs:258` |
 | `wiki.html` | Every document, grouped by cluster. | `scripts/lib/render.mjs:259` |
 | `health.html` | Every signal, blocking and advisory. | `scripts/lib/render.mjs:261` |
-| `dashboard.html` and `view-*.html` | One file per configured view. | `scripts/lib/render.mjs:283`, `scripts/lib/views.mjs:253` |
+| `dashboard.html` and `view-*.html` | One file per configured view. | `scripts/lib/render.mjs:283`, `scripts/lib/views.mjs:296` |
 | `deck.html` | A browser slide deck, only when a deck source exists. | `scripts/lib/render.mjs:285` |
 | `search-index.js` | The client-side full-text index. | `scripts/lib/render.mjs:250` |
 | `sources.json` | The allowlist `atlas serve` answers source links from — paths only, no content. | `scripts/lib/render.mjs:256` |
@@ -452,12 +452,12 @@ number of files in the directory. No count is quoted here on purpose: the output
 
 ### Views and panels
 
-**Eleven views ship** (`scripts/lib/views.mjs:72-224`): Overview, Backlog, Quality, Product, Delivery,
-Repository, Economics, Architecture, Blueprint, Developer, Executive. Repository and Economics were missing
+**Twelve views ship** (`scripts/lib/views.mjs:73-267`): Overview, Backlog, Timeline, Quality, Product,
+Delivery, Repository, Economics, Architecture, Blueprint, Developer, Executive. Repository and Economics were missing
 from this list until 2026-08-13; Economics is the view that made C-10 read session transcripts during a
 build, which is why the privacy page had to change with it. A view is a list of panel ids, so adding one is a
-config entry rather than a file. **Thirty-six panels are defined** (`scripts/lib/views.mjs:18-55`). A view id
-is constrained to `/^[A-Za-z0-9-]+$/` because it becomes a filename (`scripts/lib/views.mjs:232`) — verified
+config entry rather than a file. **Thirty-seven panels are defined** (`scripts/lib/views.mjs:18-56`). A view id
+is constrained to `/^[A-Za-z0-9-]+$/` because it becomes a filename (`scripts/lib/views.mjs:275`) — verified
 with `{"id":"x/../../../ESCAPED"}`, which wrote a file above the repository root.
 
 Both figures and both name lists are checked by `tests/run.mjs` against `DEFAULT_VIEWS` and `PANELS`.

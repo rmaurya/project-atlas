@@ -262,6 +262,7 @@ function panel(id, { index, health, plan, cfg, contrib, view, nameFor, repo, fli
     case 'people': return hasContrib ? peopleTable(contrib) : null;
     case 'desks': return hasContrib ? desksChart(contrib) : null;
     case 'coverage': return hasContrib && hasPlan ? coverageChart(contrib, plan) : null;
+    case 'timeline': return hasContrib && hasPlan ? timelinePanel(contrib, plan) : null;
     case 'repoTiles': return hasContrib ? repoTiles(risk, repo, branches) : null;
     case 'churn': return hasContrib ? churnPanel(risk) : null;
     case 'hotspots': return hasContrib ? hotspotPanel(risk) : null;
@@ -1180,6 +1181,25 @@ function caveats(plan, health, contrib, view = null, risk = null, econ = null) {
       'absorbing most of the churn may be the one under active development, the one with the hardest problem, ' +
       'or the one nobody has managed to get right — nothing here can tell those apart.');
   }
+  /*
+   * **The timeline's blind spots, on the timeline page and nowhere else** — scoped the way the Repository and
+   * Economics caveats are. Three of these are the difference between the chart people expect and the chart
+   * that can honestly be drawn, and a reader who takes the first for the second will misread every bar.
+   */
+  if (shows('timeline')) {
+    notes.push('No bar on the timeline is planned, scheduled or forecast. The plan records no start date, no ' +
+      'end date, no duration and no dependency for any item, so nothing on that page can say when work was ' +
+      'meant to happen — only when it did.');
+    notes.push('A bar spans the commits whose subject names the item, so it measures a commit convention as ' +
+      'much as the work. Work done under a subject that describes the defect rather than the ticket falls ' +
+      'outside its bar, and an item revisited months later has one long bar rather than two short ones with a ' +
+      'gap between them: only the two ends are known, never what happened in the middle.');
+    notes.push('The finest interval a commit date supports is one calendar day, so a bar can never be shorter ' +
+      'than a day and two items worked on the same day cannot be told apart by the chart. A one-day bar is the ' +
+      'floor of the measurement, not a claim that the work took a day.');
+    notes.push('An item no commit names has no bar and no interval. That is an absence of measurement rather ' +
+      'than an absence of work, and it is drawn as words for exactly that reason.');
+  }
   if (shows('branches')) {
     notes.push('The branch inventory sees only branches that exist in this checkout. A branch pushed by ' +
       'somebody else and never fetched here is invisible to it, so "nothing unmerged" is a statement about ' +
@@ -1362,6 +1382,267 @@ function coverageChart(contrib, plan) {
     { label: 'Never named', value: cov.withoutCommits, max: cov.rows.length, tone: 'none',
       hint: cov.claimedButUnreferenced ? `${cov.claimedButUnreferenced} of these report progress` : '' },
   ])}
+</figure>`;
+}
+
+/* ------------------------------------------------------------------ timeline */
+
+/**
+ * ## The Gantt this repository is allowed to draw
+ *
+ * The request was "a recommended Gantt in a separate screen". A Gantt is a plan: a bar per task, spanning a
+ * planned start to a planned end, with dependencies between them. **None of those three things exists in this
+ * data.** `docs/ROADMAP.md` records an id, a title, a track, a priority, a criticality and a completion
+ * percentage — verified against `planning.mjs::readPlanning`, whose item shape is exactly that — and there is
+ * no start, no end, no duration, no dependency and no baseline anywhere in the repository. Nothing else here
+ * carries one either: the deck, the journal and the task list all record what happened, never what was
+ * promised for when.
+ *
+ * A planned Gantt over that data would have to invent every date on it. `inflight.mjs` already refuses the
+ * same move in the same words — *"work nobody has written down has no denominator, and a figure invented for
+ * one would read as measured"* — and a forecast rendered in the visual grammar of a measurement is the single
+ * worst version of it, because a Gantt is the chart people trust *because* it looks like a commitment.
+ *
+ * **What is derivable is the other half: when each item was actually worked on.** `taskCoverage` already maps
+ * a plan item to the commits whose subject names it, and the first and last of those commits bracket a real
+ * interval. That is a measurement, it is reproducible from a clone, and it answers a question the plan cannot
+ * — *this item says 100%; when did that happen, and is anything still moving?*
+ *
+ * So the page is a timeline of observed work and is named one, in its id, its title and its first sentence.
+ * Calling it "Gantt" in the URL and the nav would put the misreading the caption has to fight into the two
+ * places a caption cannot reach.
+ *
+ * ## Six decisions, each of which is a way this could otherwise lie
+ *
+ *  1. **The unit of the axis is a calendar day, because that is the resolution of the measurement.**
+ *     `taskCoverage` reports commit dates as `YYYY-MM-DD`, so what is known about a commit is the day it
+ *     landed in, not the instant. Every bar therefore covers whole day cells, inclusive at both ends.
+ *  2. **A single-commit item is one full day cell wide, and that is the honest width — not zero.** Zero would
+ *     claim "no duration was measured"; the truth is "the work is inside this one day, and one day is the
+ *     smallest interval this data can express". Drawing it as a hairline would also make it look like the
+ *     absent items, which are a different claim entirely.
+ *  3. **An item no commit names has no bar at all — it has words.** Not a zero-width mark, not a hollow bar
+ *     at the origin, and not silently dropped from a chart that then reads as complete. An absent measurement
+ *     and a measured zero are different throughout this tool, and here the difference is a rectangle against
+ *     a sentence. They stay in their track, in the plan's own order, so the omission is visible where the
+ *     reader is already looking rather than exiled to a footnote.
+ *  4. **Grouped by track and ordered by start, because the plan already has both.** Track is this plan's own
+ *     work breakdown, which is exactly what the rows of a Gantt are conventionally grouped by; start is the
+ *     one ordering the chart itself supplies. Priority is a band, not a grouping, and it already has a
+ *     filterable column on the item table — inventing a second taxonomy here would be this panel deciding
+ *     something the plan gets to decide.
+ *  5. **Completion is a number in its own column, never the fill of the bar.** A bar whose *length* means
+ *     elapsed time and whose *fill* means percent done is two scales in one mark, and readers take the second
+ *     for a share of the first — a 40% item worked on for one day reads as "40% of the way through its
+ *     schedule", which is a schedule that does not exist. The figure sits outside the plot with a status dot,
+ *     where it is a label rather than a length.
+ *  6. **The right-hand edge is the newest commit in the repository, not the clock.** A rebuild that changes
+ *     nothing produces the same bytes — the same rule the branch inventory follows, for the same reason.
+ *
+ * ## Density: all 105 rows, and nothing omitted
+ *
+ * 105 items on one axis is a tall chart, and it is drawn tall rather than trimmed. Every trim available here
+ * needs a rule — top N by span, only the incomplete, only the recent — and each of those is a ranking this
+ * panel would be inventing, applied to the one page whose promise is that you can see the whole plan against
+ * one axis. The rows are 16 units at an 11px label, which is the density of an ordinary dense table, and the
+ * day gridlines run the full height so a bar can be read against the axis without scrolling back to it. The
+ * date scale is repeated at the foot for the same reason.
+ *
+ * Horizontally the chart has a floor and does not shrink past it: below roughly a 1040px viewport the
+ * container scrolls rather than scaling the type down, which is what the item table already does at 660px.
+ *
+ * ## Not `data-local-only`
+ *
+ * Every figure here comes from `git log` and from a versioned markdown file, so a colleague with a clone
+ * rebuilds this page byte for byte. It carries no working-tree state, no branch name and no path from this
+ * machine — the three things that mark the in-flight, branch and economics panels — so it publishes.
+ */
+const TL = { w: 1240, padL: 300, padR: 90, row: 16, head: 24, top: 28, bottom: 26 };
+
+/** How much of a title the 300-unit label gutter holds at 11px. Clamped, with the full text in the tooltip. */
+const TL_TITLE = 40;
+
+const clampText = (s, n) => (s.length <= n ? s : `${s.slice(0, n - 1).trimEnd()}…`);
+
+/**
+ * The rows, the calendar and the counts — derived, never re-derived.
+ *
+ * `taskCoverage` is the *only* thing here that decides which commits name an item. Walking `contrib.commits`
+ * again to find first-and-last dates would be a second answer to a question this codebase already answers
+ * once, which is the fork the whole tool exists to detect.
+ *
+ * **The start of a bar is bounded rather than exact, and the panel can tell which.** `taskCoverage.recent` is
+ * capped at the eight newest commits per item, so for an item with more than eight the oldest date it carries
+ * is a *ceiling* on the true start, not the start. That is detectable — `commits > recent.length` — so such a
+ * bar is drawn with an open left edge and counted in the caption instead of quietly starting late. No item in
+ * this repository crosses the cap today, and the marking exists precisely so that the first one to cross it
+ * does not silently move its own start date. (Closing it properly means a `first` field on `taskCoverage`
+ * itself, which is `contrib.mjs`'s to add; reported rather than reached into from here.)
+ */
+function timelineData(contrib, plan) {
+  const cov = taskCoverage(contrib, plan);
+  if (!cov) return null;
+
+  /*
+   * One cell per day, from the repository's first commit to its newest — `fillAxis` walking a 1-day step,
+   * which is the same helper the economics day charts and the weekly velocity axis are built on. A third
+   * hand-rolled calendar in this file is exactly what C-7 deleted the second one for.
+   */
+  const days = fillAxis(
+    [{ day: contrib.totals.first }, { day: contrib.totals.last }],
+    { key: 'day', stepDays: 1, blank: {} },
+  ).map((d) => d.day);
+  if (!days.length) return null;
+  const at = new Map(days.map((d, i) => [d, i]));
+
+  const meta = new Map(plan.items.map((it) => [it.id, it]));
+  const order = new Map(plan.items.map((it, i) => [it.id, i]));
+
+  let offAxis = 0;
+  const rows = cov.rows.map((r) => {
+    const it = meta.get(r.id) || {};
+    const base = {
+      id: r.id, title: r.title, percent: r.percent, commits: r.commits,
+      track: it.track || 'Untracked', priority: it.priority || null,
+      tone: toneFor(r.percent === undefined ? null : r.percent),
+      at: order.get(r.id) ?? Number.MAX_SAFE_INTEGER,
+    };
+    if (!r.commits) return { ...base, measured: false };
+
+    const first = r.recent[r.recent.length - 1]?.date || null;
+    const last = r.last;
+    const s = at.get(first), e = at.get(last);
+    // A date the axis does not contain cannot be placed. It cannot happen — both come from the same commit
+    // list the axis ends are read from — so it is counted and stated rather than clamped into a lie.
+    if (s === undefined || e === undefined) { offAxis++; return { ...base, measured: false, offAxis: true }; }
+
+    return {
+      ...base, measured: true,
+      first, last, start: Math.min(s, e), end: Math.max(s, e),
+      days: Math.abs(e - s) + 1,
+      // See the note above: the cap on `recent` makes the start a ceiling once an item crosses it.
+      bounded: r.commits > r.recent.length,
+    };
+  });
+
+  const groups = plan.tracks.map((t) => ({
+    name: t.name,
+    rows: rows.filter((r) => r.track === t.name).sort((a, b) =>
+      Number(b.measured) - Number(a.measured) ||
+      (a.measured ? a.start - b.start || a.end - b.end : 0) ||
+      a.at - b.at),
+  })).filter((g) => g.rows.length);
+
+  return {
+    days, groups, rows,
+    measured: rows.filter((r) => r.measured).length,
+    unmeasured: rows.filter((r) => !r.measured).length,
+    claimed: rows.filter((r) => !r.measured && (r.percent || 0) > 0).length,
+    single: rows.filter((r) => r.measured && r.days === 1).length,
+    bounded: rows.filter((r) => r.bounded).length,
+    offAxis,
+  };
+}
+
+function timelinePanel(contrib, plan) {
+  const d = timelineData(contrib, plan);
+  if (!d || !d.rows.length) return null;
+
+  const { w, padL, padR, row, head, top, bottom } = TL;
+  const plot = w - padL - padR;
+  const n = d.days.length;
+  const cell = plot / n;
+  const bodyH = d.groups.reduce((h, g) => h + head + g.rows.length * row, 0);
+  const h = top + bodyH + bottom;
+  const x = (i) => padL + i * cell;
+
+  // Gridlines at every day while they are far enough apart to be lines rather than a fill; labels at about
+  // ten, and always the last one, so the axis ends on the newest commit rather than near it.
+  const gridStep = Math.max(1, Math.ceil(n / 60));
+  const tickStep = Math.max(1, Math.ceil(n / 10));
+  const grid = d.days.map((_, i) => (i % gridStep === 0
+    ? `<line class="c-grid" x1="${x(i).toFixed(2)}" x2="${x(i).toFixed(2)}" y1="${top - 2}" y2="${(top + bodyH).toFixed(2)}"/>` : '')).join('');
+  const ticks = (y, anchorLast) => d.days.map((day, i) => (i % tickStep === 0 || i === n - 1)
+    ? `<text class="c-tick" x="${x(i).toFixed(2)}" y="${y}" text-anchor="${i === n - 1 && anchorLast ? 'end' : 'middle'}">${escapeHtml(day.slice(5))}</text>` : '').join('');
+
+  let y = top;
+  const bands = [];
+  const body = d.groups.map((g, gi) => {
+    const gy = y;
+    const gh = head + g.rows.length * row;
+    y += gh;
+    if (gi % 2 === 1) bands.push(`<rect class="g-band" x="0" y="${gy.toFixed(2)}" width="${w}" height="${gh.toFixed(2)}"/>`);
+
+    const label = `<text class="g-trk" x="6" y="${(gy + 16).toFixed(2)}">${escapeHtml(g.name)}</text>`;
+    const rows = g.rows.map((r, ri) => {
+      const ry = gy + head + ri * row;
+      const mid = ry + row / 2;
+      const pct = r.percent === null || r.percent === undefined ? '—' : `${num(r.percent)}%`;
+      const tip = `${r.id} · ${r.title}` +
+        (r.measured
+          ? ` — ${r.bounded ? 'on or before ' : ''}${r.first} to ${r.last}, ${r.days} day(s), ${r.commits} commit(s) naming it`
+          : ' — no commit names this item, so nothing about when it was worked on was measured') +
+        ` · plan says ${pct}` + (r.priority ? ` · ${r.priority}` : '');
+
+      const mark = r.measured
+        ? `${r.bounded ? `<polygon class="g-open" points="${(x(r.start) - 6).toFixed(2)},${mid.toFixed(2)} ${(x(r.start) - 1).toFixed(2)},${(mid - 4).toFixed(2)} ${(x(r.start) - 1).toFixed(2)},${(mid + 4).toFixed(2)}"/>` : ''}
+           <rect class="g-bar" x="${x(r.start).toFixed(2)}" y="${(ry + 3).toFixed(2)}"
+             width="${Math.max(2, r.days * cell - 1).toFixed(2)}" height="${row - 6}" rx="2"/>`
+        : `<text class="g-none" x="${(padL + 4).toFixed(2)}" y="${(mid + 3.5).toFixed(2)}">no commit names this item</text>`;
+
+      return `<g><title>${escapeHtml(tip)}</title>
+        <text class="g-id" x="6" y="${(mid + 3.5).toFixed(2)}">${escapeHtml(r.id)}</text>
+        <text class="g-lbl" x="56" y="${(mid + 3.5).toFixed(2)}">${escapeHtml(clampText(r.title, TL_TITLE))}</text>
+        ${mark}
+        <circle class="g-dot t-${toneClass(r.tone)}" cx="${(w - padR + 10).toFixed(2)}" cy="${mid.toFixed(2)}" r="3.2"/>
+        <text class="g-pct" x="${w - 8}" y="${(mid + 3.5).toFixed(2)}" text-anchor="end">${escapeHtml(pct)}</text>
+      </g>`;
+    }).join('');
+    return label + rows;
+  }).join('');
+
+  const spoken = `Observed work: ${d.measured} of ${d.rows.length} plan item(s) drawn from the first to the ` +
+    `last commit naming them, between ${d.days[0]} and ${d.days[n - 1]}. ${d.unmeasured} item(s) are named by ` +
+    `no commit and carry no bar. This is observed work, not a schedule.`;
+
+  return `
+<figure class="card wall" id="timeline">
+  <figcaption><h2>When each item was worked on</h2>
+    <p class="cap"><strong>This is observed work, not a schedule.</strong> Every bar runs from the
+    <strong>first</strong> commit whose subject names the item to the <strong>last</strong> one — a record of
+    when the work happened. The plan carries no start date, no end date, no duration and no dependency for
+    any item, so a planned Gantt cannot be drawn from it and none is drawn here. Nothing on this page is a
+    forecast, a baseline, or a commitment about the future.</p>
+    <p class="cap">The axis is one cell per calendar day, <strong>${escapeHtml(d.days[0])} to ${escapeHtml(d.days[n - 1])}</strong>
+    — the repository's first commit to its newest, not to the clock, so a rebuild
+    that changes nothing draws the same picture. A day is the finest interval a commit date supports, so
+    ${num(d.single)} item${d.single === 1 ? '' : 's'} whose commits all landed inside one day
+    ${d.single === 1 ? 'is' : 'are'} drawn one cell wide: that is the smallest true measurement, not a zero.
+    The completion figure sits in its own column with a status dot and is never the fill of a bar — a length
+    that means time and a fill that means percent are two scales in one mark.</p></figcaption>
+  ${openTableWrap('Timeline of observed work per plan item')}
+    <svg class="gantt" viewBox="0 0 ${w} ${h.toFixed(2)}" role="img" aria-label="${escapeAttr(spoken)}">
+      ${bands.join('')}
+      ${grid}
+      ${ticks(14, false)}
+      <line class="c-axis" x1="${padL}" x2="${w - padR}" y1="${top - 2}" y2="${top - 2}"/>
+      ${body}
+      <line class="c-axis" x1="${padL}" x2="${w - padR}" y1="${(top + bodyH).toFixed(2)}" y2="${(top + bodyH).toFixed(2)}"/>
+      ${(() => { const yy = top + bodyH + 16; return d.days.map((day, i) => (i % tickStep === 0 || i === n - 1)
+        ? `<text class="c-tick" x="${x(i).toFixed(2)}" y="${yy.toFixed(2)}" text-anchor="${i === n - 1 ? 'end' : 'middle'}">${escapeHtml(day.slice(5))}</text>` : '').join(''); })()}
+    </svg>
+  </div>
+  <p class="chart-note">All ${num(d.rows.length)} tracked item(s) are drawn — none is omitted for width, so the
+  chart is tall rather than filtered; every rule that would shorten it is a ranking this panel would have had to
+  invent. Grouped by the plan's own tracks and ordered by when work started, then by the plan's order.
+  <strong>${num(d.unmeasured)} item(s) are named by no commit</strong> and carry no bar at all: an absent
+  measurement is not a zero-length one, so they say so in words and keep their place in their track.${
+    d.claimed ? ` ${num(d.claimed)} of those report progress in the plan — worth a look, not an accusation, since a commit subject often describes the defect rather than the ticket.` : ''}${
+    d.bounded ? ` ${num(d.bounded)} bar(s) start with an open left edge: more commits name those items than the coverage reading retains, so their first date is a ceiling rather than the start.` : ''}${
+    d.offAxis ? ` ${num(d.offAxis)} item(s) carry a date outside the axis and could not be placed.` : ''}
+  Hovering a row gives its exact dates, its commit count and its priority. Below roughly a 1040px viewport the
+  chart scrolls sideways inside its own box rather than shrinking its labels out of legibility; the page itself
+  never scrolls sideways.</p>
 </figure>`;
 }
 
@@ -2798,6 +3079,36 @@ ${catTokens()}
 .chart { margin:0; min-width:0; }
 .chart figcaption { font-size:13px; font-weight:620; color:var(--ink); margin-bottom:8px; }
 .chart svg { max-width:100%; height:auto; display:block; }
+/* Timeline of observed work.
+ *
+ * A floor, and no ceiling past its natural size. A viewBox scales its type along with its width, so a chart
+ * allowed to fit a 390px phone would set its row labels at four pixels — and this chart is nothing but row
+ * labels. Below roughly a 1040px viewport the wrapper scrolls sideways instead, which is exactly what the
+ * item table already does at 660px and what a Gantt does everywhere. It never renders above 1:1 either — a
+ * viewBox that scales up scales its height with it, and a chart already the better part of two thousand
+ * units tall gains nothing from being made taller on a wide monitor.
+ *
+ * Every colour is a token, so both themes are one declaration each and neither is a hand-picked pair. The
+ * status dot takes its fill from the same ordinal ramp the bars and pills use; .t-* already sets background
+ * for the HTML bars, which does nothing to a circle, so the fill is stated here. */
+.gantt { display:block; width:100%; min-width:1000px; max-width:${TL.w}px; height:auto; }
+.g-trk { font-size:12px; font-weight:640; fill:var(--ink); }
+.g-id { font-size:10.5px; fill:var(--muted); font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
+.g-lbl { font-size:11px; fill:var(--ink-soft); }
+.g-none { font-size:10.5px; fill:var(--muted); font-style:italic; }
+.g-pct { font-size:10.5px; fill:var(--ink-soft); font-variant-numeric:tabular-nums; }
+.g-band { fill:var(--code-bg); }
+.g-bar { fill:var(--r-high); }
+.g-open { fill:var(--r-high); opacity:.5; }
+/* The ring is not decoration. The ordinal ramp runs light-to-dark with completion, so its lowest two steps
+ * are deliberately close to the page — #242433 and #1c1c28 against a near-black surface in
+ * dark mode. Filled alone, the dot on a 0% item rendered as nothing at all, which reads as a mark that
+ * failed to draw rather than as the lowest step of a scale. Outlined, an empty ring is visibly the bottom of
+ * the ramp, and the figure beside it still carries the value — colour is never the only signal here. */
+.g-dot { stroke:var(--line); stroke-width:.9; }
+.g-dot.t-none { fill:var(--r-none); } .g-dot.t-mid { fill:var(--r-mid); }
+.g-dot.t-high { fill:var(--r-high); } .g-dot.t-done { fill:var(--r-done); }
+.g-dot.t-unknown { fill:var(--r-unknown); }
 .sig-table code { font-size:12px; }
 .sig-b { font-size:10px; text-transform:uppercase; letter-spacing:.05em; padding:1px 5px; border-radius:4px;
   background:var(--bad); color:#fff; vertical-align:middle; }

@@ -10024,15 +10024,22 @@ console.log('\nthe site menu');
  * appended down here is registered, never awaited, and reported as a pass it did not earn.
  */
 
-test('nav · fifteen entries become seven, and not one of them is dropped on the way', () => {
+test('nav · sixteen entries become eight, and not one of them is dropped on the way', () => {
   // The failure this is written against is not "the menu looks wrong", it is a page that quietly stops being
   // reachable because its href was never named in a group and never fell through to the top level either.
+  //
+  // **Timeline is at the top level because `NAV_GROUPS` has not heard of it, and that is the designed
+  // degrade rather than an accident** — the case directly below pins that behaviour on purpose: a view the
+  // grouping does not name stays a link instead of being swallowed. It belongs in the `Plan` group beside
+  // Backlog, Product and Executive, which is one href added to `NAV_GROUPS` in `scripts/lib/render.mjs`.
+  // That file is owned by another branch in this session, so the entry is deliberately not made here and
+  // this expectation records the state as it actually ships. Move the href and this line moves with it.
   const flat = navItems(DEFAULT_VIEWS, { hasDeck: true });
-  ok(flat.length >= 15, `sanity: the flat nav is the row this replaces — ${flat.length} entries`);
+  ok(flat.length >= 16, `sanity: the flat nav is the row this replaces — ${flat.length} entries`);
 
   const menu = groupNav(flat);
-  eq(menu.map((e) => e.label), ['Home', 'Overview', 'Plan', 'Work', 'Design', 'Documents', 'Deck'],
-    'the top level is two links, four groups and the deck, in that order');
+  eq(menu.map((e) => e.label), ['Home', 'Overview', 'Plan', 'Work', 'Design', 'Documents', 'Timeline', 'Deck'],
+    'the top level is two links, four groups, the ungrouped Timeline and the deck, in that order');
 
   // Flattened, the menu is the same set of pages as the row it replaces — same hrefs, no duplicates.
   const reachable = menu.flatMap((e) => (e.kind === 'group' ? e.items : [e])).map((n) => n.href);
@@ -11879,6 +11886,217 @@ test('charts · the chart stylesheet contains nothing the page tools read with a
       ok(defined.has(c), `.${c} is used in chart markup and defined by no rule in catTokens()`);
     }
   }
+});
+
+/* ================================================================== I-4 · the timeline of observed work */
+
+console.log('\nthe timeline view');
+
+/**
+ * **Synchronous, like everything appended below the drain.** `pendingAsync` is emptied thousands of lines
+ * above this point, so an `async` case added here is registered, never awaited, and reported as a pass it
+ * never earned. Every case below was reverted and observed to fail before it was kept.
+ */
+
+/**
+ * A plan of five items over two tracks, and a history that gives each of them a different shape:
+ *
+ *   G-1  two commits three days apart   — a bar spanning three day cells
+ *   G-2  one commit                     — a bar exactly one day cell wide, which is the floor, not a zero
+ *   G-3  two commits on the same day    — also one cell, for the same reason
+ *   G-4  no commit at all               — no bar, and a sentence in its place
+ *   G-5  no commit, but 60% in the plan — the claimed-but-unreferenced case, counted in the caption
+ */
+const TL_PLAN = [
+  '| Item | % |', '|---|---|',
+  '| G-1 | 100 |', '| G-2 | 100 |', '| G-3 | 40 |', '| G-4 | 0 |', '| G-5 | 60 |', '',
+  '## Track A — Early', '',
+  '**G-1 · Spans three days** — **P1 · High**', '*One.*', '',
+  '**G-2 · A single commit** — **P1 · High**', '*Two.*', '',
+  '**G-4 · Never named by a commit** — **P2 · Medium**', '*Four.*', '',
+  '## Track B — Later', '',
+  '**G-3 · Two commits, one day** — **P1 · High**', '*Three.*', '',
+  '**G-5 · Claims progress, no commit** — **P2 · Medium**', '*Five.*',
+].join('\n');
+
+/** A commit at a chosen instant whose *subject* names a plan item — which is what `taskCoverage` reads. */
+function commitNaming(dir, iso, file, subject) {
+  fs.writeFileSync(path.join(dir, file), `${iso}\n`, 'utf8');
+  execFileSync('git', ['add', '-A'], { cwd: dir, stdio: 'ignore' });
+  execFileSync('git', ['-c', 'user.email=t@example.com', '-c', 'user.name=Test', 'commit', '-qm', subject],
+    { cwd: dir, stdio: 'ignore', env: { ...process.env, GIT_AUTHOR_DATE: iso, GIT_COMMITTER_DATE: iso } });
+}
+
+/**
+ * The fixture every case below renders from: the plan above, and a history with all four shapes in it.
+ *
+ * **The initial commit is re-dated, and leaving it alone was a real defect in the fixture.** `fixture()`
+ * commits at the wall clock, so that commit was the newest in the repository — the axis ran from March to
+ * whatever today happened to be, every bar collapsed into the first few pixels of a five-month span, and the
+ * suite would have started failing on its own the next morning. The same amend the velocity tests use.
+ */
+function timelineCtx(name) {
+  const dir = fixture(name, { 'docs/TASKS.md': TL_PLAN, 'docs/README.md': '# Docs\n' });
+  const cfg = { ...resolveConfig(dir), planning: { source: 'docs/TASKS.md' }, __root: dir };
+  execFileSync('git', ['-c', 'user.email=t@example.com', '-c', 'user.name=Test',
+    'commit', '-q', '--amend', '--no-edit', '--date=2026-03-01T09:00:00Z'],
+    { cwd: dir, stdio: 'ignore', env: { ...process.env, GIT_COMMITTER_DATE: '2026-03-01T09:00:00Z' } });
+  commitNaming(dir, '2026-03-02T09:00:00Z', 'a.txt', 'feat(a): open it (G-1)');
+  commitNaming(dir, '2026-03-03T09:00:00Z', 'b.txt', 'chore(b): unrelated, names nothing');
+  commitNaming(dir, '2026-03-04T09:00:00Z', 'c.txt', 'fix(c): close it (G-1)');
+  commitNaming(dir, '2026-03-05T09:00:00Z', 'd.txt', 'feat(d): all of it in one go (G-2)');
+  commitNaming(dir, '2026-03-06T09:00:00Z', 'e.txt', 'feat(e): first half (G-3)');
+  commitNaming(dir, '2026-03-06T17:00:00Z', 'f.txt', 'feat(f): second half, same day (G-3)');
+  const index = buildIndex(dir, cfg);
+  return {
+    dir, cfg, index, health: runHealth(index, cfg, dir), plan: readPlanning(dir, cfg),
+    contrib: readContrib(dir, cfg), nav: [],
+  };
+}
+
+const timelineHtml = (ctx) =>
+  viewPage({ id: 'timeline', title: 'Timeline', panels: ['timeline'] }, ctx, (o) => o.body);
+
+/** Every `<rect class="g-bar" …>` on the page, as { x, width }. The geometry is the claim, so it is read. */
+function timelineBars(html) {
+  return [...html.matchAll(/<rect class="g-bar" x="([\d.]+)" y="[\d.]+"\s*\n?\s*width="([\d.]+)"/g)]
+    .map((m) => ({ x: Number(m[1]), width: Number(m[2]) }));
+}
+
+/** The drawing only, so a comparison of two fixtures is not a comparison of their directory names. */
+const timelineSvg = (html) => html.slice(html.indexOf('<svg'), html.indexOf('</svg>'));
+
+// The fixture spans 2026-03-01 to 2026-03-06 — six day cells across the 850-unit plot that `TL` lays out
+// between a 300-unit label gutter and a 90-unit figure column, so one day is this wide.
+const TL_CELL = 850 / 6;
+
+test('I-4 · the plan carries no date, so the page says so and draws no schedule', () => {
+  // The whole design rests on this being true. If a start or end date ever enters the item shape, the panel
+  // is drawing the wrong thing and this case is where that gets noticed.
+  const ctx = timelineCtx('tl-nodates');
+  const keys = new Set(ctx.plan.items.flatMap((i) => Object.keys(i)));
+  eq([...keys].filter((k) => /^(start|end|due|deadline|finish|duration|depends|baseline)/i.test(k)), [],
+    'a plan item has acquired a date field — the timeline must stop being derived from commits and use it');
+
+  // Twice, and the two are not interchangeable. The caption is what a sighted reader hits before the first
+  // bar; the accessible name is what a screen reader is given *instead of* the chart. Asserting only the
+  // loose phrase passes when the visible sentence has been deleted and the aria-label still carries it —
+  // observed while reverting this case, which is exactly the hole it exists to close.
+  const html = timelineHtml(ctx);
+  includes(html, '<strong>This is observed work, not a schedule.</strong>',
+    'the correction has to be the first thing on the page, because a Gantt is read as a plan');
+  includes(html, 'This is observed work, not a schedule."',
+    'and the last thing in the accessible name, for a reader who never sees the caption');
+  includes(html, 'a planned Gantt cannot be drawn from it and none is drawn here');
+});
+
+test('I-4 · a bar spans first commit to last, inclusive, in whole day cells', () => {
+  const ctx = timelineCtx('tl-span');
+  const html = timelineHtml(ctx);
+  const bars = timelineBars(html);
+  eq(bars.length, 3, 'three of the five items are named by a commit, so three bars are drawn');
+
+  const cells = (b) => Math.round(b.width / TL_CELL);
+  const [g1, g2, g3] = bars;
+  eq(cells(g1), 3, 'G-1 was committed on the 2nd and the 4th — three cells, both ends inclusive');
+  eq(Math.round(g1.x), Math.round(300 + TL_CELL),
+    'and it starts one cell in, because the repository first commit is the day before it');
+
+  // **The single-commit case, which is the whole reason the axis is discrete.** Zero width would claim no
+  // duration was measured; one cell says the work is inside one day and a day is the finest thing a commit
+  // date can express.
+  eq(cells(g2), 1, `G-2 has one commit and must be one cell wide, was ${g2.width}`);
+  eq(cells(g3), 1, `G-3 has two commits on one day and is also one cell, was ${g3.width}`);
+  eq(Math.round(g3.x), Math.round(300 + 5 * TL_CELL), 'placed on the day it was committed, not at the origin');
+  ok(bars.every((b) => b.width > 0), 'no bar is ever drawn at zero width');
+});
+
+test('I-4 · an item no commit names has no bar, and says so in words', () => {
+  // An absent measurement and a measured zero are different claims everywhere else in this tool, and here
+  // the difference has to be a rectangle against a sentence — not a hairline, and not a dropped row.
+  const ctx = timelineCtx('tl-absent');
+  const html = timelineHtml(ctx);
+
+  eq((html.match(/class="g-none"/g) || []).length, 2,
+    'both unnamed items state their absence rather than being omitted from a chart that would read as complete');
+  includes(html, '>no commit names this item<', 'in words on the canvas, not only in a tooltip');
+  eq(timelineBars(html).length, 3, 'and neither of them is drawn as a bar of any width, however small');
+  for (const id of ['G-1', 'G-2', 'G-3', 'G-4', 'G-5']) includes(html, `>${id}<`, `${id} keeps its row`);
+  includes(html, 'Track A — Early', 'and its own track heading, so the omission is visible where the reader is');
+  includes(html, 'Track B — Later');
+
+  // The claimed-but-unreferenced count is a question on the page, never an accusation.
+  includes(html, '1 of those report progress in the plan');
+  includes(html, 'not an accusation');
+});
+
+test('I-4 · completion is a number in its own column and never the fill of a bar', () => {
+  // A bar whose length means time and whose fill means percent is two scales in one mark, and the second
+  // gets read as a share of the first — "40% of the way through a schedule" that does not exist.
+  const ctx = timelineCtx('tl-scales');
+  const html = timelineHtml(ctx);
+
+  const plot = html.slice(html.indexOf('<svg'), html.indexOf('</svg>'));
+  eq(/class="g-bar"[^>]*(fill-opacity|style=|gradient)/.test(plot), false,
+    'a bar carries no partial fill of any kind — its geometry is time and nothing else');
+  includes(html, 'class="g-pct"', 'the figure has its own column');
+  includes(html, 'never the fill of a bar');
+
+  // Grouped through `num()`, so the page does not change bytes with the host locale (A-33). Two fixtures with
+  // the same history draw the same chart — the drawing only, since the page title is the directory name.
+  const ctx2 = timelineCtx('tl-scales-2');
+  eq(timelineSvg(timelineHtml(ctx2)), timelineSvg(html),
+    'two identical histories draw identical markup — nothing here reads a clock or a locale');
+});
+
+test('I-4 · the axis is the repository first commit to its newest, not the clock', () => {
+  // Measured against the newest commit for the reason the branch panel already gives: a rebuild that changes
+  // nothing has to produce the same bytes, and a page anchored on `new Date()` cannot.
+  const ctx = timelineCtx('tl-axis');
+  const html = timelineHtml(ctx);
+  eq([ctx.contrib.totals.first, ctx.contrib.totals.last], ['2026-03-01', '2026-03-06'],
+    'sanity: the fixture history is fixed, so nothing below can drift with the calendar');
+  includes(html, `${ctx.contrib.totals.first} to ${ctx.contrib.totals.last}`);
+  includes(html, "the repository's first commit to its newest, not to the clock");
+  for (const d of ['03-01', '03-02', '03-03', '03-04', '03-05', '03-06']) {
+    includes(html, `>${d}<`, `the axis labels every day it spans, including ${d}`);
+  }
+  // 2026-03-03 has a commit that names nothing, and it is still a day on the axis: the calendar comes from
+  // `fillAxis`, not from the days that happen to carry a bar.
+  eq((html.match(/>03-03</g) || []).length, 2, 'labelled at the head of the chart and again at its foot');
+  eq(timelineHtml(ctx), html, 'and rendering it twice gives the same bytes');
+});
+
+test('I-4 · the view ships, publishes, and is not marked local-only', () => {
+  const view = DEFAULT_VIEWS.find((v) => v.id === 'timeline');
+  ok(view, 'the Timeline view is in DEFAULT_VIEWS');
+  for (const p of view.panels) ok(PANELS[p], `panel "${p}" must be declared in PANELS`);
+  ok(navItems(DEFAULT_VIEWS, { hasDeck: false }).some((n) => n.href === 'view-timeline.html'),
+    'and it is reachable from the nav');
+  ok(BUNDLE_PAGES.some((p) => p.file === 'view-timeline'),
+    'a bundle carries the page, or every nav link to it in the bundle is dead');
+
+  // **Everything here is `git log` plus a versioned markdown file**, so a clone rebuilds it byte for byte.
+  // Marking it local-only would strip it from every publish for no boundary it actually crosses.
+  const ctx = timelineCtx('tl-publish');
+  const html = timelineHtml(ctx);
+  eq(/id="timeline"[^>]*data-local-only/.test(html), false,
+    'the timeline carries no machine-local state, so it must survive a publish');
+  eq(stripLocalOnly(html).includes('class="g-bar"'), true, 'and it does');
+});
+
+test('I-4 · the timeline states its own blind spots, and only on its own page', () => {
+  // Scoped the way the Repository and Economics caveats are: a card headed "what this dashboard does not
+  // show" is worth reading only if it knows which dashboard it is on.
+  const ctx = timelineCtx('tl-caveats');
+  const here = viewPage({ id: 'timeline', title: 'Timeline', panels: ['timeline', 'caveats'] }, ctx, (o) => o.body);
+  includes(here, 'No bar on the timeline is planned, scheduled or forecast');
+  includes(here, 'The finest interval a commit date supports is one calendar day');
+  includes(here, 'it measures a commit convention as much as the work');
+
+  const elsewhere = viewPage({ id: 'product', title: 'Product', panels: ['progress', 'caveats'] }, ctx, (o) => o.body);
+  eq(elsewhere.includes('No bar on the timeline is planned'), false,
+    'a page without the panel must not carry the panel\'s caveat');
 });
 
 console.log(`\n${pass} passed, ${fail} failed${skipped ? `, ${skipped} skipped on ${process.platform}` : ''}\n`);

@@ -93,7 +93,7 @@ None of that needed judgment to find. All of it needed someone to look.
 
 project-atlas reads the markdown in a repository and produces four things from it: an **index** with a cluster
 taxonomy and backlinks, a **health report** of sixteen mechanical rot signals, a **static site** with
-client-side search and eleven role-specific views, and a **structured API** — an MCP server and a JSON command
+client-side search and twelve role-specific views, and a **structured API** — an MCP server and a JSON command
 with CI-shaped exit codes — so an agent or a build can ask the same questions without a terminal.
 
 It does not write your documentation, move it, or keep a copy of it. Everything it generates lands in one
@@ -276,10 +276,10 @@ same as `./bin/atlas <command>` or `node scripts/atlas.mjs <command>`.
 | **Dashboard** | Progress by track, items by status, health signals, and a sortable, per-column-filterable item table |
 | **Deck** | A browser slide deck from a markdown source — keyboard nav, overview, print to PDF |
 | **Health** | Every rot signal, split into blocking and advisory |
-| **Role views** | Eleven pages over the same data — Overview, Backlog, Quality, Product, Delivery, Repository, Economics, Architecture, Blueprint, Developer, Executive |
+| **Role views** | Twelve pages over the same data — Overview, Backlog, Timeline, Quality, Product, Delivery, Repository, Economics, Architecture, Blueprint, Developer, Executive |
 
-A view is a list of panel ids rather than a page of its own, so the eleven cannot disagree with each other;
-thirty-six panels supply them. **Economics** is the one that costs something to render: it reads the local
+A view is a list of panel ids rather than a page of its own, so the twelve cannot disagree with each other;
+thirty-seven panels supply them. **Economics** is the one that costs something to render: it reads the local
 session transcript store, which is why it is named here and again under [token
 accounting](#token-accounting) rather than being left to look like an ordinary panel. The count and every
 name in that row are read out of this table by the test suite and compared against `DEFAULT_VIEWS`.
@@ -553,7 +553,7 @@ node tests/run.mjs               # integration tests against throwaway git repos
 node tests/run.mjs --filter H6   # or a subset
 ```
 
-**The suite holds 553 test cases.** That figure is not maintained by hand: a test reads it out of this
+**The suite holds 560 test cases.** That figure is not maintained by hand: a test reads it out of this
 sentence and compares it against the cases it can count in `tests/run.mjs`, so adding a test and forgetting
 this line fails the suite. A count stated in prose beside a list that grows is a defect waiting to happen,
 and this repository has proved that three times (A-29) — most recently across the four public pages, where

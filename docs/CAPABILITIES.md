@@ -27,7 +27,7 @@ was built to find (A-50).
 project-atlas builds a derived knowledgebase over the markdown a repository already contains. It indexes
 those files, classifies them into clusters, resolves their internal links and their `path:line` code
 citations, checks sixteen mechanical rot signals against the result, and generates a static site — index,
-document pages with backlinks, eleven role views, a health report and an optional slide deck. A seventeenth
+document pages with backlinks, twelve role views, a health report and an optional slide deck. A seventeenth
 signal, H17, is reported beside the sixteen and is a claim about how the **session** was run rather than about
 the repository; it can never block. It owns no prose of its own: the whole output directory is cleared and
 rewritten on every build (`prepareOutputDir` in `scripts/lib/render.mjs`), which is what makes it unable to
@@ -90,9 +90,9 @@ a site you can open. What you get that you did not have:
   give you (`backlinksFor` in `scripts/lib/render.mjs`).
 - **Client-side full-text search**, over titles, headings, excerpts and bodies, with long bodies truncated to a
   configurable limit and the truncation counted (the search-index build in `renderSite`).
-- **Eleven role views over one body of data** — Overview, Backlog, Quality, Product, Delivery, Repository,
-  Economics, Architecture, Blueprint, Developer, Executive (`DEFAULT_VIEWS` in `scripts/lib/views.mjs`), built
-  from **thirty-six panels**. They are lists of panel ids rather than separate pages, so they cannot drift from
+- **Twelve role views over one body of data** — Overview, Backlog, Timeline, Quality, Product, Delivery,
+  Repository, Economics, Architecture, Blueprint, Developer, Executive (`DEFAULT_VIEWS` in
+  `scripts/lib/views.mjs`), built from **thirty-seven panels**. They are lists of panel ids rather than separate pages, so they cannot drift from
   each other. This sentence said *nine* and named nine for as long as Repository and Economics had been
   shipping; both figures and the list of names are now read out of it by `tests/run.mjs` and compared against
   `DEFAULT_VIEWS` and `PANELS`.

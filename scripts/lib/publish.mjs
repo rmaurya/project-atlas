@@ -1076,6 +1076,7 @@ export const BUNDLE_PAGES = [
   // with it. The bundle test caught exactly that when the backlog view was added — which is why the test
   // asserts "no link points at a file" rather than checking a list someone has to remember to update.
   { file: 'view-backlog', label: 'Backlog' },
+  { file: 'view-timeline', label: 'Timeline' },
   { file: 'view-qc', label: 'Quality' },
   { file: 'view-product', label: 'Product' },
   { file: 'view-delivery', label: 'Delivery' },

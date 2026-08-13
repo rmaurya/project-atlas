@@ -50,6 +50,7 @@ measured against the code — the same distinction the tool preserves everywhere
 | A-50 | 100 | A-51 | 0 | A-52 | 100 |
 | A-53 | 100 | A-54 | 100 | A-55 | 100 |
 | A-56 | 100 | P-9 | 100 | A-57 | 100 |
+| I-4 | 100 | | | | |
 
 ---
 
@@ -714,6 +715,54 @@ corrections by hand — measure whether the collaboration worked, which is the q
 All 20 items are listed and the Status column filters to `Done`, so the data is there; what is missing is a
 deliberate control and a count, so "show me what landed" is one click rather than a filter someone has to
 discover.
+
+**I-4 · When the work actually happened** — **P2 · Medium**
+*Asked for as "a recommended Gantt in a separate screen". Shipped as a Timeline, and the rename is the whole
+item.*
+
+**A Gantt is a plan, and this plan has no dates.** `readPlanning` extracts an id, a title, a track, a
+priority, a criticality and a completion percentage — and nothing else. There is no start, no end, no
+duration and no dependency for a plan item anywhere in this repository, and no other source holds one: the
+deck, the journal and the task list all record what happened, never what was promised for when. Every bar of
+a planned Gantt drawn from this data would have been invented, and a forecast rendered in the visual grammar
+of a measurement is the worst kind of invention there is, because a Gantt is trusted *because* it looks like
+a commitment. `inflight.mjs` already refuses exactly this move in exactly these words: *work nobody has
+written down has no denominator, and a figure invented for one would read as measured.*
+
+**What is derivable is the other half.** `taskCoverage` already maps a plan item to the commits whose
+subject names it, so the first and last of those commits bracket an interval anybody with a clone can check.
+The page answers *when was this actually worked on* instead of *when was this promised*, and it is called
+what it is in its id, its nav label and its first sentence — the two of those three a caption cannot reach.
+
+*Six decisions carry the honesty, and each is a way the page could otherwise have lied.* The axis is one
+cell per **calendar day**, because a commit date is a day and not an instant. A single-commit item is
+therefore **one full cell wide** — the smallest interval the measurement can express, not a zero. An item no
+commit names has **no bar at all and a sentence instead**, drawn in its own track rather than dropped from a
+chart that would then read as complete. Rows are grouped by **track**, which is the plan's own work
+breakdown, and ordered by start within it; no new taxonomy is invented. Completion is a **number in its own
+column** and never the fill of a bar, because a length that means time under a fill that means percent is
+two scales in one mark. And the right-hand edge is the **newest commit in the repository**, not the clock,
+so a rebuild that changes nothing draws the same bytes.
+
+*All 105 items are drawn and none is omitted for width.* Every available trim — top N by span, only the
+incomplete, only the recent — is a ranking the panel would have had to invent, on the one page whose promise
+is the whole plan against one axis. So the chart is tall, the day gridlines run its full height, and the
+date scale is repeated at the foot.
+
+*One limit is marked rather than hidden.* `taskCoverage.recent` retains the eight newest commits per item,
+so an item that crosses that cap has a first date which is a **ceiling** on its true start. That is
+detectable, so such a bar is drawn with an open left edge and counted in the caption instead of quietly
+starting late. Nothing in this repository crosses the cap today. Closing it properly means a `first` field
+on `taskCoverage` itself, which belongs to `contrib.mjs` — filed here rather than reached into from the
+panel, because two answers to one question is the fork this tool exists to detect.
+
+*The page is not `data-local-only`.* Every figure comes from `git log` and from a versioned markdown file,
+so a colleague with a clone rebuilds it byte for byte; it carries no working-tree state, no branch name and
+no path from the machine that built it.
+
+*What it still owes:* the view is not named in `NAV_GROUPS` (`scripts/lib/render.mjs`), so it renders as a
+top-level menu link rather than inside **Plan** beside Backlog, Product and Executive. That is the designed
+degrade for a view the grouping has not heard of — a case the suite already pins — and it is one href.
 
 ## Track 6 — Autonomy
 
