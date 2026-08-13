@@ -78,6 +78,8 @@ import { runTask, TASKS } from '../scripts/lib/task.mjs';
 import { manifestUrl, checkForUpdate, fetchLatest, readCache, writeCache, isFresh } from '../scripts/lib/update.mjs';
 import { readGitInsight, formatGitInsight, hotspots, coupling, branchHealth, cadence, hygiene,
          fillWeeks, DEFAULT_GITINSIGHT, GITINSIGHT_SECTIONS } from '../scripts/lib/gitinsight.mjs';
+import { cheatsheet, renderAssets, parseUsage, usageSource, parseMap, slashCommands, fit, measure,
+         pack, SVG_PATH, PDF_PATH } from '../scripts/lib/cheatsheet.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const CLI = path.join(HERE, '..', 'scripts', 'atlas.mjs');
@@ -10096,6 +10098,216 @@ test('serve · the detached server carries its root in argv, and registers itsel
   ok(listBlock.length > 200, 'sanity: that slice is the --list branch, not an empty string from a rename');
   eq(listBlock.includes('reapOrphanServers'), false, 'a listing must never send a signal');
   eq(listBlock.includes('terminateServer'), false, 'nor reach the terminator by any other name');
+});
+
+/* ================================================================== the cheatsheet assets (A-52) */
+
+/**
+ * **Synchronous, like everything appended below the drain.** `pendingAsync` is emptied thousands of lines
+ * above; an `async` case here would be constructed, never awaited, and counted as a pass it never earned.
+ *
+ * The point of this block is one assertion — *the committed assets are what regenerating writes* — and four
+ * that stop it being vacuous. A staleness check is only worth having if adding a command really does change
+ * the bytes, if the generator is deterministic enough that the check is about staleness rather than about the
+ * weather, and if the thing being kept fresh is actually the whole surface.
+ */
+
+console.log('\ncheatsheet');
+
+const cheatRows = (model) => model.groups.flatMap((g) => g.rows);
+
+test('cheatsheet · the committed assets are exactly what regenerating writes', () => {
+  // This is the case the whole feature rests on. A cheatsheet is a picture of a list, and nobody reads a
+  // picture in a diff — so the only thing that can notice it has gone stale is a byte comparison against a
+  // fresh render. Adding a command without running `node scripts/gen-cheatsheet.mjs` turns this red, which
+  // the drift case below proves rather than assumes.
+  const { svg, pdf } = renderAssets(REPO_ROOT);
+  for (const [rel, fresh] of [[SVG_PATH, svg], [PDF_PATH, pdf]]) {
+    const file = path.join(REPO_ROOT, rel);
+    ok(fs.existsSync(file), `${rel} is missing — run: node scripts/gen-cheatsheet.mjs`);
+    const on = fs.readFileSync(file);
+    ok(on.equals(fresh), `${rel} is stale: ${on.length} bytes committed, ${fresh.length} regenerated. `
+      + 'Run: node scripts/gen-cheatsheet.mjs');
+  }
+});
+
+test('cheatsheet · a command the CLI gains changes the card, so the case above can fail', () => {
+  // Without this, "the committed bytes match a fresh render" is satisfiable by a generator that reads
+  // nothing. A throwaway root with one extra dispatched command and one extra help line must produce
+  // different bytes, and must name the command it was given.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'atlas-cheatsheet-drift-'));
+  fs.cpSync(path.join(REPO_ROOT, 'skills'), path.join(dir, 'skills'), { recursive: true });
+  fs.mkdirSync(path.join(dir, 'scripts'), { recursive: true });
+  const src = fs.readFileSync(path.join(REPO_ROOT, 'scripts', 'atlas.mjs'), 'utf8');
+  const mutated = src
+    .replace("if (cmd === 'help'", "if (cmd === 'teleport') return;\n  if (cmd === 'help'")
+    .replace('\n  atlas help ', '\n  atlas teleport             go somewhere else entirely\n  atlas help ');
+  ok(mutated !== src, 'sanity: the mutation applied — otherwise this case proves nothing');
+  fs.writeFileSync(path.join(dir, 'scripts', 'atlas.mjs'), mutated);
+
+  const before = renderAssets(REPO_ROOT);
+  const after = renderAssets(dir);
+  eq(after.svg.equals(before.svg), false, 'a new command must change the SVG');
+  eq(after.pdf.equals(before.pdf), false, 'and the PDF');
+  includes(after.svg.toString('utf8'), 'teleport', 'the new command has to reach the card, not just move bytes');
+  includes(after.pdf.toString('latin1'), 'teleport');
+});
+
+test('cheatsheet · every command on either surface has a row, and no row invents one', () => {
+  // Both directions, for the reason A-35 gives about `usage()`: a card that omits a real command sends the
+  // reader to `atlas help`, and a card that promises one the CLI answers with "Unknown command" is worse,
+  // because it is believed.
+  const model = cheatsheet(REPO_ROOT);
+  const rows = new Set(cheatRows(model).map((r) => r.name));
+  const aliases = new Set(model.aliases.map((a) => a.from));
+  const dispatched = dispatchedCommands().filter((c) => !aliases.has(c));
+  eq(dispatched.filter((c) => !rows.has(c)), [], 'these commands dispatch and the cheatsheet has no row for them');
+  eq(slashCommands(REPO_ROOT).filter((s) => !rows.has(s)), [], 'these slash commands have no row on the cheatsheet');
+
+  const known = new Set([...dispatchedCommands(), ...slashCommands(REPO_ROOT)]);
+  eq([...rows].filter((r) => !known.has(r)), [], 'the cheatsheet names these and neither surface has them');
+
+  // The aliases are deliberately not rows — they are a footer line, the same call `usage()` makes.
+  eq([...aliases].filter((a) => rows.has(a)), [], 'an alias must not get a row of its own');
+  for (const a of aliases) includes(model.aliases.map((x) => x.from).join(' '), a);
+});
+
+test('cheatsheet · a row says which of the two surfaces it is missing, and gets it right', () => {
+  const model = cheatsheet(REPO_ROOT);
+  const dispatched = new Set(dispatchedCommands());
+  const slash = new Set(slashCommands(REPO_ROOT));
+  for (const r of cheatRows(model)) {
+    eq(r.cli, dispatched.has(r.name), `${r.name}: the card's shell marker disagrees with the dispatch table`);
+    eq(r.slash, slash.has(r.name), `${r.name}: the card's slash marker disagrees with skills/`);
+    ok(r.cli || r.slash, `${r.name} exists on neither surface and should not be on the card`);
+    ok(r.gloss.length > 0, `${r.name} has no description — nothing to print in the second column`);
+  }
+  // `serve` and `watch` are shell-only and `dashboard` and `review` are slash-only. If that ever stops being
+  // true the numbers move, but the card is generated, so it moves with them — this only pins that the two
+  // populations are genuinely different and the marker is therefore carrying information.
+  const rows = cheatRows(model);
+  ok(rows.some((r) => r.cli && !r.slash), 'some command is shell-only');
+  ok(rows.some((r) => !r.cli && r.slash), 'some command is Claude Code only');
+});
+
+test('cheatsheet · rendering twice from the same source gives the same bytes', () => {
+  // Byte-identity is a property of the generator, not only of the committed files: a `Date`, an unsorted
+  // `readdir`, a `Set` iteration order that depended on insertion, or an unrounded float would all pass the
+  // staleness case on the machine that last regenerated and fail on every other one.
+  const a = renderAssets(REPO_ROOT);
+  const b = renderAssets(REPO_ROOT);
+  ok(a.svg.equals(b.svg), 'two SVG renders differ');
+  ok(a.pdf.equals(b.pdf), 'two PDF renders differ');
+  const text = `${a.svg.toString('utf8')}\n${a.pdf.toString('latin1')}`;
+  eq(/\b20\d\d-\d\d-\d\d\b/.test(text), false, 'a date reached the assets — they would go stale by the clock');
+  eq(text.includes(REPO_ROOT), false, 'an absolute path reached the assets');
+  eq(/\/(Users|home)\//.test(text), false, 'a home directory reached the assets');
+});
+
+test('cheatsheet · the SVG is self-contained, and its text is text', () => {
+  // It is embedded in a README, which means GitHub proxies it and sanitises it. Anything it fetches will not
+  // load and anything in a <style> may be dropped, and a card that renders as unpositioned glyphs on the one
+  // page it exists for has failed. Text stays as <text> so it is selectable, searchable and crisp at any zoom.
+  // Against the fresh render, not the committed file. Asserting on the file makes this case a second copy of
+  // the staleness case: a generator that started emitting a <style> would pass here until someone regenerated,
+  // which is precisely the moment nobody is looking.
+  const svg = renderAssets(REPO_ROOT).svg.toString('utf8');
+  for (const forbidden of ['<style', '<image', 'xlink:href', '@import', 'url(', '<script', '<foreignObject']) {
+    eq(svg.includes(forbidden), false, `the SVG contains ${forbidden} — GitHub may strip it or refuse to fetch it`);
+  }
+  const texts = svg.match(/<text /g) || [];
+  const rows = cheatRows(cheatsheet(REPO_ROOT)).length;
+  ok(texts.length > rows * 2, `only ${texts.length} <text> elements for ${rows} rows — something is being drawn as paths`);
+  eq(svg.includes('<path'), false, 'no glyph outlines: the card is real text');
+  includes(svg, 'role="img"');
+  includes(svg, '<title id="cs-title">');
+});
+
+test('cheatsheet · the PDF is one A4 landscape page, with no clock in it', () => {
+  const text = renderAssets(REPO_ROOT).pdf.toString('latin1');   // the render, for the reason the SVG case gives
+  ok(text.startsWith('%PDF-'), 'it is a PDF');
+  ok(fs.readFileSync(path.join(REPO_ROOT, PDF_PATH)).length > 1000, 'and a real one is committed');
+  includes(text, '/MediaBox [0 0 842 595]', 'A4 landscape, in points');
+  includes(text, '/Count 1', 'one page — the generator throws rather than spilling onto a second');
+  for (const banned of ['/CreationDate', '/ModDate', '/Producer', '/Info']) {
+    eq(text.includes(banned), false, `${banned} is in the PDF, and it would change on every regeneration`);
+  }
+  // Base-14 Type 1 faces, so nothing is embedded: no font program to drift, and no licence to carry.
+  for (const face of ['/Helvetica', '/Helvetica-Bold', '/Courier']) includes(text, `/BaseFont ${face}`);
+  eq(text.includes('/FontFile'), false, 'no embedded font program');
+
+  // The cross-reference table is the one part of a hand-written PDF that silently rots: every offset has to
+  // land on the object it claims. A reader that repairs the file would hide this, and one that does not
+  // would show a blank page.
+  // `\nxref\n`, not `xref\n`: `startxref` ends in it, and a naive lastIndexOf lands on the pointer instead of
+  // the table — which is how this case first passed while reading four bytes of the trailer.
+  const at = text.indexOf('\nxref\n') + 1;
+  ok(at > 1, 'there is an xref table');
+  // `xref`, the `0 8` subsection header, then the free entry for object 0 — the numbered objects start fourth.
+  const rows = text.slice(at).split('\n').slice(3);
+  let n = 0;
+  for (const r of rows) {
+    const m = r.match(/^(\d{10}) 00000 n $/);
+    if (!m) break;
+    n += 1;
+    includes(text.slice(Number(m[1]), Number(m[1]) + 12), `${n} 0 obj`, `xref entry ${n} points at the wrong byte`);
+  }
+  eq(n, 7, 'all seven objects are indexed');
+  includes(text, `startxref\n${at}\n`, 'startxref points at the table');
+});
+
+test('cheatsheet · the derivation reads the three surfaces, and refuses a source it cannot read', () => {
+  // The parsers, directly. Each one has a shape it depends on in a file this repository edits often, and each
+  // throws with the reason rather than yielding an empty card that still renders and still looks finished.
+  const u = parseUsage(usageSource(REPO_ROOT));
+  ok(u.commands.length > 30, 'usage() parsed into commands');
+  ok(u.flags.length >= 8 && u.aliases.length >= 2, 'and into the global flags and the aliases');
+  includes(u.commands.find((c) => c.name === 'init').desc, 'project-atlas.config.json',
+    '${CONFIG_NAME} has to be resolved — the card must not print the interpolation');
+  eq(u.commands.find((c) => c.name === 'serve').flags.length >= 2, true, 'sub-flags hang off their command');
+  includes(u.commands.find((c) => c.name === 'contention').desc, 'exit 1 on a duplicate id only',
+    'a wrapped description is folded back onto one line, not truncated at the wrap');
+
+  const groups = parseMap(REPO_ROOT);
+  ok(groups.length >= 8, 'the intent map parsed into groups');
+  eq(groups.some((g) => /^Not slash commands/.test(g.title)), false,
+    'a bold lead-in followed by prose is not a group heading');
+
+  // `sessions` and `tokens` share one clause in the map — "both read local session transcripts…" — which is
+  // true of each and describes neither, so each row falls back to its own line in usage().
+  const rows = new Map(cheatRows(cheatsheet(REPO_ROOT)).map((r) => [r.name, r]));
+  eq(rows.get('sessions').gloss === rows.get('tokens').gloss, false,
+    'two commands sharing one clause in the map must not end up with one description between them');
+});
+
+test('cheatsheet · a description is shortened at a clause, and never to a word that means something else', () => {
+  // `atlas serve` is "build, then run the live dashboard detached and open it". Cutting at the first comma
+  // fits, and leaves the card saying `serve` does "build" — a different command's whole description. The
+  // floor in fit() is what stops that, and this is the case that holds it there.
+  const width = measure('build, then run the live dashboard', 8, 'sans');
+  const short = fit('build, then run the live dashboard detached and open it', width, 8, 'sans');
+  eq(short === 'build', false, 'a clause below the floor must lose to an honest ellipsis');
+  ok(short.endsWith('…'), 'so the reader can see something was cut');
+  eq(fit('one file, explained', 400, 8, 'sans'), 'one file, explained', 'what fits is left alone');
+  includes(fit('token accounting from local session transcripts — opt-in, never published',
+    measure('token accounting from local session transcripts', 8, 'sans'), 8, 'sans'), 'token accounting');
+
+  // Every gloss and every command label that actually lands on the card must fit the box it is drawn in;
+  // fit() is the only thing standing between a long description and text running under the next column.
+  const svg = renderAssets(REPO_ROOT).svg.toString('utf8');
+  const overrun = [...svg.matchAll(/<text x="([\d.]+)"[^>]*font-size="([\d.]+)"[^>]*>([^<]*)<\/text>/g)]
+    .filter((m) => !m[0].includes('Courier'))
+    .filter((m) => Number(m[1]) + measure(m[3].replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"'), Number(m[2]), 'sans') > 900 - 20)
+    .map((m) => m[3]);
+  eq(overrun, [], 'these strings run off the right edge of the card');
+});
+
+test('cheatsheet · columns are packed to the shortest tallest column, in order', () => {
+  const blocks = [{ h: 10 }, { h: 10 }, { h: 10 }, { h: 30 }];
+  const cols = pack(blocks, 2);
+  eq(cols.map((c) => c.reduce((a, b) => a + b.h, 0)), [30, 30], 'the split that levels the two columns');
+  eq(cols[0].length, 3, 'and it keeps the blocks in the order they were given');
+  eq(pack([{ h: 5 }], 2).map((c) => c.length), [1, 0], 'fewer blocks than columns is not a crash');
 });
 
 console.log(`\n${pass} passed, ${fail} failed${skipped ? `, ${skipped} skipped on ${process.platform}` : ''}\n`);
