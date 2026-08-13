@@ -344,7 +344,7 @@ to delete (`AGENTS.md:13-16`).
 
 **It cannot be driven from outside.** See above; the external control plane is **designed and not built** —
 `docs/references/agent-control.md:7` says so in its own status line, and `docs/ROADMAP.md` carries M-3 at 40%.
-It is **not** the only item below 100%: the plan holds 108 items at a mean of 95.5%, seven of them short of
+It is **not** the only item below 100%: the plan holds 111 items at a mean of 96.7%, seven of them short of
 100%. This page claimed M-3 was the only one, which was a smaller and more flattering number than the truth;
 §7 of [`FEATURES.md`](FEATURES.md) now carries those figures and a test that re-derives them.
 
