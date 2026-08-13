@@ -237,6 +237,14 @@ at any time.
 | `atlas all` | scan + health + build. |
 | `atlas publish` | Stage a wiki, pages branch, or single-file export — nothing is pushed without `--push`. |
 
+**Three more names dispatch, and none of them is a separate feature.** `atlas capabilities` is an alias for
+`atlas caps` and `atlas git-insight` an alias for `atlas git-insights` — one implementation each, listed once
+above because a second row is the copy that goes stale. `atlas spec --gate` is the commit hook's plan-item
+check; it reads the message from **stdin** and prints nothing when it passes, which is why it is a gate rather
+than a command you type. **Bare `atlas spec` is not a command at all** — it exits 2 with *Unknown command*,
+and it is written here with its flag so that nobody types the half that does not exist. The table plus this
+paragraph now name all 39, and a test fails if a dispatched command appears in neither (A-50).
+
 `atlas help` prints the same list from the CLI, and **that list is complete** — a test derives the dispatch
 table from the source and fails when a command is missing from it, or when it names one that does not exist.
 
@@ -255,6 +263,13 @@ same as `./bin/atlas <command>` or `node scripts/atlas.mjs <command>`.
 | **Dashboard** | Progress by track, items by status, health signals, and a sortable, per-column-filterable item table |
 | **Deck** | A browser slide deck from a markdown source — keyboard nav, overview, print to PDF |
 | **Health** | Every rot signal, split into blocking and advisory |
+| **Role views** | Eleven pages over the same data — Overview, Backlog, Quality, Product, Delivery, Repository, Economics, Architecture, Blueprint, Developer, Executive |
+
+A view is a list of panel ids rather than a page of its own, so the eleven cannot disagree with each other;
+thirty-six panels supply them. **Economics** is the one that costs something to render: it reads the local
+session transcript store, which is why it is named here and again under [token
+accounting](#token-accounting) rather than being left to look like an ordinary panel. The count and every
+name in that row are read out of this table by the test suite and compared against `DEFAULT_VIEWS`.
 
 ## How the documentation health check works
 
@@ -525,10 +540,11 @@ node tests/run.mjs               # integration tests against throwaway git repos
 node tests/run.mjs --filter H6   # or a subset
 ```
 
-**The suite holds 489 test cases.** That figure is not maintained by hand: a test reads it out of this
+**The suite holds 504 test cases.** That figure is not maintained by hand: a test reads it out of this
 sentence and compares it against the cases it can count in `tests/run.mjs`, so adding a test and forgetting
 this line fails the suite. A count stated in prose beside a list that grows is a defect waiting to happen,
-and this repository has proved that twice (A-29).
+and this repository has proved that three times (A-29) — most recently across the four public pages, where
+every stated total is now derived from the code the same way this one is.
 
 No mocks — the tests build real git repos and run the real pipeline, because every bug this tool has shipped
 lived in the seam between the code and git. Several tests exist because a bug shipped once and must not

@@ -10098,6 +10098,381 @@ test('serve · the detached server carries its root in argv, and registers itsel
   eq(listBlock.includes('terminateServer'), false, 'nor reach the terminator by any other name');
 });
 
+/* ============================================ the three public pages state only what the code says (A-50) */
+
+/**
+ * **The pages a reader meets first had drifted for the third time, and the stamps meant to prevent it were
+ * the mechanism.** `FEATURES.md` declared itself verified against `HEAD = 714d202`; at that commit the
+ * `atlas help` dispatch is on line 309 and the page said 338. `CAPABILITIES.md` declared 2026-08-11 and its
+ * line numbers matched no committed tree at all. A date is unfalsifiable from inside the page, so the cases
+ * below replace it: every figure and every §1/§2 line number is re-derived from the source and compared.
+ *
+ * **A regex that finds nothing is a failure here, never a skip.** `statedFigure` already enforces that, and
+ * the digit-valued checks below use `statedNumber`, which holds the same contract. The way a check like this
+ * rots is for the sentence it reads to be rewritten into something it no longer matches, at which point it
+ * passes forever while measuring nothing — the same shape as the defect it exists to catch.
+ *
+ * **Every case here is synchronous.** `pendingAsync` is drained thousands of lines above, so an `async` case
+ * appended at this point would be constructed, never awaited, and reported as a pass it never earned.
+ */
+
+console.log('\nthe public surface');
+
+/** The four pages this group owns. `README.md` is the entry point; the other three are what it links to. */
+const PUBLIC_PAGES = ['README.md', 'docs/FEATURES.md', 'docs/CAPABILITIES.md', 'docs/FAQ.md'];
+
+/**
+ * `statedFigure` for a figure written in digits. Same contract: a miss is a failure naming the regex, so a
+ * rewritten sentence breaks the build instead of silently disarming the check.
+ */
+function statedNumber(rel, re, where) {
+  const m = re.exec(docText(rel));
+  ok(m, `${rel}: no sentence matched ${re} — ${where}. If the wording changed, update this assertion; do not delete it.`);
+  const n = Number(m[1]);
+  ok(Number.isFinite(n), `${rel}: "${m[1]}" is not a number, in: ${m[0]}`);
+  return n;
+}
+
+/**
+ * Every line in `scripts/atlas.mjs` on which an `if` *selects* this command.
+ *
+ * Statement-level only. `cmd === 'version'` also appears inside the update-check guard near the top of the
+ * file — a condition about whether to make a network call, not a dispatch — and counting it would have this
+ * demand that FEATURES.md cite line 301 for `atlas version`, which is the opposite of the point.
+ */
+function dispatchLinesFor(name) {
+  const src = fs.readFileSync(path.join(REPO_ROOT, 'scripts', 'atlas.mjs'), 'utf8').split('\n');
+  const out = [];
+  src.forEach((l, i) => {
+    if (/^\s*(\}\s*else\s+)?if \(cmd ===/.test(l) && new RegExp(`cmd === '${name}'`).test(l)) out.push(i + 1);
+  });
+  return out;
+}
+
+/**
+ * A page with the italic-quoted spans and fenced blocks removed.
+ *
+ * These pages quote their own retired claims on purpose — *"`atlas ask <question>` does not work"* is now
+ * written down as a thing the page used to say. A naive grep cannot tell that apart from the assertion
+ * itself, so the quotations come out before the forbidden phrases are looked for. Anything left is the page
+ * speaking in its own voice.
+ */
+const unquoted = (rel) => docText(rel)
+  .replace(/```[\s\S]*?```/g, ' ')
+  .replace(/\*"[^"]*"\*/g, ' ')
+  .replace(/\*“[^”]*”\*/g, ' ');
+
+test('public · FEATURES §1 cites the line each command actually dispatches on', () => {
+  // 0 of 41 landed before A-50. `scripts/atlas.mjs` had shifted by one line, so every citation pointed at
+  // plausible, adjacent, wrong code — the failure mode a line number has and a symbol does not. H2 passed
+  // throughout and was right to: it asks only whether the file is long enough.
+  const rows = docText('docs/FEATURES.md').split('\n').filter((l) => /^\| `atlas [a-z-]+/.test(l));
+  ok(rows.length >= 40, `sanity: the §1 table was found and parsed, got ${rows.length} rows`);
+
+  let checked = 0;
+  for (const row of rows) {
+    const name = /^\| `atlas ([a-z-]+)/.exec(row)[1];
+    const lines = dispatchLinesFor(name);
+    ok(lines.length, `FEATURES.md §1 has a row for \`atlas ${name}\` and the CLI never compares cmd to it`);
+    for (const m of row.matchAll(/`scripts\/atlas\.mjs:(\d+)`/g)) {
+      ok(lines.includes(Number(m[1])),
+        `FEATURES.md §1: the \`atlas ${name}\` row cites scripts/atlas.mjs:${m[1]}, which is not one of its `
+        + `dispatch lines (${lines.join(', ')}). Cite the line \`cmd === '${name}'\` is on.`);
+      checked++;
+    }
+  }
+  ok(checked >= 40, `sanity: dispatch citations were read, got ${checked}`);
+
+  // And every command must be reachable from the table by its own first dispatch line, so a row cannot
+  // satisfy the check above by citing only a secondary one.
+  for (const c of dispatchedCommands()) {
+    const first = dispatchLinesFor(c)[0];
+    ok(docText('docs/FEATURES.md').includes(`scripts/atlas.mjs:${first}`),
+      `no §1 row cites scripts/atlas.mjs:${first}, where \`cmd === '${c}'\` is first compared`);
+  }
+});
+
+test('public · FEATURES §2 cites the line each signal\'s finding is actually built on', () => {
+  // All 17 were wrong: `scripts/lib/health.mjs` had grown by ninety-nine lines above the evaluation block.
+  // The anchor is where the finding is *constructed*, which is the one line per signal that must exist for
+  // the signal to do anything at all.
+  const src = {
+    'scripts/lib/health.mjs': fs.readFileSync(path.join(REPO_ROOT, 'scripts', 'lib', 'health.mjs'), 'utf8').split('\n'),
+    'scripts/lib/sop.mjs': fs.readFileSync(path.join(REPO_ROOT, 'scripts', 'lib', 'sop.mjs'), 'utf8').split('\n'),
+  };
+  const raisedAt = (id) => {
+    for (const [rel, lines] of Object.entries(src)) {
+      const i = lines.findIndex((l) => new RegExp(`(?:^|[^.\\w])add\\('${id}',|push\\(\\{ id: '${id}',`).test(l));
+      if (i !== -1) return `${rel}:${i + 1}`;
+    }
+    return null;
+  };
+
+  const text = docText('docs/FEATURES.md');
+  for (const id of Object.keys(SIGNALS)) {
+    const where = raisedAt(id);
+    ok(where, `${id} is in the catalogue and no line in health.mjs or sop.mjs constructs a finding for it`);
+    const row = text.split('\n').find((l) => new RegExp(`^\\| ${id} \\| `).test(l));
+    ok(row, `FEATURES.md §2 has no row for ${id}`);
+    includes(row, `\`${where}\``,
+      `FEATURES.md §2: the ${id} row must cite ${where}, where its finding is constructed`);
+  }
+});
+
+test('public · CAPABILITIES cites the line each command actually dispatches on', () => {
+  // This page's numbers matched no committed tree — the offsets came out at +29, +21 and +24 against the
+  // three candidates from its own stamp date, so they cannot all have been read from one checkout. Every
+  // command citation left on the page is now derived; everything else on it names a symbol instead.
+  const text = docText('docs/CAPABILITIES.md');
+  const cited = [...text.matchAll(/`atlas ([a-z-]+)`[^.]{0,120}?\(`scripts\/atlas\.mjs:(\d+)`/g)];
+  ok(cited.length >= 15, `sanity: command citations were found, got ${cited.length}`);
+  for (const [, name, line] of cited) {
+    const lines = dispatchLinesFor(name);
+    ok(lines.includes(Number(line)),
+      `CAPABILITIES.md cites scripts/atlas.mjs:${line} for \`atlas ${name}\`, whose dispatch lines are `
+      + `${lines.join(', ') || '(none — that command does not dispatch)'}`);
+  }
+
+  // Nothing on this page may quote a bare line number into a module where no dispatch anchors it. Eleven
+  // such citations were written backwards (`scripts/atlas.mjs:1007-971`), which is what a number nobody can
+  // check looks like once it has been copied twice.
+  const stray = [...new Set([...text.matchAll(/`scripts\/atlas\.mjs:(\d+)`/g)].map((m) => Number(m[1])))]
+    .filter((n) => !dispatchedCommands().some((c) => dispatchLinesFor(c).includes(n)));
+  eq(stray, [], 'CAPABILITIES.md cites these scripts/atlas.mjs lines and none is a dispatch — name the symbol instead');
+});
+
+test('public · every command the CLI dispatches is named on the README', () => {
+  // The table listed 36 of 39. The three it missed were the two aliases and `spec`, which dispatches only as
+  // `spec --gate` — so the fix is a paragraph naming them, not three rows implying three more features.
+  const text = docText('README.md');
+  const missing = dispatchedCommands().filter((c) => !mentionsCommand(text, c));
+  eq(missing, [], 'these commands dispatch and the README never names them');
+
+  // `atlas spec` on its own is not a command, so it may be discussed but never *listed* as one. The command
+  // table is the part a reader copies from; prose explaining that the bare form exits 2 is the point.
+  includes(text, 'atlas spec --gate', 'the README must write `spec` with the flag that makes it real');
+  const listedBare = text.split('\n').filter((l) => /^\| `atlas spec`/.test(l));
+  eq(listedBare, [], 'the README command table lists a bare `atlas spec`, which exits 2 with "Unknown command"');
+});
+
+test('public · the README and CAPABILITIES name all eleven views, and state how many', () => {
+  // Repository and Economics shipped and neither page had heard of them; CAPABILITIES said nine and named
+  // nine, which is the internally-consistent shape that makes a stale page unreadable as stale.
+  const titles = DEFAULT_VIEWS.map((v) => v.title);
+
+  const readme = docText('README.md');
+  eq(statedFigure('README.md', /\*\*Role views\*\* \| ([A-Za-z-]+) pages over the same data/, 'the What it produces row'),
+    titles.length, 'the README states the wrong number of role views');
+  eq(titles.filter((t) => !readme.includes(t)), [], 'these views ship and the README does not name them');
+  eq(statedFigure('README.md', /([a-z-]+) panels supply them/, 'the panel count under the table'),
+    Object.keys(PANELS).length, 'the README states the wrong number of panels');
+
+  const caps = docText('docs/CAPABILITIES.md');
+  eq(statedFigure('docs/CAPABILITIES.md', /\*\*([A-Za-z-]+) role views over one body of data\*\*/, 'the navigability section'),
+    titles.length, 'CAPABILITIES.md states the wrong number of role views');
+  eq(titles.filter((t) => !caps.includes(t)), [], 'these views ship and CAPABILITIES.md does not name them');
+  eq(statedFigure('docs/CAPABILITIES.md', /built\s+from \*\*([a-z-]+) panels\*\*/, 'the same bullet'),
+    Object.keys(PANELS).length, 'CAPABILITIES.md states the wrong number of panels');
+});
+
+test('public · the stated plan size, mean and shortfall are the plan\'s own', () => {
+  // §7 said "reports six … mean completion 94.4%" when the truth was eight and 96.2%, and the page had said
+  // "the only item below 100%" before that. Filing A-50 and A-51 moved all four figures in the same commit
+  // that corrected them, which is exactly the churn this case exists to make loud.
+  const plan = readPlanning(REPO_ROOT, resolveConfig(REPO_ROOT));
+  const short = plan.items.filter((i) => i.percent !== 100).length;
+
+  eq(statedNumber('docs/FEATURES.md', /The plan holds \*\*(\d+) items\*\*/, '§7 Not built'),
+    plan.stats.total, 'FEATURES.md §7 states the wrong number of plan items');
+  eq(statedNumber('docs/FEATURES.md', /mean completion of \*\*([\d.]+)%\*\*/, '§7 Not built'),
+    plan.stats.mean, 'FEATURES.md §7 states the wrong mean completion');
+  eq(statedFigure('docs/FEATURES.md', /\*\*([a-z-]+)\*\* of them are not at 100%/, '§7 Not built'),
+    short, 'FEATURES.md §7 states the wrong number of items short of 100%');
+  eq(statedFigure('docs/FEATURES.md', /\*\*([a-z-]+)\*\* carry no figure at all/, '§7 Not built'),
+    plan.stats.unknown, 'FEATURES.md §7 states the wrong number of items with no figure');
+
+  const caps = /the plan holds (\d+) items at a mean of ([\d.]+)%, ([a-z-]+) of them short/.exec(docText('docs/CAPABILITIES.md'));
+  ok(caps, 'CAPABILITIES.md: no sentence gave the plan size, mean and shortfall — do not delete this assertion');
+  eq([Number(caps[1]), Number(caps[2]), wordToNumber(caps[3])], [plan.stats.total, plan.stats.mean, short],
+    'CAPABILITIES.md states plan figures that disagree with readPlanning');
+});
+
+test('public · the FAQ quotes the corpus it actually measures', () => {
+  // "49 documents, 28 orphans" against a real 77 and 52. The figures are the argument — orphans fire in bulk
+  // on any real corpus — so they have to be this corpus's, not a remembered one.
+  const cfg = resolveConfig(REPO_ROOT);
+  const index = buildIndex(REPO_ROOT, cfg, { withGit: true });
+  const health = runHealth(index, cfg, REPO_ROOT);
+  const orphans = health.findings.filter((f) => (f.signal || f.id) === 'H4').length;
+
+  const m = /\*\*(\d+) documents, (\d+) orphans\*\*/.exec(docText('docs/FAQ.md'));
+  ok(m, 'docs/FAQ.md: no sentence gave the document and orphan counts — do not delete this assertion');
+  eq([Number(m[1]), Number(m[2])], [index.documents.length, orphans],
+    'the FAQ quotes a corpus size or orphan count this repository does not have');
+});
+
+test('public · no page calls a shipped command broken, missing or not built', () => {
+  // Two such claims were live: CAPABILITIES said `atlas ask <question>` "does not work" and the FAQ said
+  // `/atlas:ask` was "currently broken", both after the fix shipped. A stale "this is broken" costs the
+  // reader the feature and cannot be refuted from inside the page — the most expensive kind of wrong entry.
+  const forbidden = [
+    'does not work', 'is currently broken', 'currently broken', 'is broken',
+    'not yet built', 'is not built', 'until that is repaired',
+  ];
+  // The command has to be the *subject*, which means it comes first and stays in the same sentence. The bare
+  // phrases are all legitimate about other subjects — the README promises FEATURES.md will say "what is not
+  // built", and a pipeline being told "the documentation is broken" is the 1/2 exit-code argument. Requiring
+  // the command token first, with no sentence break before the phrase, separates the two without a list of
+  // exceptions that would itself need maintaining.
+  for (const rel of PUBLIC_PAGES) {
+    const voice = unquoted(rel).replace(/\s+/g, ' ');
+    for (const phrase of forbidden) {
+      const re = new RegExp(`((?:atlas [a-z-]+|/atlas:[a-z-]+)\`?[^.!?|]{0,60}?${phrase})`);
+      const hit = re.exec(voice);
+      eq(hit, null, hit
+        ? `${rel} says this of a command, in its own voice: "${hit[1]}". If it really has regressed, say so `
+          + `with the reproduction; if it is a claim the page used to make, quote it as *"…"* so it reads as `
+          + 'history.'
+        : '');
+    }
+  }
+
+  // The positive half: `atlas ask` takes both kinds of argument, and the pages that describe it must not have
+  // drifted back. Established by running it, not by reading the dispatch.
+  const r = spawnSync(process.execPath, [CLI, 'ask', 'what is the taxonomy', '--root', REPO_ROOT], { encoding: 'utf8' });
+  eq(r.status ?? 0, 0, '`atlas ask "<question>"` must answer and exit 0');
+  includes(r.stdout, 'document(s)', 'the question path must return documents worth reading');
+});
+
+test('public · no page carries a hand-written verification stamp or a reversed citation', () => {
+  // Both stamps were false when written, and neither could be checked by anyone but their author. The
+  // reversed ranges — eleven of them, `scripts/atlas.mjs:1007-971` — are what a number nobody can check looks
+  // like after it has been copied twice.
+  for (const rel of PUBLIC_PAGES) {
+    eq(/\*\*Last verified/i.test(unquoted(rel)), false,
+      `${rel} carries a "Last verified" stamp. A date is unfalsifiable from inside the page; derive the `
+      + 'figure in tests/run.mjs instead, which is what A-50 replaced these with.');
+
+    const reversed = [...docText(rel).matchAll(/`([A-Za-z0-9_./-]+):(\d+)-(\d+)`/g)]
+      .filter((m) => Number(m[3]) < Number(m[2])).map((m) => m[0]);
+    eq(reversed, [], `${rel} cites these ranges backwards`);
+  }
+});
+
+test('public · the FEATURES Slash column names only skills that ship', () => {
+  // The column used to be re-checked by hand and dated. Every `/atlas:…` in it is now compared against the
+  // directories on disk, so a renamed or deleted skill fails here rather than in somebody's terminal.
+  const skills = new Set(shippedSkills());
+  const rows = docText('docs/FEATURES.md').split('\n').filter((l) => /^\| `atlas [a-z-]+/.test(l));
+  const named = new Set();
+  for (const row of rows) for (const m of row.matchAll(/\/atlas:([a-z0-9-]+)/g)) named.add(m[1]);
+  ok(named.size >= 20, `sanity: the Slash column was read, got ${named.size} names`);
+  eq([...named].filter((n) => !skills.has(n)).sort(), [],
+    'the §1 Slash column names these slash commands and no such directory ships a SKILL.md');
+});
+
+/**
+ * `wordToNumber` for an ordinal. "seventeenth" is 17, "thirty-ninth" is 39.
+ *
+ * The pages state two counts as ordinals — *"a **seventeenth** signal, H17"* and *"a **thirty-ninth** slash
+ * command"* — and both are the sort of figure that goes stale the moment the thing they count grows. Reading
+ * them as numbers is what lets them be compared against the code rather than left as prose nobody checks.
+ */
+function ordinalToNumber(word) {
+  const irregular = {
+    first: 'one', second: 'two', third: 'three', fifth: 'five',
+    eighth: 'eight', ninth: 'nine', twelfth: 'twelve',
+  };
+  const cardinal = (part) => irregular[part] ?? part.replace(/ieth$/, 'y').replace(/th$/, '');
+  const w = String(word).trim().toLowerCase();
+  const [tens, ones] = w.split('-');
+  return wordToNumber(ones === undefined ? cardinal(tens) : `${tens}-${cardinal(ones)}`);
+}
+
+/** `statedFigure` for a figure written as an ordinal word. A miss is a failure, exactly as it is there. */
+function statedOrdinal(rel, re, where) {
+  const m = re.exec(docText(rel));
+  ok(m, `${rel}: no sentence matched ${re} — ${where}. If the wording changed, update this assertion; do not delete it.`);
+  const n = ordinalToNumber(m[1]);
+  ok(n !== null, `${rel}: "${m[1]}" is not an ordinal number word, in: ${m[0]}`);
+  return n;
+}
+
+test('public · the README states the real number of commands and of skills', () => {
+  // Both figures sit beside lists that grow, which is the exact shape of the defect A-29 was filed for and
+  // that this page has now hit three times. The command table plus the alias paragraph claim to name "all 39";
+  // the install section claims "thirty-eight" skills. Neither was derived from anything until now — the
+  // existing cases checked only that no command was *missing*, which a wrong total passes cleanly.
+  eq(statedNumber('README.md', /paragraph now name all (\d+), and a test fails/, 'the alias paragraph'),
+    dispatchedCommands().length, 'the README states the wrong number of dispatched commands');
+  eq(statedFigure('README.md', /Skills arrive namespaced — \*\*([a-z-]+) of them\*\*, one per directory/, 'the install section'),
+    shippedSkills().length, 'the README states the wrong number of skills');
+});
+
+test('public · CAPABILITIES states the real signal, view and blocking counts', () => {
+  // This page's opening paragraph is the densest set of countable claims in the project — signals, the H17
+  // split, views — and not one of them was derived. It had said *nine* views while eleven shipped; the
+  // sixteen/seventeen split is the next one to rot, because it moves whenever an operator signal lands.
+  const corpus = Object.keys(CORPUS_SIGNALS).length;
+  const all = Object.keys(SIGNALS).length;
+
+  eq(statedFigure('docs/CAPABILITIES.md', /checks ([a-z-]+) mechanical rot signals against the result/, 'the one-paragraph summary'),
+    corpus, 'CAPABILITIES.md states the wrong number of corpus signals');
+  eq(statedFigure('docs/CAPABILITIES.md', /runs ([a-z-]+) checks over the corpus/, 'the health section'),
+    corpus, 'CAPABILITIES.md states the wrong number of corpus checks');
+  eq(statedOrdinal('docs/CAPABILITIES.md', /A ([a-z-]+)\s+signal, H17, is reported beside the/, 'the H17 sentence'),
+    all, 'CAPABILITIES.md calls H17 the wrong ordinal — it is the last of every signal that ships');
+  eq(statedFigure('docs/CAPABILITIES.md', /document pages with backlinks, ([a-z-]+) role views/, 'the one-paragraph summary'),
+    DEFAULT_VIEWS.length, 'CAPABILITIES.md states the wrong number of role views in its opening');
+
+  // The blocking set is checked in four other documents and was never checked here, in the page a prospective
+  // adopter reads to find out what will stop their commit.
+  const blocking = DEFAULT_CONFIG.blocking;
+  eq(statedFigure('docs/CAPABILITIES.md', /\*\*([A-Za-z-]+)\s+signals block by default\*\*/, 'the health section'),
+    blocking.length, 'CAPABILITIES.md states the wrong number of blocking signals');
+  eq(blocking.filter((b) => !new RegExp(`\\b${b}\\b`).test(docText('docs/CAPABILITIES.md'))), [],
+    'these signals block by default and CAPABILITIES.md never names them');
+});
+
+test('public · the Economics bullet names the panels the view actually has', () => {
+  // The bullet said "Nine charts". Charts are rendered conditionally — several appear only when the local
+  // transcript store has something to plot — so any chart count is a fact about the machine that wrote the
+  // sentence, unverifiable from anywhere else. Panels are the view's definition and cannot vary, so the
+  // figure quoted is the one that can be held to the code.
+  const econ = DEFAULT_VIEWS.find((v) => v.id === 'economics');
+  ok(econ, 'the Economics view must still ship — the whole bullet is about it');
+  eq(statedFigure('docs/CAPABILITIES.md', /the same transcript store \(`[^`]+`\)\. \*\*([A-Za-z-]+) panels\*\*/, 'the Economics bullet'),
+    econ.panels.length, 'CAPABILITIES.md states the wrong number of Economics panels');
+});
+
+test('public · the FEATURES contention row counts the slash commands that ship', () => {
+  // "A thirty-ninth slash command would be paid for by every reader of the other thirty-eight" is an argument
+  // whose force is entirely in the arithmetic, and it stops being true the next time a skill lands. Both
+  // halves are derived, so the row fails rather than quietly making a weaker case than it claims.
+  const skills = shippedSkills().length;
+  eq(statedOrdinal('docs/FEATURES.md', /A ([a-z-]+) slash command would be paid for/, 'the §1 contention row'),
+    skills + 1, 'the contention row names the wrong ordinal for the next slash command');
+  eq(statedFigure('docs/FEATURES.md', /would be paid for by every reader of the other ([a-z-]+)/, 'the §1 contention row'),
+    skills, 'the contention row states the wrong number of existing slash commands');
+});
+
+test('public · the FAQ states the design record this repository actually has', () => {
+  // It read "0 written, 8 scaffolded" after Specifications had been written. The figure is the evidence for
+  // the claim around it — that a scaffold never counts as a design record — so a stale one argues the
+  // opposite of what the paragraph is for.
+  const cfg = resolveConfig(REPO_ROOT);
+  const index = buildIndex(REPO_ROOT, cfg);
+  const record = Object.values(designRecord(index.documents));
+  const written = record.filter((r) => r.state === 'written').length;
+  const stubs = record.filter((r) => r.state === 'stub').length;
+  ok(record.length, 'sanity: the design record was read');
+
+  const m = /this repository's own record reads \*\*(\d+) written, (\d+) scaffolded\*\*/.exec(docText('docs/FAQ.md'));
+  ok(m, "docs/FAQ.md: no sentence gave the design record's written and scaffolded counts — do not delete this assertion");
+  eq([Number(m[1]), Number(m[2])], [written, stubs],
+    'the FAQ quotes a design record this repository does not have');
+});
+
 console.log(`\n${pass} passed, ${fail} failed${skipped ? `, ${skipped} skipped on ${process.platform}` : ''}\n`);
 if (fail) {
   console.log('Failures:');
