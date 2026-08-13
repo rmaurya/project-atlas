@@ -50,7 +50,7 @@ measured against the code — the same distinction the tool preserves everywhere
 | A-50 | 100 | A-51 | 0 | A-52 | 100 |
 | A-53 | 100 | A-54 | 100 | A-55 | 100 |
 | A-56 | 100 | P-9 | 100 | A-57 | 100 |
-| I-4 | 100 | S-8 | 100 | | |
+| I-4 | 100 | S-8 | 100 | A-58 | 100 |
 
 ---
 
@@ -276,6 +276,37 @@ an hour" — and nothing priced the coordination, which makes the section advoca
 session followed it and paid **six agents, seven branches off one base, eleven merge commits and hours of
 conflict resolution**. The skill now carries that bill with its four measured causes, and `atlas contention`
 reports the two that were knowable in advance.
+
+**A-58 · Adopting a repository did not wire up its plan** — **P1 · High**
+
+*Filed after the same report arrived three times.* Three repositories on one machine each keep a real,
+actively maintained plan document, and all three rendered a Backlog page reading **"No planning document is
+configured, so none of it can be matched to an item"** — read three times as the tool being broken, and it
+was. `planning: {}` was the default, `atlas init` never wrote the key, and nothing afterwards ever filled it.
+
+*The globs already existed and were too narrow to be true.* The claim that the taxonomy "already knows what
+a plan looks like" turned out to be half right: `**/BACKLOG.md` matches `BACKLOG.md` and matches
+`docs/DEVELOPMENT-BACKLOG.md` not at all, and the same held for `docs/12-ROADMAP.md`,
+`srs/TODO-Deferred-DeveloperID.md` and `docs/HANDOFF-TRIAL-ENDED-OPTIONS.md` — four real plan documents, none
+of them recognised. The stems are now wrapped the way every other filename rule in that list already was, so
+detection and the Planning cluster improve together off **one** definition. `PLAN_DOCUMENT_GLOBS` selects
+from `DEFAULT_CLUSTERS` rather than restating it, and a test fails if a selector stops resolving; two answers
+to one question is the defect this tool exists to detect, and it would have been an embarrassing one to add
+here.
+
+***Several candidates is the normal case, and nothing is picked.*** One repository offers seven, and
+**three of the seven parse to zero items** — so a silent pick there had a better-than-even chance of
+producing a confident, empty dashboard over a document that was not the plan. One candidate is applied and
+announced; several are named and left, with `atlas init --plan <path>` to answer in one command. A repository
+that already configured a source is untouched, including one deliberately pointed at a file this detection
+would never have offered.
+
+*Reaching the repositories that were already adopted.* Detection inside `init` reaches nobody who adopted
+last year, which is all three of them. The build says it instead — one line in the ordinary summary beside
+the deck line, naming the candidates, gating nothing and **writing nothing**: a build that quietly edited
+`project-atlas.config.json` would be a worse defect than the one being fixed. The page carries the same
+wording from the same function, and the Backlog panel no longer omits itself under a heading that means
+"there is no data behind this" while seven candidate documents sit in the corpus.
 
 ## Track 2 — Product
 

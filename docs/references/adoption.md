@@ -34,6 +34,46 @@ Then review it. Two things are worth doing immediately:
   the report will tell you so.
 - **`crossref`** — paired documents, most commonly a backlog and a task list. Also off until configured.
 
+### The plan, which `init` looks for and will not guess at
+
+`init` also looks for the document `planning.source` should point at — the backlog or task list that drives
+the item table, both charts, spec-to-build coverage, the timeline and the commit gate. It looks using the
+taxonomy's own Planning globs plus the roadmap rule, so there is exactly one answer in the tool to "what does
+a plan document look like": `BACKLOG`, `TASKS`, `TODO`, `HANDOFF`, `PLAN-…`, `…-PLAN`, `ROADMAP`, and
+anything under `docs/planning/`.
+
+What it does with what it finds:
+
+| Found | `init` writes | Why |
+|---|---|---|
+| Nothing | `"planning": {}` | The key is written empty rather than omitted, so it is visible to whoever adds a plan later |
+| Exactly one | `"planning": { "source": "…" }` | There is nothing to choose between, and it says on the terminal what it set |
+| More than one | `"planning": {}`, and names them all | **This is the normal case, not the edge** |
+
+**Several candidates is normal.** One repository this was tested against offers seven, and three of the seven
+parse to zero items. Nothing is picked for you there, because the plan is the spine of the dashboard: the
+wrong document does not produce a smaller dashboard, it produces a confident and wrong one. Answer it in one
+command instead of an editor:
+
+```bash
+node scripts/atlas.mjs init --force --plan docs/DEVELOPMENT-BACKLOG.md
+```
+
+**If this repository adopted the tool a long time ago,** `init` has already run and will not run again. Every
+`atlas build` prints the same finding in its summary — the candidates, by name, as one advisory line that
+gates nothing — and the Backlog page states it too. Neither writes to your configuration: `init` is the only
+command that ever does.
+
+Check what a candidate actually yields before committing to it, because "it is named like a plan" and "this
+tool can read it" are different claims:
+
+```bash
+node scripts/atlas.mjs tasks
+```
+
+Zero items is a real answer — a roadmap written as five narrative phases has no items to find, and the
+dashboard says which two dialects it looked for and did not match rather than showing an empty page.
+
 ## 3. Run health as a *survey*
 
 ```bash

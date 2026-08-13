@@ -201,8 +201,14 @@ export const DEFAULT_CLUSTERS = [
   { id: 'specs', title: 'Specifications', blurb: 'Specified behaviour, with its build status.',
     match: ['docs/specs/**', 'docs/rfc/**', '**/*SRS*.md', '**/*_srs_*.md', '**/*RFC*.md', '**/*-spec.md',
             '**/*_spec.md'] },
+  // The stems are wrapped in `*` because real repositories qualify them. `docs/DEVELOPMENT-BACKLOG.md`,
+  // `docs/12-ROADMAP.md`, `srs/TODO-Deferred-DeveloperID.md` and `docs/HANDOFF-TRIAL-ENDED-OPTIONS.md` are
+  // four plan documents on this machine, and the bare `**/BACKLOG.md` shape matched none of them — a
+  // taxonomy that only recognises a plan when it is named exactly `BACKLOG.md` recognises almost no plans.
+  // `PLAN` is anchored on a hyphen rather than wrapped, because `*PLAN*` also matches `EXPLANATION.md`.
   { id: 'planning', title: 'Planning', blurb: 'What is open, and what is next.',
-    match: ['**/BACKLOG.md', '**/TASKS.md', '**/TODO.md', '**/HANDOFF.md', 'docs/planning/**'] },
+    match: ['**/*BACKLOG*.md', '**/*TASKS*.md', '**/*TODO*.md', '**/*HANDOFF*.md', '**/PLAN-*.md',
+            '**/*-PLAN.md', 'docs/planning/**'] },
   { id: 'manuals', title: 'Manuals', blurb: 'For the user, and for the developer.',
     match: ['**/*MANUAL*.md', '**/*manual*.md', '**/*GUIDE*.md', 'docs/guides/**', '**/USAGE.md',
             '**/GETTING_STARTED.md'] },
@@ -214,7 +220,7 @@ export const DEFAULT_CLUSTERS = [
   // --- directory-driven: the broad catches, last ---
   { id: 'product', title: 'Product & direction', blurb: 'What is being built, and why.',
     match: ['docs/product/**', 'docs/vision/**', 'docs/direction/**', 'docs/roadmap/**', 'docs/ideas/**',
-            '**/FEATURES.md', '**/ROADMAP.md', '**/VISION.md'] },
+            '**/FEATURES.md', '**/*ROADMAP*.md', '**/VISION.md'] },
   { id: 'research', title: 'Research & record', blurb: 'Findings, session records, prior art. Historical by nature.',
     match: ['docs/research/**', 'docs/qa-log/**', 'docs/logs/**', 'docs/patents/**', 'docs/notes/**',
             '**/*RESEARCH*.md', '**/*_Research_*.md', '**/*worklog*.md', '**/*-log.md', '**/ANALYSIS.md'] },
@@ -222,6 +228,35 @@ export const DEFAULT_CLUSTERS = [
     match: ['docs/architecture/**', 'docs/design/**', 'docs/engineering/**', '**/HLD.md', '**/LLD.md',
             '**/ARCHITECTURE.md', '**/DESIGN*.md', '**/DATA_FLOW.md', '**/*-design.md'] },
 ];
+
+/**
+ * Which of the taxonomy's own globs describe a **plan** — the document `planning.source` would name.
+ *
+ * **This is a selection, never a second list.** The tool already answers "what does a plan document look
+ * like" once, in `DEFAULT_CLUSTERS`, and it answered it well enough to file `docs/DEVELOPMENT-BACKLOG.md`
+ * under Planning while the dashboard beside it said no planning document was configured. Writing the
+ * patterns out again here would give one question two answers, which is the failure this tool exists to
+ * detect — so these entries name a cluster (and optionally which of its globs), and the globs themselves
+ * stay where the taxonomy keeps them.
+ *
+ * The `product` cluster contributes exactly one glob. A roadmap *is* a plan and is the most common thing
+ * `planning.source` points at — this repository's own points at `docs/ROADMAP.md` — but a vision statement
+ * and a feature list are not plans, and pulling in the whole cluster would offer them as candidates.
+ *
+ * A selector that resolves to nothing is drift, not a shrug: rename a glob in `DEFAULT_CLUSTERS` and
+ * detection would quietly stop finding roadmaps. `tests/run.mjs` asserts every selector still resolves.
+ */
+export const PLAN_GLOB_SELECTORS = [
+  { cluster: 'planning' },                             // the whole cluster — that is what the cluster is for
+  { cluster: 'product', only: ['**/*ROADMAP*.md'] },   // a roadmap is a plan; a vision statement is not
+];
+
+/** The selectors above, resolved against the taxonomy. Ordered as the selectors are. */
+export const PLAN_DOCUMENT_GLOBS = Object.freeze(PLAN_GLOB_SELECTORS.flatMap((sel) => {
+  const cluster = DEFAULT_CLUSTERS.find((c) => c.id === sel.cluster);
+  if (!cluster) return [];
+  return cluster.match.filter((g) => !sel.only || sel.only.includes(g));
+}));
 
 export const DEFAULT_CONFIG = {
   $schema: 'https://github.com/rmaurya/project-atlas/schema/v1',
