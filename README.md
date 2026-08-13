@@ -111,15 +111,20 @@ else — every claim in them cites the code, `path:line`:
 
 ### The cheatsheet
 
-[![project-atlas — every command, grouped by intent](docs/assets/cheatsheet.svg)](docs/assets/cheatsheet.pdf)
+[![project-atlas — the shape of the tool, and every command grouped by intent](docs/assets/cheatsheet.svg)](docs/assets/cheatsheet.pdf)
 
-Every command on one card, grouped by what you are trying to do. **[Download the A4 PDF](docs/assets/cheatsheet.pdf)**, or
-click the image above.
+**The shape of the tool first, then every command.** What your markdown becomes and which command performs
+each step; which commands are read-only lenses onto git, your sessions and the plan; which ones write, and
+the one that leaves this machine. Then the full list, grouped by what you are trying to do, with every
+description printed whole. **[Download the PDF](docs/assets/cheatsheet.pdf)** — two A4 landscape sheets, one
+to read and one to pin up — or click the image above.
 
-*Nothing on it is typed by hand.* Both files are generated from the command surface itself — the dispatch
-table in `scripts/atlas.mjs` and the directories under `skills/` — by `node scripts/gen-cheatsheet.mjs`.
-Regenerating twice produces identical bytes, and a test fails when a command is added and the card is not
-rebuilt, so it cannot quietly fall out of date the way a hand-written list does.
+*Nothing that states a fact about a command is typed by hand.* Both files are generated from the command
+surface itself — `usage()` and the dispatch table in `scripts/atlas.mjs`, the directories under `skills/` and
+the intent map in `skills/help/SKILL.md` — by `node scripts/gen-cheatsheet.mjs`. Regenerating twice produces
+identical bytes, and a test fails when a command is added and the card is not rebuilt, so it cannot quietly
+fall out of date the way a hand-written list does. The diagram's five nouns are written by hand and say so;
+every command name in them is checked against the live surface, so it cannot name one that no longer exists.
 
 ## Install
 
@@ -553,7 +558,11 @@ node tests/run.mjs               # integration tests against throwaway git repos
 node tests/run.mjs --filter H6   # or a subset
 ```
 
+<<<<<<< HEAD
 **The suite holds 579 test cases.** That figure is not maintained by hand: a test reads it out of this
+=======
+**The suite holds 576 test cases.** That figure is not maintained by hand: a test reads it out of this
+>>>>>>> feat/cheatsheet-elaborated
 sentence and compares it against the cases it can count in `tests/run.mjs`, so adding a test and forgetting
 this line fails the suite. A count stated in prose beside a list that grows is a defect waiting to happen,
 and this repository has proved that three times (A-29) — most recently across the four public pages, where

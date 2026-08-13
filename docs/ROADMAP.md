@@ -51,7 +51,7 @@ measured against the code — the same distinction the tool preserves everywhere
 | A-53 | 100 | A-54 | 100 | A-55 | 100 |
 | A-56 | 100 | P-9 | 100 | A-57 | 100 |
 | I-4 | 100 | S-8 | 100 | A-58 | 100 |
-| A-59 | 100 |
+| A-59 | 100 | A-60 | 100 |
 
 ---
 
@@ -1909,9 +1909,10 @@ sub-flags, the global flags, the aliases and the tagline. **The `cmd === '…'` 
 regex A-35's tests use, deliberately: two definitions of "a command" is the drift in miniature. **`skills/`**
 for which slash commands exist, and **the intent map in `skills/help/SKILL.md`** for the grouping and the
 gloss — grouping by intent is a judgement, this repository made it once, in prose, where a person maintains
-it. The forty-five rows are thirty with both surfaces, eight Claude Code only, seven shell only; a marker
-carries the exception and the masthead states the two prefixes once, which is what buys the description
-column its width.
+it. Most rows are on both surfaces, a few on one; a marker carries the exception and the masthead states the
+two prefixes once, which is what buys the description column its width. **The breakdown that used to be
+written out here is not, any more** — it was three numbers stated in prose beside a list that grows, which is
+the defect this item was filed about, one paragraph above where it was committed.
 
 ***The staleness test is the feature.*** Without it this is two more files that drift, so it is checked in
 both directions and one case exists purely to stop the other being vacuous: a throwaway root with one extra
@@ -1939,7 +1940,69 @@ ordered by luminance so a black-and-white print keeps the hierarchy the colour o
 
 *The generator refuses rather than overflowing.* One page is a constraint, not an aspiration, so when the
 content stops fitting A4 the layout throws with the numbers and says not to shrink the type. That is the right
-failure: the next person is told the card is full and asked to decide what leaves it.
+failure: the next person is told the card is full and asked to decide what leaves it. **A-60 is what happened
+when it did.**
+
+**A-60 · The card was a well-typeset index, and an index is a `--help` you cannot pipe** — **P2 · Medium**
+*Shipped.* *The cheatsheet now leads with the shape of the tool — what your markdown becomes, which command
+performs each step, which commands are read-only lenses, which write, and the one that leaves the machine —
+and only then lists every command, with its description whole. It carries the atlas mark, imported from
+`render.mjs` rather than drawn again.*
+
+***The complaint was that a person who had never run this could not use it.*** Not that a row was wrong —
+every row was right, and derived, and current. But a row was a name and a clause, the clause was cut to one
+line, and the card could not say what `atlas contention` was *for*, why `serve` and `watch` are different, or
+which of forty-seven commands you need first. A reference that only answers "does this exist" is a reference
+you consult after you already know the answer.
+
+*The truncation was the largest single defect and it was invisible.* `fit()` was the last thing that happened
+to every description, so `contention` — "what a fan-out will collide on: files more than one branch touches,
+plan ids defined twice, and the next free id" — printed as its first six words. Descriptions wrap now, and a
+test asserts the strong form: **every row's description appears on the card whole**, not merely that a row
+exists. Nothing about the derivation changed to achieve that; it was a layout that could not afford the truth.
+
+***The card was full, and the way out was to stop pretending both artefacts were paper.*** The A4 headroom
+had been bought twice — once from the print margin, once from the leading — and the note left in
+`cheatsheet.mjs` said there was no third reduction in it. Type size was not touched. Instead the two backends
+diverged in the one way they should always have: **the SVG is no longer page-shaped.** Nobody prints a README
+image, GitHub gives it whatever width the reader's window has, and the reader scrolls — so it is one
+continuous card at full type size that gets taller when a command is added. **The PDF became two pages,
+designed as two**: sheet one is the shape and is read once, sheet two is every command and is the one that
+gets pinned up. A3 was rejected as unprintable on the printers the people who pin things up actually own, and
+A4 portrait buys nothing at all — it is the same area rotated. Each sheet is budgeted separately and each
+throws on its own overflow, naming the sheet, so the refusal survived the second page rather than being
+spent on it.
+
+*The packer was rewritten around rows rather than groups.* Whole-group blocks left the two columns 89 points
+apart on A4 — a tenth of the sheet thrown away as a ragged foot, while the sheet was simultaneously out of
+room. Blocks are one row each now; a group can split down the fold and reprints its heading, and `pack()`
+charges that reprint only to the block that opens a column. The columns land within ten points of each other
+and the headroom went from about four commands to about five on a sheet half the length.
+
+***One thing on the card is hand-written, and it is the reason the card is worth having.*** `SHAPE` — five
+nouns for what markdown becomes, the lens groupings, and the two lists that say what writes and what leaves
+the machine. That is architecture; this repository states its architecture in English prose, in `README.md`
+and `docs/CAPABILITIES.md`, and a generator that parsed a diagram out of those paragraphs would be a second,
+worse copy of them that broke on a rewording. So it is written down and it says so. **Every command name
+inside it is checked against the live surface before anything is laid out**, and a name the surface does not
+have throws with the name in it — the structure may be out of fashion, but it cannot be out of date. It is
+deliberately *not* required to cover the surface: a new command needs no edit here, and sheet two is the
+thing that is checked for completeness.
+
+*The skills' `description` frontmatter was considered as a source of prose and rejected.* It is written to
+tell a model when to invoke a skill — half of each one is "Use when the user asks…" trigger phrasing that
+would have to be cut before it could go on a card, and cutting is editing, not deriving. `usage()` and the
+intent map are both written to tell a person what a command does, so the card takes whichever of those two is
+longer, which is how `health` picked up its exit code and `build` kept its "first run end to end".
+
+*The mark is imported, never transcribed.* `MARK` in `render.mjs` is the same string the site header uses, so
+there is one copy of that geometry in the repository. What had to be undone is that it is written for a
+document with a stylesheet: its colours are `var(--atlas-*)`, and this card has none — GitHub may strip one
+and a PDF never had one. The elements are parsed, the variables resolved against whichever palette is in
+play, and **the path data passes through untouched**, into an SVG group and into a PDF `cm` matrix that
+carries the placement and the y-flip together. A test asserts every path drawn on the card exists character
+for character in `render.mjs`, because the failure mode of adding a logo to a generated asset is transcribing
+it once and never again.
 
 ## Track 7 — Specification and consistency
 
