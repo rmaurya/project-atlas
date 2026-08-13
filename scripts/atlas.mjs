@@ -68,7 +68,8 @@ import { acquire as acquireBuildLock, foreignBuildWarning } from './lib/lock.mjs
 import { renderLauncher, launcherProjects } from './lib/launcher.mjs';
 import { num } from './lib/format.mjs';
 import { startServer, spawnDetached, serverStatus, stopServer, writePid, clearPid, openInBrowser, portInUse, unmanagedServer,
-         adoptableServer, portForRoot, readRegistry, registerServer, deregisterServer, DEFAULT_PORT, DEFAULT_IDLE_MS } from './lib/serve.mjs';
+         adoptableServer, portForRoot, readRegistry, registerServer, deregisterServer, DEFAULT_PORT, DEFAULT_IDLE_MS,
+         surveyServers, discoverServers, reapOrphanServers } from './lib/serve.mjs';
 
 const argv = process.argv.slice(2);
 
@@ -77,7 +78,7 @@ const argv = process.argv.slice(2);
  * boolean, so a positional after a boolean flag stays positional — `atlas tasks --json safety` keeps `safety`
  * as the filter rather than swallowing it as `--json`'s value.
  */
-const VALUE_FLAGS = new Set(['target', 'page', 'out', 'root', 'config', 'interval', 'refs', 'agent', 'since', 'day', 'why', 'port', 'idle-ms', 'item', 'only', 'query', 'base']);
+const VALUE_FLAGS = new Set(['target', 'page', 'out', 'root', 'config', 'interval', 'refs', 'agent', 'since', 'day', 'why', 'port', 'idle-ms', 'item', 'only', 'query', 'base', 'serve-root']);
 
 const { cmd, positionals, flags } = parseArgs(argv);
 
@@ -1201,19 +1202,36 @@ async function main() {
 
     // `stop`
     const r = stopSession(root, { force: !!flag('force'), dryRun: !!flag('dry-run') });
-    if (flag('json')) { console.log(JSON.stringify(r, null, 2)); return; }
+    /*
+     * **A second pass, after the targeted one.** (A-49)
+     *
+     * `stopSession` stops the server of every worktree *it* removed. That closes the source of the leak but
+     * not the backlog: the four orphans on this machine were made by earlier runs of `stop`, from a build
+     * that never stopped anything, and no amount of correctness from here forward reaches them.
+     *
+     * So the teardown command also sweeps. It is the right place for the general reap alongside `serve` —
+     * `stop` is the command whose entire purpose is to leave nothing behind, and a dashboard still answering
+     * for a directory this command deleted is the most literal possible failure of that promise.
+     */
+    const reaped = reapOrphanServers({ dryRun: !!flag('dry-run') });
+    if (flag('json')) { console.log(JSON.stringify({ ...r, reaped }, null, 2)); return; }
     say(formatStop(r, c));
+    const sweptStop = formatReap(reaped, c);
+    if (sweptStop) say(sweptStop);
     if (r.kept.length && !r.forced) process.exitCode = 1;
     return;
   }
 
   if (cmd === 'serve') {
+    const c = paint(color);
     const st = serverStatus(root);
 
     if (flag('stop')) {
       const r = stopServer(root);
       deregisterServer(root);
       say(r.stopped ? `Stopped the server on port ${r.port} (pid ${r.pid}).` : `Nothing to stop — ${r.reason}.`);
+      const sweptHere = formatReap(reapOrphanServers(), c);
+      if (sweptHere) say(sweptHere);
       return;
     }
 
@@ -1222,7 +1240,12 @@ async function main() {
     // A generated launcher, because a hand-written link to one project is wrong the moment you switch —
     // and silently wrong, since it opens a real dashboard belonging to something else.
     if (flag('launcher')) {
-      const projects = launcherProjects(readRegistry(), { root, port: portForRoot(root) });
+      // Built from the reconciled survey rather than the registry: a launcher page is a set of links
+      // somebody will click, and a link to a server that is not running — or to a root that has been
+      // deleted — is the same wrong-dashboard failure in a nicer typeface.
+      const surveyed = surveyServers();
+      const usable = surveyed.servers.filter((s) => s.root && !s.orphan && (s.confirmed || !surveyed.scanned));
+      const projects = launcherProjects(usable, { root, port: portForRoot(root) });
       const html = renderLauncher(projects, {
         generatedAt: new Date().toISOString().slice(0, 16).replace('T', ' ') + ' UTC',
         pages: cfg.publish?.pages?.url || null,
@@ -1234,13 +1257,48 @@ async function main() {
       return;
     }
 
+    /*
+     * **`--list` reports. It never signals.** (A-49)
+     *
+     * This is the command an operator runs *because* they suspect something is wrong, and a diagnostic that
+     * quietly fixes what it finds destroys the evidence of the thing they came to look at. The leak in the
+     * incident went unnoticed twice; a listing that had silently reaped it would have made three.
+     *
+     * So orphans are named here, loudly, with the commands that end them — and `atlas serve` and
+     * `atlas stop`, which the operator ran to *change* something, are where the change happens.
+     */
     if (flag('list')) {
-      const all = readRegistry();
-      if (!all.length) { say('No atlas dashboards are running on this machine.'); return; }
+      const s = surveyServers();
+      const here = path.resolve(root);
+      if (!s.servers.length) {
+        say(s.scanned
+          ? 'No atlas dashboards are running on this machine.'
+          : 'The registry lists no atlas dashboards — and this machine’s process table could not be read, so '
+            + 'that is not the same as none running. `lsof -nP -iTCP -sTCP:LISTEN` is the check that does not depend on it.');
+        return;
+      }
       say('');
-      for (const e of all) {
-        const here = path.resolve(e.root) === path.resolve(root) ? '  <- this repository' : '';
-        say(`  ${String(e.port).padEnd(6)} ${(e.name || path.basename(e.root)).padEnd(24)} ${e.url}${here}`);
+      for (const e of s.servers) {
+        const name = e.name || (e.rootUnknown ? '(root unknown)' : path.basename(e.root || ''));
+        const note = e.orphan ? c.red('  <- root deleted; orphan')
+          : e.stale ? c.yellow('  <- in the registry, but no such process is running')
+            : e.rootUnknown ? c.yellow('  <- running, but what it serves could not be established')
+              : e.root === here ? '  <- this repository'
+                : !e.registered ? c.dim('  <- running, not in the registry') : '';
+        say(`  ${String(e.port ?? '?').padEnd(6)} ${String(name).padEnd(24)} ${e.url || ''}${note}`);
+      }
+      say('');
+      if (!s.scanned) {
+        say(c.yellow('  Read from the registry alone — `ps` could not be run, so nothing here is confirmed'));
+        say(c.yellow('  against the machine, and a server missing from the registry would be missing here too.'));
+      } else {
+        say(`  ${num(s.servers.length)} found by reading this machine’s process table, not only the registry.`);
+      }
+      if (s.orphans.length) {
+        say('');
+        say(c.red(`  ${num(s.orphans.length)} serving a directory that no longer exists.`)
+            + ' They can never be useful again.');
+        say('  `atlas serve` and `atlas stop` end them; nothing is signalled by a listing.');
       }
       say('');
       say('  Each project gets its own port, derived from its path — they do not contend.');
@@ -1271,8 +1329,31 @@ async function main() {
       return;
     }
 
+    /*
+     * **Reap before anything else on the start path.** (A-49)
+     *
+     * `serve` is the command that runs at the top of a session, and it is the one place where a dead-root
+     * orphan does active harm rather than merely wasting a port: it may be squatting the port this
+     * repository is about to probe upward into, and its dashboard answers with somebody else's branch and
+     * somebody else's file count.
+     *
+     * Reaping on allocation is the same bargain a garbage collector makes — it is frequent, it is bounded,
+     * and it happens at the moment the litter starts to cost something. And unlike `--list`, this command
+     * was invoked to change the state of the machine, so changing it is not a surprise.
+     */
+    const swept = formatReap(reapOrphanServers(), c);
+    if (swept) say(swept);
+
     if (st.running) {
       say(`Already running on ${st.url} (pid ${st.pid}).`);
+      // **Re-assert the record on the idempotent path, or the registry never heals.** Registration used to
+      // happen on exactly one branch — the cold start at the bottom of this block. Every "already running"
+      // return above it left the registry however it was, so a single lost entry stayed lost for as long as
+      // the server lived, and `--list` went on reporting an empty machine to the end of the session.
+      registerServer({
+        root: path.resolve(root), name: path.basename(path.resolve(root)),
+        port: st.port, url: st.url, pid: st.pid,
+      });
       if (!flag('no-open')) openInBrowser(st.url);
       return;
     }
@@ -1333,7 +1414,31 @@ async function main() {
       say(`Already running on ${adopted.url}, serving the build stamped ${adopted.stamp}.`);
       say(`  Recognised by what it serves, not by a pidfile — that record and its registry entry were both`);
       say(`  lost, which is how a second server used to get started one port higher. Not starting one.`);
-      say(`  \`lsof -nP -iTCP:${adopted.port} -sTCP:LISTEN\` names the process if you want to restart it cleanly.`);
+
+      /*
+       * **The pid is now recoverable, so the hole above closes.** (A-49)
+       *
+       * The comment on this branch used to end at "no pid is invented to fill the gap", and it was right to:
+       * `serverStatus` verifies a claim with `process.kill(pid, 0)`, and pid 0 means the whole process group
+       * to POSIX, so a fabricated claim would answer "alive" forever and `--stop` would aim a signal at
+       * everything this shell owns.
+       *
+       * Nothing is invented here. The pid is *observed* — read out of the machine's own process table, off a
+       * command line this tool wrote, naming this root and this port. That is the same evidence the reaper
+       * requires before it signals anything, which is exactly the standard a restored record should meet.
+       */
+      const seen = (discoverServers() || []).find(
+        (x) => x.root === path.resolve(root) && (!x.port || x.port === adopted.port));
+      if (seen) {
+        writePid(root, { pid: seen.pid, port: adopted.port });
+        registerServer({
+          root: path.resolve(root), name: path.basename(path.resolve(root)),
+          port: adopted.port, url: adopted.url, pid: seen.pid,
+        });
+        say(`  Its pid is ${seen.pid}, read from this machine’s process table; both records are restored.`);
+      } else {
+        say(`  \`lsof -nP -iTCP:${adopted.port} -sTCP:LISTEN\` names the process if you want to restart it cleanly.`);
+      }
       if (!flag('no-open')) openInBrowser(adopted.url);
       return;
     }
@@ -1363,18 +1468,31 @@ async function main() {
       idleMs: Number(flag('idle-ms', DEFAULT_IDLE_MS)) || DEFAULT_IDLE_MS,
     });
 
-    // The child writes the pidfile once it is actually listening; wait for that rather than announce a URL
-    // that may not answer. A port that is taken makes the child exit, and this reports that instead of
-    // printing a link to nothing.
+    /*
+     * The child writes the pidfile once it is actually listening; wait for that rather than announce a URL
+     * that may not answer. A port that is taken makes the child exit, and this reports that instead of
+     * printing a link to nothing.
+     *
+     * **Twenty seconds, not two.** (A-49) The old window was 40 × 50ms, and the child runs a full build
+     * before it binds — four and a half seconds on this repository, more on a larger corpus. So the common
+     * case was the *timeout*: this printed "started, but it is not listening", returned, and the child bound
+     * the port a moment later. The sentence was false, and because the timeout returned before the
+     * registration below, every server started this way was invisible to `--list` for its entire life.
+     *
+     * The child now registers itself the instant it binds, so a timeout here no longer loses the record —
+     * but a command that habitually reports failure on success trains people to ignore it, and that is worth
+     * fixing on its own.
+     */
     const url = `http://127.0.0.1:${port}/`;
     let up = false;
-    for (let i = 0; i < 40 && !up; i++) {
-      await new Promise((r) => setTimeout(r, 50));
+    for (let i = 0; i < 80 && !up; i++) {
+      await new Promise((r) => setTimeout(r, 250));
       up = serverStatus(root).running;
     }
     if (!up) {
-      say(`Started pid ${pid}, but it is not listening on ${port}. Something else may hold that port —`);
-      say(`try \`atlas serve --port <other>\`, or \`atlas watch --serve\` to see the error.`);
+      say(`Started pid ${pid}, but it is still not listening on ${port} after 20 seconds.`);
+      say(`  Either something else holds that port, or the build it runs first has not finished.`);
+      say(`  \`atlas serve --status\` says which; \`atlas watch --serve\` surfaces the error itself.`);
       return;
     }
     registerServer({ root: path.resolve(root), name: path.basename(path.resolve(root)), port, url, pid });
@@ -1413,17 +1531,38 @@ async function main() {
         // that someone is this repository's own healthy server. Clearing its claim on the way out would
         // leave a running server nothing can find or stop — a worse state than the one being reported.
         onError: () => process.exit(1),
-        onIdle: () => { clearPid(root); process.exit(0); },
+        onIdle: () => { clearPid(root); deregisterServer(root); process.exit(0); },
         onListen: (p) => {
-          if (flag('detached')) writePid(root, { pid: process.pid, port: p });
+          if (flag('detached')) {
+            writePid(root, { pid: process.pid, port: p });
+            /*
+             * **The server registers itself, because the process that spawned it could not.** (A-49)
+             *
+             * Registration used to happen in the parent, after the parent had waited for a pidfile to
+             * appear — and the wait was two seconds while this child runs a *full build* before it binds.
+             * On this repository that build takes four and a half. So the parent timed out, printed
+             * "started, but it is not listening", and returned without registering; a moment later the child
+             * bound the port and served happily, unregistered, for the rest of the day. That is precisely
+             * how `--list` came to report an empty machine with two dashboards answering on it.
+             *
+             * Here there is no window to lose: this is the process, this is its pid, and it is listening.
+             */
+            registerServer({
+              root: path.resolve(root), name: path.basename(path.resolve(root)),
+              port: p, url: `http://127.0.0.1:${p}/`, pid: process.pid,
+            });
+          }
           say(`\n  Serving ${path.relative(root, outDir)} at http://127.0.0.1:${p}/  (loopback only)`);
           say('  This page IS live: it polls the build stamp and patches itself when a rebuild lands.');
           if (!flag('no-open') && !flag('detached')) openInBrowser(`http://127.0.0.1:${p}/`);
         },
       });
       // A detached server that is killed must not leave its claim behind: a stale pidfile stops the next
-      // start, which is a worse failure than no server at all.
-      for (const sig of ['SIGTERM', 'SIGINT']) process.on(sig, () => { clearPid(root); process.exit(0); });
+      // start, which is a worse failure than no server at all. The registry entry goes the same way, and
+      // this handler is why the reaper sends SIGTERM rather than SIGKILL — a killed server cleans nothing.
+      for (const sig of ['SIGTERM', 'SIGINT']) {
+        process.on(sig, () => { clearPid(root); deregisterServer(root); process.exit(0); });
+      }
     }
 
     say(`\nWatching for changes (poll every ${interval}ms). The open page reloads itself. Ctrl-C to stop.`);
@@ -1459,6 +1598,39 @@ function paint(useColor) {
     ? { dim: (s) => `\x1b[2m${s}\x1b[0m`, bold: (s) => `\x1b[1m${s}\x1b[0m`, blue: (s) => `\x1b[34m${s}\x1b[0m`,
         green: (s) => `\x1b[32m${s}\x1b[0m`, red: (s) => `\x1b[31m${s}\x1b[0m`, yellow: (s) => `\x1b[33m${s}\x1b[0m` }
     : new Proxy({}, { get: () => (s) => s });
+}
+
+/**
+ * What the reaper did, and what it deliberately would not do. Empty string when there was nothing. (A-49)
+ *
+ * **This output is the point of the feature, not a footnote to it.** Two server leaks happened in one
+ * session and neither was noticed until a human ran `lsof` by hand, so a reaper that cleaned up quietly
+ * would have fixed the ports and preserved the actual defect: nobody finds out. Every skip is printed with
+ * its reason for the same reason — a candidate that was spared is the one case where the operator's judgement
+ * beats this code's, and they cannot exercise it if they never hear about it.
+ *
+ * An unreadable process table prints nothing at all. It is not news on a healthy machine, and a warning
+ * emitted on every single command is a warning nobody reads by the end of the first day.
+ */
+function formatReap(r, c) {
+  if (!r || !r.scanned) return '';
+  if (!r.reaped.length && !r.skipped.length) return '';
+  const L = [''];
+  if (r.reaped.length) {
+    L.push(c.bold(r.dryRun
+      ? `${num(r.reaped.length)} orphaned dashboard server(s) would be stopped:`
+      : `Stopped ${num(r.reaped.length)} orphaned dashboard server(s) — each was serving a deleted directory:`));
+    for (const s of r.reaped) {
+      L.push(`  ${c.red('reaped')}  pid ${String(s.pid).padEnd(7)} port ${String(s.port ?? '?').padEnd(6)} `
+             + c.dim(s.root || '(root unknown)'));
+    }
+  }
+  for (const s of r.skipped) {
+    L.push(`  ${c.yellow('left')}    pid ${String(s.pid).padEnd(7)} port ${String(s.port ?? '?').padEnd(6)} `
+           + c.dim(s.reason || 'not confirmed as an atlas server'));
+  }
+  L.push('');
+  return L.join('\n');
 }
 
 /** What `atlas pause` parked, and the one thing it could not park. */
@@ -1544,9 +1716,21 @@ function formatStop(r, c) {
   L.push('');
   L.push(r.dryRun ? c.bold('Dry run — nothing was removed.') : c.bold('Stopped.'));
   L.push('');
-  for (const x of r.removed) L.push(`  ${c.green('removed')}  ${x.id}  ${c.dim(x.dir)}`);
+  for (const x of r.removed) {
+    // The server is named on the worktree's own line rather than in a separate section: "this directory went
+    // and so did the thing serving it" is one fact, and splitting it is how the second half went unread.
+    const srv = x.server
+      ? c.dim(`  · dashboard on port ${x.server.port ?? '?'} (pid ${x.server.pid}) `
+              + `${r.dryRun ? 'would be stopped' : (x.server.outcome || 'stopped')}`)
+      : '';
+    L.push(`  ${c.green('removed')}  ${x.id}  ${c.dim(x.dir)}${srv}`);
+  }
   for (const x of r.kept) L.push(`  ${c.yellow('kept')}     ${x.id}  ${x.why}${x.dirty ? ` (${x.dirty} file(s))` : ''}`);
   if (!r.removed.length && !r.kept.length) L.push('  No agent worktrees to clear.');
+  for (const x of r.servers?.failed || []) {
+    L.push(`  ${c.yellow('server')}   ${x.id}  pid ${x.pid} could not be stopped — ${x.reason}`);
+    L.push(c.dim('           it may still be serving a directory that is now gone; `atlas serve --list` shows it.'));
+  }
   L.push('');
   // A rehearsal that reports "cleared" is worse than no rehearsal: the whole point of `--dry-run` is to be
   // believed about what has not happened yet.

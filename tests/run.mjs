@@ -42,6 +42,8 @@ import { readContrib, estimateHours, taskCoverage } from '../scripts/lib/contrib
 import { num } from '../scripts/lib/format.mjs';
 import { pauseSession, readParked, verifyParked, stopSession, worktrees, agentIdOf, writeParked, PARKED_FILE }
   from '../scripts/lib/session.mjs';
+import { serverArgvFacts, rootIsGone, discoverServers, surveyServers, reapOrphanServers,
+         confirmAtlasServer, pidFile } from '../scripts/lib/serve.mjs';
 import { readTokens, formatTokens, formatSessions, assertNotPublishable, transcriptDir,
          readTokenEconomics, formatEconomics, writeTokenSnapshot, snapshotLine, classifyWrite,
          taskWindows, overlapWindows, transcriptFiles, WORK_KINDS,
@@ -9843,6 +9845,257 @@ test('nav · every colour the menu adds is defined outside a media query', () =>
   eq((menuRules.match(/#[0-9a-fA-F]{3,8}\b/g) || []), [],
     'the menu names no literal ink — every colour is a token, so both themes move together. The two overlay '
     + 'shadows are rgba and deliberate: they lift a panel off the page on either ground.');
+});
+
+/*
+ * ============================================================================
+ * A-49 · orphaned dashboard servers, and a registry that said nothing was running
+ * ============================================================================
+ *
+ * Five `atlas watch --serve` processes were live on one machine at once. Four belonged to agent worktrees
+ * that had already been deleted, so they were serving directories that no longer existed — and the owner
+ * opened one of those ports, saw a branch they were not on and six files in flight they did not have, and
+ * concluded the dashboard was stale. It was not stale. It was another repository's server.
+ *
+ * The registry that exists to prevent exactly this said `[]` while pid 48511 served port 4238, and
+ * `atlas serve --list` printed "No atlas dashboards are running on this machine." beneath a URL it had just
+ * reported correctly. Two causes, both fixed here and both covered below:
+ *
+ *   1. **Registration was in the wrong process.** The parent registered the child *after* waiting two
+ *      seconds for a pidfile — and the child runs a full build (4.5s on this repository) before it binds.
+ *      The parent timed out, returned before registering, and the child served happily and anonymously.
+ *   2. **Registration happened on exactly one branch.** Every idempotent "already running" return in
+ *      `serve` skipped it, so a registry that lost an entry could never get it back.
+ *
+ * **Every case here is synchronous, deliberately.** `pendingAsync` is drained thousands of lines above, so
+ * an `async` case appended here is never awaited and reports a pass it never earned.
+ *
+ * **And nothing here spawns a server.** `discoverServers`, `surveyServers` and `reapOrphanServers` all take
+ * their process table by injection for this reason: a test suite that leaked a listener would be adding to
+ * the problem it is here to prove fixed. The one case that touches a real process reads the *test runner's
+ * own* command line, and asserts it is refused.
+ */
+
+/** The argv `spawnDetached` actually writes, so the parser is tested against the real shape. */
+const A49_ARGV = (port, root) =>
+  '/Users/x/.nvm/versions/node/v20.18.1/bin/node /Users/x/.claude/plugins/cache/project-atlas/atlas/0.1.69/scripts/atlas.mjs'
+  + ` watch --serve --detached --serve-root=${root} --port ${port} --idle-ms 14400000 --quiet`;
+
+test('serve · a dashboard process is recognised from its argv, port and root included', () => {
+  const f = serverArgvFacts(A49_ARGV(4238, '/Users/x/repo'));
+  ok(f, 'the argv this tool writes must parse as one of ours');
+  eq(f.port, 4238);
+  eq(f.root, '/Users/x/repo', 'the root travels in the argv so `ps` alone can place the process');
+
+  // The 0.1.67 shape, from before `--serve-root` existed. Still ours; the root is simply not in the argv,
+  // and `discoverServers` falls back to the process cwd for it.
+  const legacy = serverArgvFacts(
+    '/Users/x/.nvm/versions/node/v20.18.1/bin/node /Users/x/.claude/plugins/cache/project-atlas/atlas/0.1.67/'
+    + 'scripts/atlas.mjs watch --serve --detached --port 4225 --idle-ms 14400000 --quiet');
+  ok(legacy, 'a server started by an older build is still recognisable');
+  eq(legacy.port, 4225);
+  eq(legacy.root, null, 'and its root is honestly unknown rather than guessed');
+});
+
+test('serve · the operator\'s own `grep` for these processes is never nominated as one', () => {
+  // The whole reason `serverArgvFacts` is positional rather than a substring search. A `ps` listing contains
+  // the shell that produced it, and the shell that produced it contains every token being searched for. A
+  // naive `includes()` would put the operator's diagnostic on the kill list — while they were using it to
+  // investigate the leak.
+  const shell = "/bin/zsh -c ps -axo pid=,args= | grep 'atlas.mjs watch --serve --detached --port'";
+  eq(serverArgvFacts(shell), null, 'a shell whose command line quotes our argv is not our argv');
+
+  eq(serverArgvFacts('grep atlas.mjs watch --serve --detached'), null, 'nor is grep itself');
+  eq(serverArgvFacts('/usr/bin/node /Users/x/other-tool.mjs watch --serve --detached --port 4238'), null,
+    'nor is another node program that happens to use the same three flags');
+  eq(serverArgvFacts('/usr/bin/node /x/scripts/atlas.mjs watch --serve --port 4238'), null,
+    'nor is a FOREGROUND `watch --serve`, which a person is sitting in front of and did not ask us to end');
+  eq(serverArgvFacts('/usr/bin/node /x/scripts/atlas.mjs build --quiet'), null, 'nor is any other atlas command');
+  eq(serverArgvFacts(''), null);
+  eq(serverArgvFacts(null), null);
+});
+
+test('serve · a deleted root is reaped; an unmounted one is not', () => {
+  // The distinction that decides whether a process lives. `existsSync` is false for both a directory that was
+  // deleted and a directory on a volume somebody unplugged, and killing a server over the second would be
+  // destroying state to tidy up an absence that ends when the drive comes back.
+  const base = fixture('a49-roots', { 'README.md': '# r\n' });
+
+  const present = path.join(base, 'here');
+  fs.mkdirSync(present, { recursive: true });
+  eq(rootIsGone(present), false, 'a root that is right there is not gone');
+
+  // `git worktree remove` leaves the container standing and takes the tree out of it. That is a deletion.
+  const container = path.join(base, '.claude', 'worktrees');
+  fs.mkdirSync(container, { recursive: true });
+  eq(rootIsGone(path.join(container, 'agent-deleted')), true,
+    'a missing directory inside a parent that is present and readable has been deleted');
+
+  // An unmounted volume takes the parent with it. That is not a deletion, and nothing may be signalled for it.
+  eq(rootIsGone(path.join(base, 'no-such-volume', 'no-such-repo')), false,
+    'a missing directory whose PARENT is also missing reads as unreachable, not deleted');
+
+  eq(rootIsGone(null), false);
+  eq(rootIsGone(''), false);
+  eq(rootIsGone('relative/path'), false, 'a relative root is meaningless to test and is refused');
+  eq(rootIsGone(path.parse(process.cwd()).root), false, 'a filesystem root is never gone');
+});
+
+test('serve · the survey reports servers the registry has never heard of', () => {
+  // The exact machine state from the incident: the registry says `[]`, and two dashboards are answering.
+  const gone = path.join(fixture('a49-survey', { 'README.md': '# r\n' }), '.claude', 'worktrees');
+  fs.mkdirSync(gone, { recursive: true });
+  const deadRoot = path.join(gone, 'agent-vanished');
+
+  const table = () => [
+    { pid: 48511, args: A49_ARGV(4238, REPO_ROOT) },
+    { pid: 48512, args: A49_ARGV(4239, deadRoot) },
+    { pid: 48513, args: '/bin/zsh -c something else entirely' },
+  ];
+  const s = surveyServers({
+    discover: () => discoverServers({ table, cwd: () => null }),
+    registry: () => [],
+  });
+
+  eq(s.scanned, true);
+  eq(s.servers.length, 2, 'both dashboards are found by reading the machine, with the registry empty');
+  eq(s.servers.map((x) => x.registered), [false, false], 'and both are correctly marked as unregistered');
+  eq(s.orphans.map((x) => x.pid), [48512], 'only the one whose root was deleted is an orphan');
+  eq(s.servers.find((x) => x.pid === 48511).orphan, false, 'the one serving a real directory is left alone');
+});
+
+test('serve · "could not ask" and "nothing is running" are never the same answer', () => {
+  // The sentence that cost two sessions was a confident "No atlas dashboards are running on this machine."
+  // A `ps` that is missing, refused or unparsed knows nothing of the sort, so `readProcessTable` returns
+  // `null` rather than `[]` and the distinction survives all the way to what the operator reads.
+  const s = surveyServers({
+    discover: () => null,
+    registry: () => [{ root: '/Users/x/repo', name: 'repo', port: 4238, url: 'http://127.0.0.1:4238/', pid: 48511 }],
+  });
+  eq(s.scanned, false, 'the survey says it could not confirm anything against the machine');
+  eq(s.servers.length, 1, 'the registry is still passed through');
+  eq(s.servers[0].confirmed, false, 'but flagged as unverified rather than presented as fact');
+
+  // And an unconfirmable machine reaps nothing. Signalling on the strength of a record we just admitted we
+  // could not check would be the worst possible reading of the same uncertainty.
+  const r = reapOrphanServers({ survey: () => s });
+  eq(r.scanned, false);
+  eq(r.reaped.length, 0, 'nothing is signalled when the process table could not be read');
+});
+
+test('serve · the reaper nominates only deleted roots, and never an unplaceable server', () => {
+  const base = fixture('a49-reap', { 'README.md': '# r\n' });
+  const container = path.join(base, '.claude', 'worktrees');
+  fs.mkdirSync(container, { recursive: true });
+
+  const survey = () => surveyServers({
+    discover: () => discoverServers({
+      table: () => [
+        { pid: 48511, args: A49_ARGV(4238, REPO_ROOT) },                                 // root exists
+        { pid: 48512, args: A49_ARGV(4239, path.join(container, 'agent-vanished')) },     // root deleted
+        { pid: 48513, args: A49_ARGV(4240, '') },                                         // root unknowable
+      ],
+      cwd: () => null,
+    }),
+    registry: () => [],
+  });
+
+  const r = reapOrphanServers({ dryRun: true, survey });
+  eq(r.scanned, true);
+  eq(r.reaped.map((x) => x.pid).concat(r.skipped.map((x) => x.pid)), [48512],
+    'exactly one candidate: the deleted root. A live root and an unknown root are both left entirely alone');
+
+  // The dry run refuses even the nominated one here, because pid 48512 is fictional and the gate checks the
+  // real process table before it will let anything through. That refusal IS the safety property.
+  eq(r.reaped.length, 0, 'a pid that is not running cannot be confirmed, so it is not reaped');
+  includes(r.skipped[0].reason, 'not running');
+});
+
+test('serve · the kill gate refuses a live process that is not an atlas server', () => {
+  // The one case that touches a real process, and it is this test runner. It is alive, it is a `node`
+  // process, and it is emphatically not a dashboard — so the gate must read its actual command line and say
+  // no. `self` is overridden so the is-this-me short-circuit does not answer the question for us; the
+  // refusal below has to come from the argv.
+  const other = confirmAtlasServer(process.pid, { self: -1 });
+  eq(other.ok, false, 'a live node process running the test suite is not an atlas dashboard');
+  includes(other.reason, 'not an atlas dashboard server');
+
+  // And the short-circuits, each of which is a pid this must never signal.
+  eq(confirmAtlasServer(process.pid).ok, false, 'never this process');
+  includes(confirmAtlasServer(process.pid).reason, 'this process');
+  eq(confirmAtlasServer(1).ok, false, 'never init');
+  eq(confirmAtlasServer(0).ok, false, 'never pid 0 — to POSIX that is the whole process group');
+  eq(confirmAtlasServer(-1).ok, false, 'never a negative pid, which is also a process group');
+
+  // A pid above every plausible `pid_max`, so it is reliably not running.
+  const dead = confirmAtlasServer(4194303);
+  eq(dead.ok, false);
+  includes(dead.reason, 'not running');
+});
+
+test('session · stop reads a removed worktree\'s server before deleting the directory it lives in', () => {
+  // Four of the five orphans were made exactly here: `stop` removed the worktrees and left their servers
+  // listening against directories that no longer existed. The pidfile is INSIDE the tree being deleted, so
+  // the question has to be asked first — a moment later there is nothing to read.
+  const dir = sessionFixture('a49-stop-server', { srv: null });
+  const wt = path.join(dir, '.claude', 'worktrees', 'agent-srv');
+  fs.mkdirSync(path.dirname(pidFile(wt)), { recursive: true });
+  // A pid above every plausible `pid_max`: the claim is recorded and read, and nothing on this machine can
+  // possibly be signalled by running this test.
+  fs.writeFileSync(pidFile(wt), JSON.stringify({ pid: 4194303, port: 4242 }), 'utf8');
+
+  // `--force`, because writing the pidfile is itself an untracked change and `stop` rightly refuses a dirty
+  // worktree. The dirty-refusal is covered by its own case above; what is under test here is that the server
+  // is identified while the directory still exists.
+  const r = stopSession(dir, { force: true });
+  eq(r.removed.map((x) => x.id), ['srv'], 'the clean worktree is removed as before');
+  eq(fs.existsSync(wt), false, 'and it really is gone, so the pidfile is unreadable from here on');
+
+  const claim = r.removed[0].server;
+  ok(claim, 'the server was identified BEFORE the directory was deleted');
+  eq(claim.pid, 4194303);
+  eq(claim.port, 4242);
+  eq(claim.from, 'pidfile');
+  eq(claim.outcome, 'already gone', 'a pid that had already exited is reported as such, not as a failure');
+  eq(r.servers.failed.length, 0, 'and it is not shouted about — that line is reserved for a live one');
+});
+
+test('session · a worktree with no server at all is reported with none, not with a guess', () => {
+  const dir = sessionFixture('a49-stop-noserver', { nos: null });
+  const r = stopSession(dir, {});
+  eq(r.removed.map((x) => x.id), ['nos']);
+  eq(r.removed[0].server, null, 'no pidfile, no registry entry, no process — so no claim');
+  eq(r.servers.stopped.length, 0);
+  eq(r.servers.failed.length, 0);
+});
+
+test('serve · the detached server carries its root in argv, and registers itself once it is listening', () => {
+  // Two source-level wirings that no unit test can reach without spawning a listener, and that the whole fix
+  // rests on. The behaviour they enable is covered by the parsing and survey cases above.
+  const serveSrc = fs.readFileSync(path.join(REPO_ROOT, 'scripts', 'lib', 'serve.mjs'), 'utf8');
+  includes(serveSrc, '`--serve-root=${path.resolve(root)}`',
+    'spawnDetached must put the served root in the argv, or `ps` cannot place the process it finds');
+
+  const cliSrc = fs.readFileSync(path.join(REPO_ROOT, 'scripts', 'atlas.mjs'), 'utf8');
+  const listen = cliSrc.slice(cliSrc.indexOf('onListen: (p) => {'), cliSrc.indexOf('Watching for changes'));
+  ok(listen.length > 200, 'sanity: that slice is the onListen handler, not an empty string from a rename');
+  // `deregisterServer(` literally contains `registerServer(`, and the SIGTERM handler in this same slice
+  // calls it — so the naive assertion passed with the registration deleted. Caught by the reversion check,
+  // which is the only thing that catches a test asserting something it was never reading.
+  includes(listen.replace(/deregisterServer/g, ''), 'registerServer(',
+    'the CHILD registers itself the instant it binds — the parent used to, after a 2s wait, and lost the race '
+    + 'to its own build every time');
+
+  // `--list` reports and never signals: it is the command an operator runs *because* they suspect something
+  // is wrong, and a diagnostic that silently fixes what it finds destroys the evidence they came for.
+  // Sliced forward from `--list`: `flag('status')` also appears hundreds of lines earlier under another
+  // command, so an `indexOf` from the start of the file walks backwards and yields an empty string — which
+  // would pass both assertions below without reading a single line of the branch they are about.
+  const listAt = cliSrc.indexOf("if (flag('list')) {");
+  const listBlock = cliSrc.slice(listAt, cliSrc.indexOf("if (flag('status')) {", listAt));
+  ok(listBlock.length > 200, 'sanity: that slice is the --list branch, not an empty string from a rename');
+  eq(listBlock.includes('reapOrphanServers'), false, 'a listing must never send a signal');
+  eq(listBlock.includes('terminateServer'), false, 'nor reach the terminator by any other name');
 });
 
 console.log(`\n${pass} passed, ${fail} failed${skipped ? `, ${skipped} skipped on ${process.platform}` : ''}\n`);

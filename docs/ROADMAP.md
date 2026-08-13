@@ -46,7 +46,7 @@ measured against the code — the same distinction the tool preserves everywhere
 | A-39 | 100 | A-40 | 100 | A-41 | 100 |
 | A-42 | 100 | A-43 | 100 | A-44 | 100 |
 | A-45 | 100 | A-46 | 100 | A-48 | 100 |
-| M-5 | 100 | A-47 | 100 | | |
+| M-5 | 100 | A-47 | 100 | A-49 | 100 |
 
 ---
 
@@ -1492,6 +1492,64 @@ positioned against it.
 *Also measured and fixed: at 1024 the bar wanted 946px of a 922px content box and put the toggle alone on a
 second row.* A 1200px step returns about 85px — a tighter gutter, tighter gaps, 15px on the menu — with
 nothing hidden and nothing moved out of the bar.
+
+**A-49 · The dashboard servers outlive the directories they serve, and the registry says nothing is running** — **P1 · High**
+*Shipped.* *Atlas manages its own servers: it finds them by reading the machine's process table rather than
+its own bookkeeping, stops the ones whose repository has been deleted, stops a worktree's server when `stop`
+removes the worktree, and never again prints "nothing is running" on the strength of a record it did not
+check.*
+
+***Five `atlas watch --serve` processes were live on one machine at once, and four of them belonged to agent
+worktrees that had already been deleted.*** The owner opened `http://127.0.0.1:4181/`, saw a branch they were
+not on and six files in flight they did not have, and concluded the dashboard was stale. It was not stale. It
+was **another repository's server, serving a directory that no longer existed** — and it had to be found and
+killed by hand with `lsof` and `ps`. It was the second leak in one session; the first was ten at once.
+
+**The registry that exists to prevent exactly this was lying, and it took two defects to make it lie.**
+
+*One: registration was in the wrong process.* The parent `serve` spawned the child, waited **two seconds**
+for a pidfile, and registered it. The child runs a **full build** before it binds — 4.5 seconds on this
+repository. So the parent timed out on the common path, printed "started, but it is not listening", and
+returned *before* the registration line; the child bound the port a moment later and served, unregistered,
+for the rest of the day. The message was false and the record was never written. The child now registers
+itself in `onListen`, where there is no window to lose, and the wait is twenty seconds.
+
+*Two: registration happened on exactly one branch.* Every idempotent "already running" return in `serve` —
+and there are three — skipped it. So a registry that lost an entry could never get it back while the server
+lived, and `/atlas:dashboard` printed "No atlas dashboards are running on this machine." directly beneath a
+correct URL it had just reported. Each of those returns now re-asserts the record.
+
+**The deeper fix is to stop asking the records and ask the machine.** `serve.mjs` already took this route
+once, for a single port: `adoptableServer` identifies a server by the build stamp it serves rather than by a
+pid nobody has a live record of. A-49 generalises it. A detached server is a `node` process whose argv this
+tool wrote itself, so the **process table is a register nothing can forget to update and no crash can
+desynchronise** — it is destroyed by one event, the server exiting. `spawnDetached` now writes
+`--serve-root=<abs>` into that argv purely so the process is self-describing to anyone holding `ps` and
+nothing else; servers from older builds are placed by their `cwd`, which has always been the root.
+
+*What must be true before this signals anything.* Killing the wrong process is far worse than leaving one
+running, so the gate is narrow and one-directional — it refuses whenever it is unsure. The pid must be alive
+under signal 0; it must not be this process or its parent; **its command line, re-read at the moment of the
+signal rather than trusted from the scan**, must parse as `node … atlas.mjs watch --serve --detached`; and
+the port in that argv must still match. Matching is *positional*, not a substring search, because a `ps`
+listing contains the operator's own `grep` for these processes and a naive `includes()` would nominate the
+diagnostic they were using to investigate the leak. A root must be established, never guessed. And the root
+must be **deleted rather than merely absent**: `existsSync` is false for an unmounted volume too, so the
+parent directory must exist and be readable — `git worktree remove` leaves `.claude/worktrees` standing,
+an unplugged disk takes it with it. SIGTERM, never SIGKILL, so the server's own handler clears its records.
+
+*Where the reaping happens, and where it deliberately does not.* On **`serve`**, because that is the command
+run at the top of a session and the one place a dead-root orphan does active harm — it may hold the port this
+repository is about to probe into. On **`stop`**, both targeted (the server of each worktree it removes,
+identified *before* the directory is deleted, since the pidfile is inside it) and as a general sweep for the
+backlog earlier runs created. **Never on `serve --list`**: that is the command an operator runs *because*
+they suspect something is wrong, and a diagnostic that silently fixes what it finds destroys the evidence
+they came for. It names orphans instead, and a test asserts the branch cannot reach the terminator.
+
+*And the listing stops claiming knowledge it does not have.* `readProcessTable` returns `null`, never `[]`,
+when `ps` cannot be run — "could not ask" and "nothing is running" are opposite answers, and collapsing them
+is the precise mistake being fixed. `--list` says which one it is, marks every row with whether it was
+confirmed against the machine, and never again prints a confident empty.
 
 ## Track 7 — Specification and consistency
 
