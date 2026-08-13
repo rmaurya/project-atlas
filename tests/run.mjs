@@ -80,7 +80,9 @@ import { readGitInsight, formatGitInsight, hotspots, coupling, branchHealth, cad
          fillWeeks, DEFAULT_GITINSIGHT, GITINSIGHT_SECTIONS,
          branchTree, formatBranchTree, ancestryPhrase } from '../scripts/lib/gitinsight.mjs';
 import { cheatsheet, renderAssets, parseUsage, usageSource, parseMap, slashCommands, fit, measure,
-         pack, SVG_PATH, PDF_PATH } from '../scripts/lib/cheatsheet.mjs';
+         wrap, pack, layout, sheetShape, sheetReference, SHAPE, shapeNames, validateShape,
+         SCREEN, PRINT, DARK, LIGHT,
+         SVG_PATH, PDF_PATH } from '../scripts/lib/cheatsheet.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const CLI = path.join(HERE, '..', 'scripts', 'atlas.mjs');
@@ -10946,17 +10948,42 @@ test('cheatsheet · the SVG is self-contained, and its text is text', () => {
   const texts = svg.match(/<text /g) || [];
   const rows = cheatRows(cheatsheet(REPO_ROOT)).length;
   ok(texts.length > rows * 2, `only ${texts.length} <text> elements for ${rows} rows — something is being drawn as paths`);
-  eq(svg.includes('<path'), false, 'no glyph outlines: the card is real text');
+  // The card carries the atlas mark now, so it is no longer true that it has no <path> at all — the claim
+  // that matters is narrower and still worth pinning: **the only paths are the mark's**, and every glyph is
+  // still a glyph. Anything else drawn as an outline would be text that cannot be selected or searched.
+  const marks = svg.match(/<g transform="translate\([^"]*\) scale\([^"]*\)">.*?<\/g>/g) || [];
+  ok(marks.length >= 1, 'the mark is not on the card at all');
+  const outside = svg.replace(/<g transform="translate\([^"]*\) scale\([^"]*\)">.*?<\/g>/g, '');
+  eq(outside.includes('<path'), false, 'no glyph outlines outside the mark: the card is real text');
+  eq(outside.includes('<circle'), false, 'nothing but the mark draws circles');
   includes(svg, 'role="img"');
   includes(svg, '<title id="cs-title">');
 });
 
-test('cheatsheet · the PDF is one A4 landscape page, with no clock in it', () => {
-  const text = renderAssets(REPO_ROOT).pdf.toString('latin1');   // the render, for the reason the SVG case gives
+test('cheatsheet · the logo is the one in render.mjs, not a second copy of it', () => {
+  // The brief for A-58 was "add the logo", and the failure mode of adding a logo to a generated asset is
+  // transcribing it: a second set of coordinates that is right today and is not the mark any more the first
+  // time somebody adjusts the real one. So the card imports `MARK` and this pins that it did — every path in
+  // the rendered SVG has to be a path that exists, character for character, in `render.mjs`.
+  const svg = renderAssets(REPO_ROOT).svg.toString('utf8');
+  const source = fs.readFileSync(path.join(REPO_ROOT, 'scripts', 'lib', 'render.mjs'), 'utf8');
+  const drawn = [...svg.matchAll(/<path d="([^"]+)"/g)].map((m) => m[1]);
+  ok(drawn.length >= 3, `the mark should draw at least three paths, drew ${drawn.length}`);
+  for (const d of new Set(drawn)) ok(source.includes(d), `the card draws a path render.mjs does not have:\n  ${d.slice(0, 60)}…`);
+  // And the variables are gone: an SVG with no stylesheet cannot resolve one, and GitHub would render the
+  // mark as nothing at all.
+  eq(svg.includes('var(--'), false, 'a CSS variable reached the SVG, where there is no stylesheet to answer it');
+  eq(renderAssets(REPO_ROOT).pdf.toString('latin1').includes('var(--'), false, 'and the PDF, where there never was one');
+});
+
+test('cheatsheet · the PDF is two A4 landscape pages, with no clock in it', () => {
+  const { pdf, pages } = renderAssets(REPO_ROOT);   // the render, for the reason the SVG case gives
+  const text = pdf.toString('latin1');
   ok(text.startsWith('%PDF-'), 'it is a PDF');
   ok(fs.readFileSync(path.join(REPO_ROOT, PDF_PATH)).length > 1000, 'and a real one is committed');
-  includes(text, '/MediaBox [0 0 842 595]', 'A4 landscape, in points');
-  includes(text, '/Count 1', 'one page — the generator throws rather than spilling onto a second');
+  eq(pages, 2, 'two sheets, designed as two');
+  eq((text.match(/\/MediaBox \[0 0 842 595\]/g) || []).length, 2, 'both of them A4 landscape, in points');
+  includes(text, '/Count 2', 'two pages — and the generator throws rather than spilling onto a third');
   for (const banned of ['/CreationDate', '/ModDate', '/Producer', '/Info']) {
     eq(text.includes(banned), false, `${banned} is in the PDF, and it would change on every regeneration`);
   }
@@ -10971,7 +10998,7 @@ test('cheatsheet · the PDF is one A4 landscape page, with no clock in it', () =
   // the table — which is how this case first passed while reading four bytes of the trailer.
   const at = text.indexOf('\nxref\n') + 1;
   ok(at > 1, 'there is an xref table');
-  // `xref`, the `0 8` subsection header, then the free entry for object 0 — the numbered objects start fourth.
+  // `xref`, the subsection header, then the free entry for object 0 — the numbered objects start fourth.
   const rows = text.slice(at).split('\n').slice(3);
   let n = 0;
   for (const r of rows) {
@@ -10980,7 +11007,11 @@ test('cheatsheet · the PDF is one A4 landscape page, with no clock in it', () =
     n += 1;
     includes(text.slice(Number(m[1]), Number(m[1]) + 12), `${n} 0 obj`, `xref entry ${n} points at the wrong byte`);
   }
-  eq(n, 7, 'all seven objects are indexed');
+  // Two per page plus five: catalog, page tree, a /Page and a content stream each, and the three faces. The
+  // count is stated in terms of `pages` rather than as a number, because the point of this case is that the
+  // arithmetic in `toPDF` is right for however many pages there are — a second page was where a fixed
+  // seven-object layout would have quietly indexed the wrong bytes.
+  eq(n, 2 * pages + 5, `all ${2 * pages + 5} objects are indexed`);
   includes(text, `startxref\n${at}\n`, 'startxref points at the table');
 });
 
@@ -11036,6 +11067,188 @@ test('cheatsheet · columns are packed to the shortest tallest column, in order'
   eq(cols.map((c) => c.reduce((a, b) => a + b.h, 0)), [30, 30], 'the split that levels the two columns');
   eq(cols[0].length, 3, 'and it keeps the blocks in the order they were given');
   eq(pack([{ h: 5 }], 2).map((c) => c.length), [1, 0], 'fewer blocks than columns is not a crash');
+
+  // `extra` is what a block costs only when it is the one that opens a column — the reprinted group heading.
+  // Without it the packer would choose a split whose cost it never counted, and the second column would run
+  // one heading past wherever it thought it stopped.
+  const withHeading = pack([{ h: 10 }, { h: 10, extra: 20 }, { h: 10, extra: 20 }], 2);
+  eq(withHeading.map((c) => c.length), [2, 1], 'the cut moves because opening a column is not free');
+  eq(pack([{ h: 10 }, { h: 10 }, { h: 10 }], 2).map((c) => c.length), [1, 2],
+    'and with no extra the same blocks pack the way they always did — the earliest of two tied splits');
+});
+
+test('cheatsheet · the card shortens nothing — not a description, not a flag, and above all not a name', () => {
+  /*
+   * The defect this redesign existed to fix, in its strong form. Every description used to be cut to one
+   * line, so `atlas contention` read "what a fan-out will collide on" — true, and not an answer to what the
+   * command is for.
+   *
+   * Asserting only on row descriptions left two cuts standing, and both were found by looking at the
+   * rendered card rather than by this case, which is the wrong way round:
+   *
+   *   · **the global flags footer**, where `--no-git` printed as "…reported as unchecked rather…". A cut
+   *     sentence set in the same face and colour as the wrapped ones beside it is worse than a card where
+   *     everything is cut, because the reader cannot tell which sentences they are seeing all of.
+   *   · **the command label**, which was passed through `fit()`. That one had not fired yet and would have
+   *     the first time an argument spec grew. A truncated *name* is the worst string on the card: a reader
+   *     types what they see, and what they type does not exist.
+   *
+   * So the assertion is now every string the card takes from the source, against what the card actually
+   * drew — and against both geometries, because the SVG has unbounded height and would hide a cut that only
+   * the A4 sheets suffer.
+   */
+  const model = cheatsheet(REPO_ROOT);
+  for (const [G, C, where] of [[SCREEN, DARK, 'the screen card'], [PRINT, LIGHT, 'the A4 sheets']]) {
+    const drawn = [...sheetShape(model, G, C).ops, ...sheetReference(model, G, C).ops]
+      .filter((o) => o.op === 'text').map((o) => o.s).join(' ').replace(/\s+/g, ' ');
+    // Joined with a space, a wrapped string reads back exactly as it went in; a shortened one does not.
+    const whole = (s, what) => ok(!s || drawn.includes(s.replace(/\s+/g, ' ')),
+      `${where} shortened ${what}:\n  ${s}`);
+
+    for (const r of cheatRows(model)) {
+      whole(r.gloss, `${r.name}'s description`);
+      whole(r.args ? `${r.name} ${r.args}` : r.name, `the label for ${r.name} — a name a reader would type`);
+      for (const f of r.flags) whole(f.desc, `${r.name} ${f.flag}`);
+    }
+    for (const f of model.flags) whole(f.desc, `the global flag ${f.flag}`);
+    whole(model.aliases.map((a) => `${a.from} = ${a.to.replace(/^atlas\s+/, '')}`).join(' · '), 'the alias run');
+    whole(model.footer, 'the rule the tool follows');
+    whole(model.tagline, 'the tagline');
+
+    // And nothing was quietly ellipsised that the checks above happen not to cover. `wrap` may still shorten
+    // a capped last line — the sub-flags allow two — so this is what proves that valve is not firing.
+    const cut = [...sheetShape(model, G, C).ops, ...sheetReference(model, G, C).ops]
+      .filter((o) => o.op === 'text' && /…$/.test(o.s)).map((o) => o.s);
+    eq(cut, [], `${where} ends these strings in an ellipsis, which means they were cut`);
+  }
+
+  // And specifically the one that was wrong: the whole clause, including the exit code, has to be there.
+  const contention = cheatRows(model).find((r) => r.name === 'contention');
+  includes(contention.gloss, 'exit 1 on a duplicate id only', 'contention still loses its second half');
+  ok(contention.gloss.length > 120, 'a description that short is the old truncated one coming back');
+
+  // `serve` and `watch` are the pair a reader cannot tell apart from a name.
+  const gloss = (n) => cheatRows(model).find((r) => r.name === n).gloss;
+  eq(gloss('serve') === gloss('watch'), false);
+});
+
+test('cheatsheet · a long command name is drawn whole, and one that cannot fit stops the build', () => {
+  /*
+   * The one case where shortening would be silent and catastrophic. A name is the string on this card a
+   * reader retypes; `contentio…` is a command that does not exist, and the card would look finished while
+   * saying so. So there are two halves and both are here, because the real surface exercises neither:
+   *
+   *   · a label **wider than the old 42%-of-the-column cap** must be drawn character for character. Every
+   *     label in this repository is comfortably under that cap, which is why the `fit()` on the label sat
+   *     there unnoticed — nothing in the corpus could make it fire, so nothing in the corpus can guard it
+   *     either. This half needs a label built for the purpose.
+   *   · a label so wide it leaves no room for a description must throw, the same answer an overflowing sheet
+   *     gets.
+   */
+  const model = cheatsheet(REPO_ROOT);
+  const one = (args) => ({
+    ...model,
+    groups: [{
+      title: 'Starting out',
+      rows: [{ name: 'build', args, gloss: 'a description', cli: true, slash: true, flags: [] }],
+    }],
+  });
+
+  // 38 characters: past the cap that used to ellipsise it, inside the room the sheet actually has.
+  const long = '[--one --two --three --four --f]';
+  const label = `build ${long}`;
+  eq(label.length, 38, 'the fixture has to straddle the old cap — recheck the arithmetic if this moved');
+  const drawn = sheetReference(one(long), PRINT, LIGHT).ops.filter((o) => o.op === 'text').map((o) => o.s);
+  ok(drawn.includes(label), `a name wider than the old cap came out shortened:\n  ${drawn.join('\n  ')}`);
+
+  let threw = '';
+  try { layout(one('[--every-single-one-of-the-options-at-once --and-then-some-more]'), PRINT, LIGHT); } catch (e) { threw = e.message; }
+  includes(threw, 'never shortened', 'a name that will not fit has to throw');
+  includes(threw, '--every-single-one-of-the-options-at-once', 'and name the label that would not fit');
+  // The real surface is nowhere near the limit, which is what makes the throw a guard rather than a nuisance.
+  layout(model, PRINT, LIGHT);
+});
+
+test('cheatsheet · a line is broken between words, and never in the middle of one', () => {
+  const w = measure('one two three', 10, 'sans');
+  eq(wrap('one two three four five six', w, 10, 'sans').join('|'), 'one two three|four five six');
+  eq(wrap('short', w, 10, 'sans'), ['short'], 'what fits is one line');
+  eq(wrap('', w, 10, 'sans'), [], 'nothing to wrap is no lines, not one empty one');
+  // A cap is the only thing that may shorten, and what it shortens is the *rest of the sentence*, so the
+  // ellipsis lands where the text stopped rather than where the line happened to break.
+  const capped = wrap('one two three four five six seven eight', w, 10, 'sans', 2);
+  eq(capped.length, 2);
+  ok(capped[1].endsWith('…'), 'a capped wrap says it was cut');
+  for (const line of wrap('one two three four five six', w, 10, 'sans')) {
+    ok(measure(line, 10, 'sans') <= w, `"${line}" is wider than the column it was wrapped to`);
+  }
+});
+
+test('cheatsheet · the shape panel cannot name a command that does not exist', () => {
+  // `SHAPE` is the one hand-written thing on the card, and this is what stops it rotting into a lie. It is
+  // allowed to be an incomplete view of the surface — a new command needs no edit here — but every name it
+  // does carry has to be real, and a name that stops being real must stop the build rather than print.
+  const known = new Set([...dispatchedCommands(), ...slashCommands(REPO_ROOT)]);
+  for (const name of shapeNames()) ok(known.has(name), `SHAPE names ${name}, which is not a command`);
+  ok(shapeNames().length > 20, 'the shape panel should name a real share of the surface');
+
+  let threw = '';
+  try {
+    validateShape(known, { ...SHAPE, spine: { ...SHAPE.spine, also: ['teleport'] } });
+  } catch (e) { threw = e.message; }
+  includes(threw, 'teleport', 'a name the surface does not have has to throw, with the name in it');
+
+  // The spine is a chain: one command between each pair of nodes, and one fewer edge than there are nodes.
+  eq(SHAPE.spine.edges.length, SHAPE.spine.nodes.length - 1);
+  let bad = '';
+  try {
+    validateShape(known, { ...SHAPE, spine: { ...SHAPE.spine, edges: SHAPE.spine.edges.slice(1) } });
+  } catch (e) { bad = e.message; }
+  includes(bad, 'between each pair of nodes', 'a spine with a missing step has to throw too');
+});
+
+test('cheatsheet · the shape sheet and the reference sheet describe a command the same way', () => {
+  // Sheet one prints descriptions of its own, and the way that goes wrong is a second derivation: two places
+  // building a gloss from the same sources with a slightly different rule, disagreeing about one command,
+  // and nobody noticing because the two are on different pages. There is one row per command and both
+  // sheets look it up — so this asserts on what sheet one actually *drew*, not on the lookup it was given.
+  const model = cheatsheet(REPO_ROOT);
+  const drawn = sheetShape(model, SCREEN, DARK).ops
+    .filter((o) => o.op === 'text').map((o) => o.s).join(' ');
+  for (const name of SHAPE.spine.also) {
+    const row = model.rowFor(name);
+    ok(row, `the shape sheet wants to print ${name} and there is no row for it`);
+    eq(row.gloss, cheatRows(model).find((r) => r.name === name).gloss);
+    // Joined with a space, a wrapped description reads back exactly as it went in.
+    ok(drawn.includes(row.gloss), `sheet one prints something other than ${name}'s own description`);
+  }
+  eq(model.rowFor('nothing-like-this'), undefined, 'a name with no row is undefined, not a fabricated one');
+});
+
+test('cheatsheet · each sheet is budgeted on its own, and an overflowing one throws with its number', () => {
+  // The old card refused to spill onto a second page. It has two now, by design, and the refusal has to
+  // survive that: a sheet that outgrows A4 must stop the build and say which sheet, not become a third page
+  // nobody chose. Sixty synthetic rows is well past anything the real surface will reach.
+  const model = cheatsheet(REPO_ROOT);
+  const fat = {
+    ...model,
+    groups: [...model.groups, {
+      title: 'Synthetic',
+      rows: Array.from({ length: 60 }, (_, i) => ({
+        name: `filler-${i}`, args: '', gloss: 'a description long enough to wrap onto a second line on any sheet',
+        cli: true, slash: false, flags: [],
+      })),
+    }],
+  };
+  let threw = '';
+  try { layout(fat, PRINT, LIGHT); } catch (e) { threw = e.message; }
+  includes(threw, 'sheet 2', 'the overflow has to name the sheet that overflowed');
+  includes(threw, 'do not shrink the type');
+  // And the same model on the screen geometry simply gets taller, which is the whole reason the SVG stopped
+  // being page-shaped.
+  const [tall] = layout(fat, SCREEN, DARK);
+  const [normal] = layout(model, SCREEN, DARK);
+  ok(tall.height > normal.height, 'the unbounded card grows instead of refusing');
 });
 
 /* ============================================ the footer's "last built" line (A-27) */
