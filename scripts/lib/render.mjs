@@ -510,20 +510,29 @@ const SEARCH_JS = `(function () {
 const THEME_BOOT = `try{var t=localStorage.getItem('atlas-theme');if(t==='light'||t==='dark')document.documentElement.setAttribute('data-theme',t);}catch(e){}`;
 
 /**
+ * The reader's own zone abbreviation, read off the runtime rather than a table — the offset is theirs, and a
+ * hardcoded map would be wrong twice a year.
+ *
+ * Shared by the header clock and the footer's build stamp so the two cannot disagree about what to call the
+ * reader's zone. They sit at opposite ends of the same page and are read together — "built 09:27 IST, now
+ * 14:57 local" is a page arguing with itself.
+ */
+const ZONE_JS = `(function(){
+    try { return new Intl.DateTimeFormat(undefined, { timeZoneName: 'short' })
+      .formatToParts(new Date()).find(function(p){ return p.type === 'timeZoneName'; }).value; }
+    catch (e) { return 'local'; }
+  })()`;
+
+/**
  * The header clock — local time and UTC, updated in the browser.
  *
  * Ticks on a whole-second boundary rather than every 1000ms from load, so the displayed second changes when
- * the second actually changes instead of drifting a fraction behind it. The zone abbreviation comes from the
- * runtime rather than a table: the reader's offset is theirs, and a hardcoded map would be wrong twice a year.
+ * the second actually changes instead of drifting a fraction behind it.
  */
 const CLOCK_WIRE = `(function(){
   var el = document.getElementById('clock');
   if (!el) return;
-  var zone = (function(){
-    try { return new Intl.DateTimeFormat(undefined, { timeZoneName: 'short' })
-      .formatToParts(new Date()).find(function(p){ return p.type === 'timeZoneName'; }).value; }
-    catch (e) { return 'local'; }
-  })();
+  var zone = ${ZONE_JS};
   var pad = function(n){ return n < 10 ? '0' + n : '' + n; };
   function tick(){
     var d = new Date();
@@ -538,6 +547,125 @@ const CLOCK_WIRE = `(function(){
   }
   tick();
 })();`;
+
+/**
+ * **The footer's build stamp — when this page was last built, in both zones.**
+ *
+ * The header clock says when *now* is; a reader who has left a dashboard open all day also needs to know how
+ * old what they are looking at is, and the two questions are only answerable together. So it is the same
+ * shape as the clock — local for the reader, UTC because every stamp this tool writes is UTC — and it reuses
+ * the clock's `.clock-t` / `.clock-z` classes rather than inventing a second convention for the same thing.
+ *
+ * **It is not baked in, for the same reason the clock is not.** A rebuild with no source change produces a
+ * byte-identical directory, and that property is what makes "delete it and regenerate" safe and a publish
+ * diff meaningful. A build time written into the HTML would put a fresh diff in every build — which is
+ * exactly why `writeBuildStamp` puts the value in `build-stamp.txt` *beside* the pages instead. So the
+ * markup ships empty and hidden, and this reads the stamp at load.
+ *
+ * **Four sources, in order of how much they know, and it never trades down.**
+ *
+ *  1. `data-built` on this element — a frozen export that baked the value it was made from. Nothing to fetch.
+ *  2. `data-built` on `#stamp`, the dashboard's own indicator: the stamp *this HTML* was rendered with, which
+ *     is a better answer than the current stamp when the page came from a CDN cache. dashboard.mjs corrects
+ *     it through the callback below the moment its poll notices the two differ.
+ *  3. Whatever the live-update poll has already fetched. On a dashboard page that poll requests
+ *     `build-stamp.txt` every few seconds anyway; a second fetch of the same file from here would be a
+ *     duplicate request on a schedule. So the poll announces and this listens.
+ *  4. One fetch, only on the pages that have no poll — every document page, the wiki, health, home.
+ *
+ * `show(null)` — "not recorded" — is refused once a real time is on screen. A single-file export carries a
+ * page's baked stamp *and* a poller that cannot reach anything; without that guard the poll's third miss
+ * would erase a build time the page actually knew.
+ *
+ * **"Not recorded" is a real answer and it is displayed.** `writeBuildStamp` runs only under `--stamp` or
+ * `atlas watch`, so a plain `atlas build` publishes no stamp at all and this page genuinely cannot say when
+ * it was built. It says that. What it must never do is fill the gap with a dash, a blank, or the time the
+ * reader opened the page — the last being the one that looks right and is a lie.
+ *
+ * A transient fetch failure is not "not recorded". Only a definitive 404, or a poll that has given up, means
+ * no stamp exists; a dropped connection means the page could not ask, and the line stays hidden rather than
+ * reporting an absence it did not establish.
+ *
+ * **Source 2 is reached by class and never by id, and no id literal may appear in the text below — comments
+ * included.** `exportBundle` concatenates ten pages into one document and namespaces every id that more than
+ * one of them carries, rewriting `'stamp'`, `"stamp"` and `#stamp` throughout each page's script by plain
+ * string replacement. It cannot tell code from prose. A first draft of this wire explained itself in a
+ * comment that named the id, and the bundler duly rewrote the comment: the shipped file carried the sentence
+ * "only the dashboards carry a `#index--stamp`", and the assertion that every `getElementById` in a bundle
+ * addresses an element that exists read the rewritten prose as a reference and failed — correctly, since it
+ * has no way to know the difference either. The explanation lives here, where nothing rewrites it, and the
+ * class selector is untouched by the namespacing because only ids are namespaced.
+ */
+function builtWire(base) {
+  return `(function(){
+  var el = document.getElementById('builtAt');
+  if (!el) return;
+  var zone = ${ZONE_JS};
+  var pad = function(n){ return n < 10 ? '0' + n : '' + n; };
+  var have = false;
+
+  // Two shapes, because two commands write it. \`--stamp\` writes a full UTC timestamp; \`atlas watch\` writes
+  // a bare UTC time of day, which is all a rebuild seconds old needs on a page that is watching it happen.
+  // A bare time is dated to today in UTC, or to yesterday when the reader's clock has since crossed midnight
+  // — a watch stamp is always minutes old, so that is the only ambiguity there is to resolve.
+  function parse(s){
+    var m = /^(\\d{4})-(\\d{2})-(\\d{2})[ T](\\d{2}):(\\d{2})(?::(\\d{2}))?\\s*(?:UTC|Z)?$/.exec(s);
+    if (m) return new Date(Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +(m[6] || 0)));
+    m = /^(\\d{2}):(\\d{2}):(\\d{2})$/.exec(s);
+    if (m) {
+      var n = new Date();
+      var d = new Date(Date.UTC(n.getUTCFullYear(), n.getUTCMonth(), n.getUTCDate(), +m[1], +m[2], +m[3]));
+      if (d.getTime() - n.getTime() > 60000) d = new Date(d.getTime() - 86400000);
+      return d;
+    }
+    return null;
+  }
+
+  function local(d){
+    return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + ' ' +
+           pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
+  }
+  function utc(d){ var i = d.toISOString(); return i.slice(0, 10) + ' ' + i.slice(11, 19); }
+
+  function show(raw){
+    raw = raw && String(raw).trim();
+    var d = raw ? parse(raw) : null;
+    if (!d && have) return;                 // never trade a known build time for "not recorded"
+    if (!d) {
+      el.innerHTML = '<span class="builtat-k">Last built</span>' +
+        '<span class="builtat-none">not recorded</span>';
+      el.setAttribute('title', raw
+        ? 'The build stamp beside this page could not be read as a time: ' + raw
+        : 'This site was built without a build stamp, so it cannot say when. \`atlas build --stamp\` writes one.');
+    } else {
+      var iso = d.toISOString();
+      el.innerHTML = '<span class="builtat-k">Last built</span>' +
+        '<time class="clock-t" datetime="' + iso + '">' + local(d) +
+          '<span class="clock-z">' + zone + '</span></time>' +
+        '<time class="clock-t" datetime="' + iso + '">' + utc(d) +
+          '<span class="clock-z">UTC</span></time>';
+      el.setAttribute('title', 'From the build stamp written beside this page.');
+      have = true;
+    }
+    el.hidden = false;
+  }
+  window.__atlasBuilt = show;
+
+  var baked = el.getAttribute('data-built');
+  if (baked) { show(baked); return; }       // a frozen snapshot: it knows, and nothing about it will change
+  // By class, not by id — see the note above this wire. Asking for the attribute rather than the element
+  // keeps an unstamped build, which renders the indicator empty, from matching.
+  var live = document.querySelector('.stamp[data-built]');
+  if (live) show(live.getAttribute('data-built'));
+  if (window.__ATLAS_SNAPSHOT__) { show(null); return; }
+  if (window.__ATLAS_BUILT_STAMP__) { show(window.__ATLAS_BUILT_STAMP__); return; }
+  if (window.__ATLAS_STAMP_POLL__) return;  // the live-update poll owns the request; it calls back
+  fetch('${base}build-stamp.txt', { cache: 'no-store' })
+    .then(function(r){ return r.ok ? r.text() : (r.status === 404 ? '' : null); })
+    .then(function(t){ if (t !== null) show(t); })
+    .catch(function(){});                   // could not ask is not an answer; the line stays hidden
+})();`;
+}
 
 const THEME_WIRE = `(function(){
   var KEY='atlas-theme', root=document.documentElement, btn=document.getElementById('themeToggle');
@@ -809,10 +937,21 @@ ${extraHead}
 <main>
 ${body}
 </main>
-<footer><p class="genby">${MARK}<span>Generated by <strong class="wordmark"><span>project-</span>atlas</strong>. This page is derived — edit the markdown, not this file.</span></p></footer>
+<footer><p class="genby">${MARK}<span>Generated by <strong class="wordmark"><span>project-</span>atlas</strong>. This page is derived — edit the markdown, not this file.</span></p>
+${/*
+  * Empty and hidden, filled by `builtWire`. The value is a fact about the build and lives in a file beside
+  * the pages, never in them — see the note on that wire.
+  *
+  * The <noscript> is the whole of the no-JavaScript story, and it is deliberately a sentence rather than a
+  * time: without script this page cannot read the stamp, and the honest thing to publish is where the answer
+  * actually is. Printing "Last built" with nothing after it, or a dash, would be a broken label pretending to
+  * be a value.
+  */''}<p class="builtat" id="builtAt" hidden></p>
+<noscript><p class="builtat builtat-off">Last built — not readable without JavaScript; the build time is served beside this page as <code>build-stamp.txt</code>.</p></noscript></footer>
 ${scripts}
 <script>${THEME_WIRE}</script>
 <script>${CLOCK_WIRE}</script>
+<script>${builtWire(base)}</script>
 <script>${NAV_WIRE}</script>
 </body>
 </html>
@@ -1377,6 +1516,22 @@ code, pre, .dp { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospac
 }
 footer { border-top:1px solid var(--line); padding:20px 5%; color:var(--muted); font-size:13px; }
 .genby { display:flex; align-items:center; gap:9px; margin:0; }
+
+/* The build stamp, under the credit line. Same type treatment as the header clock — tabular figures, a muted
+   uppercase zone chip, --ink for the digits against --muted surroundings — because it answers the other half
+   of the clock's question and a reader compares the two.
+   The [hidden] rule is restated because the UA rule that honours the attribute is display:none at the lowest
+   cascade level, and the author display:flex below beats it: without this line the empty element renders
+   as a bare "Last built" label with no value, which is precisely the broken state it exists to avoid.
+   It wraps rather than scrolls: two dates and two times do not fit one line on a phone, and a footer is the
+   one place where a second line costs nothing. */
+.builtat { display:flex; align-items:baseline; flex-wrap:wrap; gap:4px 10px; margin:8px 0 0;
+  font-size:12px; color:var(--muted); font-variant-numeric:tabular-nums; }
+.builtat[hidden] { display:none; }
+.builtat-k { font-size:10px; letter-spacing:.04em; text-transform:uppercase; color:var(--muted); }
+.builtat .clock-t { color:var(--ink); }
+.builtat-none { font-style:italic; }
+.builtat-off code { font-size:11px; }
 .atlas-mark { flex:0 0 auto; }
 .wordmark span { color:var(--atlas-ink-soft); font-weight:500; }
 /* The mark sits with the wordmark rather than floating beside it: baseline-aligned, and it never shrinks

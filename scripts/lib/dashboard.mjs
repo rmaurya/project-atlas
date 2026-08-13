@@ -3124,6 +3124,23 @@ const TABLE_JS = `
   // "built HH:MM:SS" indicator silently went blank after the first refresh.
   function stampEl() { return document.getElementById('stamp'); }
   var seen = null, timer = null, misses = 0;
+
+  // **The footer's "last built" line reads this poll rather than fetching the same file again.**
+  //
+  // Every three seconds, backing off to sixty, this already asks for build-stamp.txt — the exact value the
+  // footer wants. A second fetch from the footer would double the request rate on the one file this page
+  // requests on a timer, and the two would disagree for a few seconds after every rebuild. So the poll
+  // announces and the footer listens; \`__ATLAS_STAMP_POLL__\` is what tells the footer to wait for the
+  // announcement instead of asking for itself, and it is set synchronously below, before the footer's script
+  // runs. \`__ATLAS_BUILT_STAMP__\` covers the other order: a response that lands before that script is
+  // parsed would otherwise announce to a listener that does not exist yet.
+  var told = null;
+  function announce(t) {
+    if (t === told) return;
+    told = t;
+    window.__ATLAS_BUILT_STAMP__ = t;
+    if (typeof window.__atlasBuilt === 'function') window.__atlasBuilt(t);
+  }
   // Back-off, because one interval cannot serve both cases. Under atlas watch a rebuild lands seconds
   // after you save and three seconds is right; on a deployed site the content changes when CI redeploys, so
   // a tab left open overnight would ask a CDN twenty thousand times to learn nothing. Quiet polls widen the
@@ -3234,7 +3251,10 @@ const TABLE_JS = `
         // Three consecutive misses is a published site with no live reload at all: three requests, then
         // silence, instead of 1,200 an hour forever. One success resets the count.
         if (!r.ok) {
-          if (++misses >= 3 && timer) { clearInterval(timer); timer = null; }
+          // Giving up is itself an answer, and the footer needs it: three misses is a site published without
+          // --stamp, where "not recorded" is the true thing to say. Announced only on the give-up, never on
+          // the transient misses during a rebuild — those would blank a build time the page already knew.
+          if (++misses >= 3 && timer) { clearInterval(timer); timer = null; announce(null); }
           return null;
         }
         misses = 0;
@@ -3254,10 +3274,14 @@ const TABLE_JS = `
           var e0 = stampEl();
           var was = e0 && e0.getAttribute('data-built');
           if (e0) e0.textContent = '\u00b7 built ' + t;
+          // Only once the comparison above is settled. A page served stale from a CDN is showing content
+          // built at \`was\`, not at \`t\`, and telling the footer \`t\` first would date the old content with
+          // the new build's time \u2014 the same lie this branch exists to catch, moved to the footer.
           if (was && was !== t) { quiet = 0; reschedule(0); refresh(t); }
+          announce(t);
           return;
         }
-        if (t !== seen) { seen = t; quiet = 0; reschedule(0); refresh(t); return; }
+        if (t !== seen) { seen = t; quiet = 0; reschedule(0); refresh(t); announce(t); return; }
         // Four quiet polls at a step widen the gap. The counter is per step, not cumulative, so a page that
         // has been idle for an hour still returns to three seconds the moment something moves.
         if (++quiet >= 4 && step < STEPS.length - 1) { quiet = 0; reschedule(step + 1); }
@@ -3270,7 +3294,7 @@ const TABLE_JS = `
   // A bundled snapshot sets this before any page script runs. Polling there fetches a stamp that cannot
   // exist — the file is detached from the directory it was built in — so the mechanism was guaranteed to
   // fail and, having failed quietly three times, left a frozen page looking exactly like a live one.
-  if (!window.__ATLAS_SNAPSHOT__) { poll(); timer = setInterval(poll, STEPS[0]); }
+  if (!window.__ATLAS_SNAPSHOT__) { window.__ATLAS_STAMP_POLL__ = true; poll(); timer = setInterval(poll, STEPS[0]); }
 })();
 `;
 

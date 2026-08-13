@@ -24,7 +24,7 @@ import { runHealth, formatReport, SIGNALS, OPERATOR_SIGNALS, readParallelism,
 import { readSessionParallelism } from '../scripts/lib/parallelism.mjs';
 import { readContention, formatContention, definedIds } from '../scripts/lib/contention.mjs';
 import { SIGNALS as CORPUS_SIGNALS } from '../scripts/lib/signals.mjs';
-import { renderSite, BUILD_CLAIM, BUILD_MARKERS, groupNav, NAV_GROUPS } from '../scripts/lib/render.mjs';
+import { renderSite, writeBuildStamp, BUILD_CLAIM, BUILD_MARKERS, groupNav, NAV_GROUPS } from '../scripts/lib/render.mjs';
 import { renderMarkdown, inline } from '../scripts/lib/markdown.mjs';
 import { readPlanning, DEFAULT_PLANNING } from '../scripts/lib/planning.mjs';
 import { writeDay, contributorSlug } from '../scripts/lib/worklog.mjs';
@@ -8740,9 +8740,14 @@ test('boundary · exactly two modules reach the network, and both are named (A-3
     'if this list changed, the network boundary changed — update README and host.mjs, then this test');
 
   const loopback = files.filter((f) => fetchLines(f).length && !remote.includes(f));
-  eq(loopback, ['dashboard.mjs'], 'the only same-origin fetches are the live-reload ones');
-  for (const l of fetchLines('dashboard.mjs')) {
-    eq(/https?:\/\//.test(l), false, `a live-reload fetch must stay relative: ${l.trim()}`);
+  // `render.mjs` joined the list with the footer's "last built" line (A-27): on a page with no live-update
+  // poll — every document page, the wiki, health, home — it reads `build-stamp.txt` once at load, because the
+  // build time is deliberately kept out of the HTML. Same-origin, same relative-path rule, and it is skipped
+  // entirely on the pages where dashboard.mjs is already asking for that exact file.
+  eq(loopback, ['dashboard.mjs', 'render.mjs'],
+    'the only same-origin fetches are the live-reload poll and the footer build stamp');
+  for (const f of loopback) for (const l of fetchLines(f)) {
+    eq(/https?:\/\//.test(l), false, `a browser-side fetch must stay relative: ${l.trim()}`);
   }
 
   // And neither document may still claim there is only one.
@@ -10096,6 +10101,327 @@ test('serve · the detached server carries its root in argv, and registers itsel
   ok(listBlock.length > 200, 'sanity: that slice is the --list branch, not an empty string from a rename');
   eq(listBlock.includes('reapOrphanServers'), false, 'a listing must never send a signal');
   eq(listBlock.includes('terminateServer'), false, 'nor reach the terminator by any other name');
+});
+
+/* ============================================ the footer's "last built" line (A-27) */
+
+console.log('\nthe footer build stamp');
+
+/*
+ * **A-27 · rendered by the browser, never by the build.**
+ *
+ * The header clock says when *now* is. The footer says when the page was built, in the same two zones, and
+ * the two are only useful together — a reader who has left a dashboard open all day is asking how old what
+ * they are looking at is. The build time cannot be written into the HTML: a rebuild with no source change
+ * produces a byte-identical directory, and that property is what makes "delete it and regenerate" safe and a
+ * publish diff meaningful. So the value lives in `build-stamp.txt` beside the pages and the footer reads it.
+ *
+ * **The whole risk is in what it says when it does not know**, which is why the matrix below is by
+ * circumstance rather than by function. Four circumstances, four different true things:
+ *
+ *   served            the stamp exists — `atlas serve` and `atlas watch` both build with one
+ *   plain `build`     no stamp is written at all, and "not recorded" is the honest answer
+ *   published         the Pages workflow builds with `--stamp`, so the deployed tree has one
+ *   exported          a single file and a bundle have no server to ask; they carry a baked value or say so
+ *
+ * A blank line, a dash, or the time the reader opened the page would each be a lie, and the last is the one
+ * that looks right.
+ *
+ * **Every case here is synchronous.** `pendingAsync` is drained thousands of lines above, so an `async` case
+ * appended here would be constructed, never awaited, and reported as a pass it never earned. The wire is
+ * driven through a stub `fetch` that settles in place for exactly that reason — see `runBuiltWire`.
+ */
+
+/** The footer wire as it actually ships: the one inline script on the page that addresses the footer element. */
+function builtWireOf(html) {
+  for (const m of html.matchAll(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/g)) {
+    if (m[1].includes("getElementById('builtAt')")) return m[1];
+  }
+  throw new Error('this page carries no footer build-stamp script');
+}
+
+function stubEl(attrs = {}) {
+  return {
+    attrs: { ...attrs }, innerHTML: '', hidden: true,
+    getAttribute(k) { return k in this.attrs ? this.attrs[k] : null; },
+    setAttribute(k, v) { this.attrs[k] = String(v); },
+  };
+}
+
+/**
+ * Run the shipped wire against a stub page and report what the footer ends up saying.
+ *
+ * `fetch` is stubbed with a thenable that settles **in place** rather than a real Promise. That is not a
+ * shortcut, it is the point: a real Promise would push every fetch case past the `pendingAsync` drain, and an
+ * `async` test appended down here is never awaited — it would report a pass it never earned. The chain shape
+ * is the one the wire uses (`.then` → `.then` → `.catch`), so every branch it takes is a branch it takes in a
+ * browser; what the stub does not model is promise unwrapping, so `text()` hands back the body directly.
+ */
+function runBuiltWire(html, { live = null, poll = false, snapshot = false, announced = null,
+                              baked = null, reply = null } = {}) {
+  const el = stubEl(baked ? { 'data-built': baked } : {});
+  const stampEl = live ? stubEl({ 'data-built': live }) : null;
+  const win = {};
+  if (poll) win.__ATLAS_STAMP_POLL__ = true;
+  if (snapshot) win.__ATLAS_SNAPSHOT__ = true;
+  if (announced) win.__ATLAS_BUILT_STAMP__ = announced;
+
+  const asked = [];
+  const settled = (v) => ({ then: (f) => settled(f(v)), catch: () => {} });
+  const failed = (e) => ({ then: () => failed(e), catch: (f) => { f(e); return { catch() {} }; } });
+  const fetchStub = (url) => {
+    asked.push(url);
+    if (!reply) return failed(new Error('the network dropped'));
+    return settled({ ok: reply.status === 200, status: reply.status, text: () => reply.body });
+  };
+
+  const doc = {
+    getElementById: (id) => (id === 'builtAt' ? el : null),
+    querySelector: (sel) => (sel === '.stamp[data-built]' ? stampEl : null),
+  };
+  new Function('window', 'document', 'fetch', builtWireOf(html))(win, doc, fetchStub);
+  return { el, win, asked };
+}
+
+/** The same instant the footer must print for the reader's own zone, computed the way a browser would. */
+function localOf(iso) {
+  const d = new Date(iso), p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ` +
+         `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+}
+
+const footerFixture = (() => {
+  const dir = fixture('footer-built', { 'docs/README.md': '# Index\n\n[A](A.md)\n', 'docs/A.md': '# Alpha\n\nbody\n' });
+  const { cfg, index, health } = analyse(dir);
+  const { outDir } = renderSite(index, health, cfg, dir);
+  return { dir, cfg, outDir, read: (p) => fs.readFileSync(path.join(outDir, p), 'utf8') };
+})();
+
+test('A-27 · the build time is nowhere in the HTML, and the rebuild stays byte-identical', () => {
+  // The constraint that decides the whole design. A time written into the page would put a fresh diff in
+  // every build — so the markup ships empty and hidden, and the value is read at load.
+  const html = footerFixture.read('index.html');
+  includes(html, '<p class="builtat" id="builtAt" hidden></p>',
+    'the footer element ships empty: no time, no data-built, nothing to go stale');
+  eq(/id="builtAt"[^>]*data-built/.test(html), false, 'and nothing may bake a value onto it');
+
+  // Direct, not inferred from the absence of a pattern: two consecutive renders of an unchanged tree, every
+  // byte of every file compared. A baked timestamp of any shape fails this, including one this test never
+  // thought to grep for.
+  const snapshot = () => {
+    const out = {};
+    const walk = (d, base = '') => {
+      for (const e of fs.readdirSync(d, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+        const full = path.join(d, e.name);
+        if (e.isDirectory()) walk(full, base + e.name + '/');
+        else out[base + e.name] = fs.readFileSync(full, 'utf8');
+      }
+    };
+    walk(footerFixture.outDir);
+    return out;
+  };
+  const first = snapshot();
+  const { cfg, index, health } = analyse(footerFixture.dir);
+  renderSite(index, health, cfg, footerFixture.dir);
+  eq(snapshot(), first, 'a rebuild with no source change must produce identical bytes');
+
+  // And a plain build writes no stamp at all, which is the circumstance the "not recorded" case exists for.
+  eq(fs.existsSync(path.join(footerFixture.outDir, 'build-stamp.txt')), false,
+    '`atlas build` without --stamp writes no stamp; only --stamp and watch do');
+});
+
+test('A-27 · every page carries the footer, and each asks for the stamp beside itself', () => {
+  // A relative path that is right for the home page is wrong one directory down. The document pages live in
+  // `pages/`, so a bare `build-stamp.txt` there asks for a file that has never existed and the footer of
+  // every document page would report "not recorded" on a site that has a stamp.
+  for (const p of ['index.html', 'wiki.html', 'health.html', 'dashboard.html']) {
+    includes(builtWireOf(footerFixture.read(p)), "fetch('build-stamp.txt'", `${p} must ask beside itself`);
+  }
+  includes(builtWireOf(footerFixture.read(path.join('pages', 'docs__A.html'))), "fetch('../build-stamp.txt'",
+    'a document page sits one directory down and must climb back out');
+
+  // Without script there is no way to read the stamp, so the page says where the answer is instead of
+  // printing a label with nothing after it.
+  includes(footerFixture.read('index.html'), '<noscript>');
+  includes(footerFixture.read('index.html'), 'not readable without JavaScript');
+});
+
+test('A-27 · served: the stamp exists, and the footer states it in both zones', () => {
+  // `atlas serve` and `atlas watch` both build with a stamp, so this is the ordinary case. On a page with no
+  // live-update poll the footer fetches it once itself.
+  const html = footerFixture.read('wiki.html');
+  const r = runBuiltWire(html, { reply: { status: 200, body: '2026-08-10 18:30:00 UTC\n' } });
+  eq(r.asked, ['build-stamp.txt'], 'exactly one request, for the file beside the page');
+  eq(r.el.hidden, false);
+  includes(r.el.innerHTML, 'Last built');
+  includes(r.el.innerHTML, '2026-08-10 18:30:00');
+  includes(r.el.innerHTML, '<span class="clock-z">UTC</span>');
+  includes(r.el.innerHTML, localOf('2026-08-10T18:30:00Z'), "and the reader's own zone, not only UTC");
+  includes(r.el.innerHTML, 'datetime="2026-08-10T18:30:00.000Z"', 'machine-readable, and unambiguous');
+
+  // `atlas watch` writes a bare UTC time of day, which is all a rebuild seconds old needs. It must still
+  // render as a time rather than as "could not be read".
+  const w = runBuiltWire(html, { reply: { status: 200, body: '09:15:00\n' } });
+  includes(w.el.innerHTML, '09:15:00');
+  eq(w.el.innerHTML.includes('not recorded'), false, 'a watch stamp is a stamp');
+});
+
+test('A-27 · served: a dashboard reads its poll rather than asking for the same file twice', () => {
+  // The live-reload poll already requests `build-stamp.txt` every few seconds on the dashboards. A second
+  // fetch from the footer would double the request rate on the one file the page asks for on a timer, and
+  // the two would disagree for a few seconds after every rebuild.
+  const html = footerFixture.read('dashboard.html');
+  const r = runBuiltWire(html, { poll: true });
+  eq(r.asked, [], 'the poll owns the request; the footer must not duplicate it');
+  eq(r.el.hidden, true, 'and it says nothing until the poll has something to say');
+
+  r.win.__atlasBuilt('2026-08-10 18:30:00 UTC');
+  eq(r.el.hidden, false);
+  includes(r.el.innerHTML, localOf('2026-08-10T18:30:00Z'));
+
+  // The stamp *this HTML* was rendered with beats the current one when the page came from a cache, so it is
+  // read from the dashboard's own indicator at load and corrected by the poll afterwards.
+  const cached = runBuiltWire(html, { poll: true, live: '2026-08-09 07:00:00 UTC' });
+  includes(cached.el.innerHTML, localOf('2026-08-09T07:00:00Z'), 'the page states the build it was rendered from');
+  cached.win.__atlasBuilt('2026-08-10 18:30:00 UTC');
+  includes(cached.el.innerHTML, localOf('2026-08-10T18:30:00Z'), 'and follows the poll once it knows better');
+});
+
+test('A-27 · the poll announces what it fetched, and only after it has decided what it means', () => {
+  // The other half of the handshake, asserted on the shipped script. The footer waits for this announcement
+  // on any page that polls, so a poll that stopped announcing would leave those footers permanently blank —
+  // and blank is the one outcome the whole design exists to prevent.
+  const html = footerFixture.read('dashboard.html');
+  const at = html.indexOf('function stampEl()');
+  const poll = html.slice(at, html.indexOf('</script>', at));
+  ok(poll.length > 1000, 'sanity: that slice is the live-update script, not an empty string from a rename');
+
+  includes(poll, '__ATLAS_STAMP_POLL__ = true',
+    'a page that polls must say so, or the footer requests the same file a second time');
+  includes(poll, 'window.__ATLAS_BUILT_STAMP__ = t',
+    'and must leave the value somewhere a footer parsed after the response landed can still find it');
+  includes(poll, "typeof window.__atlasBuilt === 'function'");
+
+  // Giving up is itself an answer — three misses is a published site with no stamp — and it is the only
+  // failure that may reach the footer. A transient miss during a rebuild must not blank a known time.
+  includes(poll, 'timer = null; announce(null);');
+  eq(/misses\b[^\n]*announce\(null\)/.test(poll.split('\n').filter((l) => /\+\+misses/.test(l)).join('\n')), true,
+    'the give-up is the announcement, not each miss');
+
+  // Both branches that learn a stamp announce it — sliced apart, because an assertion over the whole script
+  // is satisfied by either one of them and would not notice the other being deleted.
+  const firstPoll = poll.slice(poll.indexOf('if (seen === null)'), poll.indexOf('if (t !== seen)'));
+  ok(firstPoll.length > 200, 'sanity: that slice is the first-poll branch, not an empty string from a rename');
+  includes(poll.slice(poll.indexOf('if (t !== seen)')).split('\n')[0], 'announce(t)',
+    'a stamp that changed while the page was open must reach the footer too');
+
+  // Ordering, because a page served stale from a CDN is showing content built at `was`, not at `t`.
+  // Announcing first would date the old content with the new build's time — the same lie, moved downstairs.
+  const cdn = firstPoll.indexOf('if (was && was !== t)');
+  const tell = firstPoll.indexOf('announce(t);');
+  ok(cdn !== -1, 'the staleness comparison must still be there');
+  ok(tell !== -1, 'and the first poll must announce what it found');
+  ok(cdn < tell, 'the footer is told only once the staleness comparison is settled');
+});
+
+test('A-27 · plain `atlas build`: "not recorded" is stated, never guessed or left blank', () => {
+  // No stamp is written, so the file 404s. The footer must say it does not know — not print the time the
+  // reader opened the page, which is the wrong answer that looks like the right one.
+  const r = runBuiltWire(footerFixture.read('index.html'), { reply: { status: 404, body: '' } });
+  eq(r.el.hidden, false, 'an absence is an answer and it is shown');
+  includes(r.el.innerHTML, 'not recorded');
+  includes(r.el.attrs.title, '--stamp', 'and it says how to get one');
+  eq(/\d{2}:\d{2}:\d{2}/.test(r.el.innerHTML), false, 'no time of any kind may appear where there is none');
+
+  // "Could not ask" is not "there is nothing to ask for". A dropped connection or a 500 leaves the line
+  // hidden rather than reporting an absence it never established.
+  for (const reply of [null, { status: 500, body: 'boom' }]) {
+    const t = runBuiltWire(footerFixture.read('index.html'), { reply });
+    eq(t.el.hidden, true, 'a failed request must not be reported as "not recorded"');
+    eq(t.el.innerHTML, '');
+  }
+});
+
+test('A-27 · published: the Pages workflow builds with a stamp, and staging carries it', () => {
+  // Case three is decided by the pipeline, not by the page. If the workflow ever drops `--stamp`, every
+  // deployed page silently becomes "not recorded" — so the flag is asserted where it is passed.
+  const wf = fs.readFileSync(path.join(REPO_ROOT, '.github', 'workflows', 'pages.yml'), 'utf8');
+  includes(wf, 'build --stamp', 'the deployed site must be built with a stamp or its footer cannot say when');
+
+  // `atlas publish --target pages` copies the built directory verbatim, so it carries whatever the build
+  // wrote — the stamp if there is one, and nothing to mislead with if there is not.
+  const stampless = stagePages(footerFixture.dir, footerFixture.cfg);
+  eq(fs.existsSync(path.join(stampless.work, 'build-stamp.txt')), false,
+    'an unstamped build must not acquire a stamp on the way out');
+
+  writeBuildStamp(footerFixture.dir, footerFixture.cfg, '2026-08-10 18:30:00 UTC');
+  const stamped = stagePages(footerFixture.dir, footerFixture.cfg);
+  eq(fs.readFileSync(path.join(stamped.work, 'build-stamp.txt'), 'utf8').trim(), '2026-08-10 18:30:00 UTC',
+    'and a stamped one publishes the time it was actually built');
+  fs.rmSync(path.join(footerFixture.outDir, 'build-stamp.txt'));
+});
+
+test('A-27 · exported: a snapshot carries its own time or admits it has none, and never fetches', () => {
+  // There is no server to ask. A single file opened from a Downloads folder would be asking that folder for
+  // `build-stamp.txt`, which is how the poller behaved for a release — three failed requests on every open,
+  // reported as success by an export that had checked nothing.
+  const single = exportSingleFile(footerFixture.dir, footerFixture.cfg, 'dashboard');
+  const flagAt = single.indexOf('__ATLAS_SNAPSHOT__ = true');
+  const wireAt = single.indexOf("getElementById('builtAt')");
+  ok(flagAt !== -1, 'a standalone export must declare itself a snapshot');
+  ok(flagAt < wireAt, 'and must do so before any script that reads the flag runs');
+  includes(single, 'build-stamp.txt',
+    'the mechanism is switched off by the flag, not cut out — a regex that encodes punctuation it does not '
+    + 'own matches nothing the day that punctuation changes, and this one had already rotted');
+
+  const off = runBuiltWire(single, { snapshot: true });
+  eq(off.asked, [], 'a detached file must ask nothing of the directory it was opened from');
+  includes(off.el.innerHTML, 'not recorded', 'and must say that it cannot tell how old it is');
+
+  // The bundle is the one artifact where the value *is* baked, and that is not a contradiction: it has no
+  // byte-identical property to protect, no file to read, and it is where not knowing the age costs most.
+  const bundle = exportBundle(footerFixture.dir, footerFixture.cfg, null, { generatedAt: '2026-08-10 18:30:00 UTC' });
+  includes(bundle, 'id="builtAt" data-built="2026-08-10 18:30:00 UTC"');
+  eq((bundle.match(/id="builtAt"/g) || []).length, 1, 'the bundle keeps exactly one footer');
+  eq(/builtAt--|--builtAt/.test(bundle), false,
+    'and never namespaces its id — renamed per page, every copy of the wire would address nothing');
+
+  const shown = runBuiltWire(bundle, { snapshot: true, baked: '2026-08-10 18:30:00 UTC' });
+  eq(shown.asked, []);
+  includes(shown.el.innerHTML, localOf('2026-08-10T18:30:00Z'), 'the baked value is rendered into both zones');
+  includes(shown.el.innerHTML, '<span class="clock-z">UTC</span>');
+
+  // A bundle built without a generation time has nothing to bake, and says so rather than guessing.
+  const anon = exportBundle(footerFixture.dir, footerFixture.cfg, null, {});
+  eq(/id="builtAt"[^>]*data-built/.test(anon), false, 'no generatedAt, no attribute');
+  includes(runBuiltWire(anon, { snapshot: true }).el.innerHTML, 'not recorded');
+});
+
+test('A-27 · a known build time is never traded for "not recorded"', () => {
+  // The single-file export carries a page's own stamp *and* a poller that cannot reach anything. Without
+  // this guard the poller's third miss — which is a real "there is no stamp" signal on a published site —
+  // would erase a build time the page already knew.
+  const r = runBuiltWire(footerFixture.read('wiki.html'), { reply: { status: 200, body: '2026-08-10 18:30:00 UTC' } });
+  includes(r.el.innerHTML, localOf('2026-08-10T18:30:00Z'));
+  r.win.__atlasBuilt(null);
+  includes(r.el.innerHTML, localOf('2026-08-10T18:30:00Z'), 'the known time stands');
+  eq(r.el.innerHTML.includes('not recorded'), false);
+
+  // An unreadable stamp is a different failure from a missing one, and is reported as itself.
+  const junk = runBuiltWire(footerFixture.read('wiki.html'), { reply: { status: 200, body: 'yesterday-ish' } });
+  includes(junk.el.innerHTML, 'not recorded');
+  includes(junk.el.attrs.title, 'yesterday-ish', 'the value that could not be read is quoted back');
+});
+
+test('A-27 · no id literal reaches the shipped wire, because the bundler rewrites text it cannot read', () => {
+  // `exportBundle` namespaces every id two pages share by plain string replacement across each page's
+  // script, comments included. A draft of this wire explained itself with the id in a comment; the bundler
+  // rewrote the comment, and the shipped file carried a sentence naming an element that has never existed.
+  // The reader of a bundle cannot tell that from a real reference, and neither can the check that reads it.
+  const wire = builtWireOf(footerFixture.read('dashboard.html'));
+  eq(/getElementById\(\s*['"]stamp['"]\s*\)|#stamp\b|['"]stamp['"]/.test(wire), false,
+    'the footer wire must reach the build indicator by class — no id literal, in code or in prose');
+  includes(wire, ".querySelector('.stamp[data-built]')", 'by class, and only where a value was actually baked');
 });
 
 console.log(`\n${pass} passed, ${fail} failed${skipped ? `, ${skipped} skipped on ${process.platform}` : ''}\n`);

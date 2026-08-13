@@ -169,10 +169,15 @@ that emit the page's CSS and JavaScript — for any `http://` or `https://` URL 
 are none. Typefaces are system stacks (`ui-monospace`, `Menlo`, and so on), not downloads. The same claim is
 made in [`SECURITY.md`](../../SECURITY.md).
 
-The one exception is same-origin and only alive under a server: the live dashboard polls `build-stamp.txt` and
-re-fetches its own URL to patch itself in place (`scripts/lib/dashboard.mjs:3217`, `:3198`). Nothing else is
-contacted. In the single-file export that poller is switched off, because a detached file could never reach it
-and a snapshot that looks live is worse than one that admits it (`scripts/lib/publish.mjs:984`).
+The exceptions are same-origin and only alive under a server. There are two, and both ask for a file that sits
+beside the page. The live dashboard polls `build-stamp.txt` and re-fetches its own URL to patch itself in place
+(`scripts/lib/dashboard.mjs:3246`, `:3227`); and the footer's "last built" line reads the same
+`build-stamp.txt` once at load, on the pages that carry no poll — every document page, the wiki, health and the
+home page (`scripts/lib/render.mjs:663`). Where the poll is already running the footer listens to it instead of
+asking again, so no page requests that file twice. Nothing else is contacted. In the single-file export and the
+bundle both are switched off by a flag the page sets before any script runs, because a detached file could
+never reach them and a snapshot that looks live is worse than one that admits it
+(`scripts/lib/publish.mjs:1162`, `:853`).
 
 ## What is not claimed here
 
