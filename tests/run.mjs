@@ -9574,6 +9574,51 @@ test('A-48 · reports the files more than one branch would touch, worst first', 
   includes(report, 'feat/alpha, feat/beta', 'the report names who will collide, not just how many');
 });
 
+test('A-48 · who collides on a file reads the same however the branches were dated', () => {
+  // The assertion above passed or failed at random, and *two* separate agents filed it as flaky and moved on.
+  // Neither cause they proposed was it. The names in a row came out in `--sort=-committerdate` order, so
+  // `feat/alpha, feat/beta` became `feat/beta, feat/alpha` the moment the two branches were cut either side
+  // of a one-second boundary instead of inside one — which is a coin toss on how busy the machine is. Nothing
+  // about the answer changed; only the sentence describing it.
+  //
+  // The fixture above cannot pin this, because whichever way its own clock fell is the way it always falls
+  // within a run. So this one *dates the commits itself* — beta strictly newer than alpha — and asserts the
+  // row reads the same as it does when they tie. The stable order is alphabetical, which is no order at all
+  // in the model and the only one a reader can rely on in the prose.
+  //
+  // That a random-looking failure got filed twice as noise is the expensive half of this defect: a case that
+  // fails at random stops being believed, and so does the next real failure it reports.
+  const dir = fixture('contention-dated', {
+    'project-atlas.config.json': JSON.stringify({ planning: { source: 'docs/ROADMAP.md' } }),
+    'docs/ROADMAP.md': '# Dated fixture\n\n## Track 1\n\n**A-1 · The first thing** — **P1 · High**\n\nDone.\n',
+    'shared.mjs': 'export const x = 1;\n',
+  });
+  const base = execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'],
+    { cwd: dir, encoding: 'utf8' }).trim();
+  // Committed a minute apart, oldest first, so recency order is the exact reverse of alphabetical. Both dates
+  // are fixed, so this case cannot itself become the flaky one it was written to remove.
+  for (const [name, when] of [['feat/alpha', '2026-01-01T10:00:00'], ['feat/beta', '2026-01-01T10:01:00']]) {
+    execFileSync('git', ['checkout', '-q', '-b', name, base], { cwd: dir, stdio: 'ignore' });
+    fs.appendFileSync(path.join(dir, 'shared.mjs'), `export const from = '${name}';\n`, 'utf8');
+    fs.appendFileSync(path.join(dir, 'docs/ROADMAP.md'),
+      `\n**A-2 · Filed independently by ${name}** — **P2 · Medium**\n\nWork.\n`, 'utf8');
+    execFileSync('git', ['-c', 'user.email=t@example.com', '-c', 'user.name=Test',
+      'commit', '-qam', `feat: ${name}`], { cwd: dir, stdio: 'ignore', env: { ...process.env,
+      GIT_AUTHOR_DATE: when, GIT_COMMITTER_DATE: when } });
+  }
+  execFileSync('git', ['checkout', '-q', base], { cwd: dir, stdio: 'ignore' });
+
+  const c = readContention(dir, resolveConfig(dir), { base });
+  ok(c.available, c.reason);
+  eq(c.branches.map((b) => b.name), ['feat/beta', 'feat/alpha'],
+     'the branch list still leads with the freshest work — that ordering is meaningful and is kept');
+  eq(c.shared.find((s) => s.file === 'shared.mjs').branches, ['feat/alpha', 'feat/beta'],
+     'but the names inside one row do not, so the line naming who collides never depends on who committed first');
+  eq(c.ids.duplicates[0].branches, ['feat/alpha', 'feat/beta'],
+     'and neither does the line naming who filed the same plan-item id');
+  includes(formatContention(c, false), 'feat/alpha, feat/beta');
+});
+
 test('A-48 · a plan-item id introduced by two branches is the one thing it refuses', () => {
   // A-34 was filed by two agents independently and A-38 and A-39 by three. Every one was renumbered by hand
   // afterwards, which left merged commit subjects naming ids that had moved — and a commit subject cannot be

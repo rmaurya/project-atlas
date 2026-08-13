@@ -60,13 +60,22 @@ function gitLines(root, args) {
 }
 
 /**
- * Every local branch except the base, newest commit first.
+ * Every local branch except the base, newest commit first, ties broken by name.
  *
  * Local only, and deliberately: the question is what *this* fan-out will collide on, and the agents in a
  * fan-out work in worktrees of one clone. A remote branch nobody here is working on is noise.
+ *
+ * **The tiebreak is not cosmetic.** `committerdate` has one-second resolution, and a fan-out cuts its
+ * branches in a burst — so the common case is a tie, and a tie left to `for-each-ref` alone comes back in
+ * whatever order the ref backend happened to yield. That made the *report* unstable: the same repository,
+ * unchanged, printed `feat/alpha, feat/beta` on one run and `feat/beta, feat/alpha` on the next. Two agents
+ * independently filed the case that caught it as *flaky* and moved on, which is the more expensive half of
+ * the defect — a test that fails at random gets disbelieved, and then so does the next real failure it
+ * reports. `--sort` keys are applied with the last as primary, so recency still leads.
  */
 function localBranches(root, base) {
-  const refs = gitLines(root, ['for-each-ref', '--sort=-committerdate', '--format=%(refname:short)', 'refs/heads/']);
+  const refs = gitLines(root,
+    ['for-each-ref', '--sort=refname', '--sort=-committerdate', '--format=%(refname:short)', 'refs/heads/']);
   if (!refs) return null;
   return refs.filter((b) => b !== base);
 }
@@ -147,9 +156,14 @@ export function readContention(root, cfg = {}, { base = null, branches = null } 
     if (!byFile.has(f)) byFile.set(f, []);
     byFile.get(f).push(r.name);
   }
+  // The names within a row are sorted, and the rows are not. A row's order came from `active`, which is by
+  // committer date — so `feat/alpha, feat/beta` became `feat/beta, feat/alpha` the moment two branches were
+  // cut either side of a one-second boundary rather than inside one. Nothing about the answer changed; the
+  // sentence describing it did. Recency is a real ordering for the branch *list*, where it says which work is
+  // freshest, and no ordering at all for two names inside one line of prose.
   const shared = [...byFile.entries()]
     .filter(([, bs]) => bs.length > 1)
-    .map(([file, bs]) => ({ file, branches: bs, count: bs.length }))
+    .map(([file, bs]) => ({ file, branches: [...bs].sort(), count: bs.length }))
     .sort((a, b) => b.count - a.count || a.file.localeCompare(b.file));
 
   /* ---- namespace two: plan-item ids ---- */
@@ -183,7 +197,11 @@ export function readContention(root, cfg = {}, { base = null, branches = null } 
     if (!ids.reason) {
       ids.available = true;
       ids.branchesRead = read;
-      ids.defined = [...byId.entries()].map(([id, bs]) => ({ id, branches: bs })).sort((a, b) => a.id.localeCompare(b.id));
+      // Sorted within the row for the same reason as `shared` above — this is the line a person reads to find
+      // out who to talk to, and it must not depend on which of two agents committed first.
+      ids.defined = [...byId.entries()]
+        .map(([id, bs]) => ({ id, branches: [...bs].sort() }))
+        .sort((a, b) => a.id.localeCompare(b.id));
       ids.duplicates = ids.defined.filter((d) => d.branches.length > 1);
       // The allocator, as a read rather than a lock: the highest number in use anywhere — base or branch —
       // plus one, per prefix. Two agents given this answer at the same instant still collide; two agents given
