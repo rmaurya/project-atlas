@@ -9,6 +9,15 @@
  *
  * The patterns are configurable because no two projects write a task list the same way. The defaults match the
  * common shape: `**ID · Title** — **P1 · Criticality**` with a completion table of `| ID | 42 |` cells.
+ *
+ * **Two dialects, detected rather than declared.** A great many real backlogs carry no identifier at all: they
+ * are bullet lists whose status and priority live in the title — `- **[open] P0 — the thing is broken.**` —
+ * under `## P1`-style priority headings. Against such a document the id-and-percentage reader above matches
+ * nothing and reports zero items, which is *correct* and useless: the owner reads an empty page as a broken
+ * tool. So the reader looks for the second shape when the first finds nothing, and says which one it used.
+ * Nobody has to declare their dialect, because a reader who knew to configure a pattern would not have been
+ * confused by the empty page in the first place. See `readTaggedItems`, and `NO_ID` for the identity problem
+ * the second dialect creates and does not solve.
  */
 
 import fs from 'node:fs';
@@ -16,6 +25,7 @@ import path from 'node:path';
 import { compileRule } from './config.mjs';
 import { confine } from './paths.mjs';
 import { maskInlineCode } from './markdown.mjs';
+import { num } from './format.mjs';
 
 export const DEFAULT_PLANNING = {
   source: null,                       // e.g. "docs/TASKS.md" — null disables the dashboard's planning half
@@ -33,6 +43,57 @@ export const DEFAULT_PLANNING = {
     { max: 100, label: 'Done', tone: 'done' },
   ],
 };
+
+/**
+ * The second dialect's item line: a top-level bullet opening with a bolded `[status]` tag.
+ *
+ * Deliberately narrow. It is not enough to be a bold bullet — `- **Priority:** P1 = do next …` is a line of
+ * the convention *about* the list, and every real backlog has a few. The bracketed tag immediately inside the
+ * bold run is what distinguishes an item from prose, and it is the same token the author already uses to
+ * carry status, so nothing new has to be written for this to work.
+ */
+const TAGGED_ITEM_RE = /^[-*+][ \t]+\*\*\[([^\]\n]{1,80})\][ \t]*/;
+const HEADING_RE = /^#{1,6}\s/;
+
+/**
+ * The states this dialect records, and the band each one shows as.
+ *
+ * These replace the percentage bands entirely when the dialect is in use, because they measure a different
+ * thing: `[open]`/`[done]` is a state the author asserted, not a figure. `Blocked` and `Deferred` take the
+ * `unknown` tone rather than a point on the none→done ramp — both mean "not progressing", and colouring
+ * *blocked* as nearly-done would be the chart telling a story the document does not.
+ */
+const TAGGED_BANDS = [
+  { state: 'open', label: 'Not started', tone: 'none' },
+  { state: 'in-progress', label: 'In progress', tone: 'mid' },
+  { state: 'blocked', label: 'Blocked', tone: 'unknown' },
+  { state: 'deferred', label: 'Deferred', tone: 'unknown' },
+  { state: 'done', label: 'Done', tone: 'done' },
+];
+const UNKNOWN_BAND = { state: null, label: 'Unknown', tone: 'unknown' };
+
+/**
+ * Where an item's id comes from when the document declares none — and what that costs.
+ *
+ * Three candidates were considered and two rejected:
+ *
+ * - **The spec ids in the body.** These documents genuinely cite them (`MET-F-1`, `P0-1`), and it is tempting.
+ *   But an item may cite three or none, and a citation is a pointer to a *specification*, not the item's own
+ *   name — two items refining one spec would collide, and the id would change when the prose changed.
+ * - **A hash of the title, or an ordinal.** Stable exactly until somebody edits the document, and a plan whose
+ *   entire purpose is to be edited ("re-rank freely", "delete it here when done") edits constantly. Worse,
+ *   `P1-3` *looks* like a declared identifier, so every consumer downstream would treat a number this module
+ *   made up as a name the author chose. That is the fabrication to avoid, not a convenience to reach for.
+ * - **The line the item starts on** — chosen. It is unique by construction, deterministic, orders the items
+ *   as the document does, and unlike the other two it is *useful while it is true*: `L27` tells the reader
+ *   where to look. It is prefixed and short so it does not read as a ticket number.
+ *
+ * The cost is stated rather than hidden, and it is not small: **an item with no stable id cannot be named by
+ * a commit.** `taskCoverage`, the spec gate, the Gantt and `definedIds` in contention.mjs all bind on the id,
+ * and against this dialect they bind to nothing — permanently, not until some later release. Every reader of
+ * the plan is told so in `notes`, which the dashboard prints under "What this dashboard does not show".
+ */
+const NO_ID = (line) => `L${line}`;
 
 export function readPlanning(root, cfg) {
   const p = { ...DEFAULT_PLANNING, ...(cfg.planning || {}) };
@@ -59,16 +120,29 @@ export function readPlanning(root, cfg) {
   const itemRe = compiled.itemPattern;
   const trackRe = compiled.trackPattern;
 
+  // Which dialect is this? Counted before anything is built, because the answer decides what "an item" even
+  // is. The declared pattern wins whenever it matches anything at all: a repository that already writes
+  // `**A-38 · …**` must keep parsing exactly as it did, and an id the author chose beats one this module
+  // derives every time. The second dialect is reached only when the first found nothing to read.
+  //
+  // A pattern that was *refused* is not a pattern that found nothing — it never ran. Falling through to the
+  // second dialect there would answer a question nobody asked and would contradict the note already saying
+  // the configured pattern was not applied, so refusal short-circuits the whole detection.
+  const classicHits = itemRe ? lines.filter((l) => { itemRe.lastIndex = 0; return itemRe.test(l); }).length : 0;
+  const taggedHits = itemRe ? lines.filter((l) => TAGGED_ITEM_RE.test(l)).length : 0;
+  const dialect = classicHits > 0 || taggedHits === 0 ? 'ids-and-percentages' : 'status-tags';
+
   const items = [];
   let track = null;
-  for (let i = 0; itemRe && i < lines.length; i++) {
+  for (let i = 0; itemRe && dialect === 'ids-and-percentages' && i < lines.length; i++) {
     const t = trackRe && trackRe.exec(lines[i]);
     if (t) { track = t[1].trim(); continue; }
     const m = itemRe.exec(lines[i]);
     if (!m) continue;
     const body = bodyAfter(lines, i, itemRe, trackRe);
     items.push({
-      id: m[1], title: m[2].trim(), priority: m[3], criticality: m[4],
+      id: m[1], idKind: 'declared', state: null, stateNote: null,
+      title: m[2].trim(), priority: m[3], criticality: m[4],
       track: track || 'Untracked',
       line: i + 1,
       summary: summaryAfter(lines, i),
@@ -83,6 +157,7 @@ export function readPlanning(root, cfg) {
       percent: null, estimated: false,
     });
   }
+  if (dialect === 'status-tags') items.push(...readTaggedItems(lines, trackRe, p.source));
 
   // Completion percentages live in a grid table of `| ID | NN |` pairs, which is how a compact dashboard is
   // written by hand. An asterisk after the number means "estimated from documents, not read from the source" —
@@ -97,15 +172,43 @@ export function readPlanning(root, cfg) {
     it.estimated = pm[3] === '*';
   }
 
+  // Which set of bands an item is scored against follows the dialect, because the two dialects measure
+  // different things. A percentage document gets the configured completion ramp; a status document gets the
+  // states it actually wrote. Mapping `[done]` to 100 and `[open]` to 0 was rejected outright: this module's
+  // oldest rule is that unknown is not zero, and `[open]` says "not started", not "0% measured". Every item
+  // in the second dialect keeps `percent: null`, and the chart says so instead of guessing.
+  const bands = dialect === 'status-tags' ? tagBandsFor(items) : p.statusBands;
   for (const it of items) {
-    it.status = bandFor(it.percent, p.statusBands);
+    it.status = dialect === 'status-tags'
+      ? bandOfState(it.state, bands)
+      : bandFor(it.percent, p.statusBands);
   }
 
   const notes = [...refused];
   const missingPct = items.filter((i) => i.percent === null);
-  if (missingPct.length) notes.push(`${missingPct.length} item(s) carry no completion figure and are charted as unknown, not as zero.`);
   const est = items.filter((i) => i.estimated);
-  if (est.length) notes.push(`${est.length} figure(s) are marked estimated in the source and are drawn hatched.`);
+  if (dialect === 'status-tags') {
+    notes.push(...taggedNotes(items, p.source));
+  } else {
+    if (missingPct.length) notes.push(`${missingPct.length} item(s) carry no completion figure and are charted as unknown, not as zero.`);
+    if (est.length) notes.push(`${est.length} figure(s) are marked estimated in the source and are drawn hatched.`);
+    // Both dialects in one document. The declared ids win — they are what a commit can name — but the choice
+    // is stated rather than made quietly, because the reading that lost is a reading of real content.
+    if (classicHits && taggedHits) {
+      notes.push(`This document is written in **both** plan dialects: ${num(classicHits)} item heading(s) with `
+        + `declared ids, and ${num(taggedHits)} bullet(s) opening with a bracketed status like \`[open]\`. `
+        + `That is ambiguous, so nothing was guessed — the declared ids were read and the tagged bullets were `
+        + `left unread. Split them into two documents, or give the tagged bullets ids, to have both counted.`);
+    }
+    // The empty page that reads as a broken tool. Zero items is a real answer and it stays a real answer —
+    // but a page that shows nothing and explains nothing was read twice as the tool being broken, so the
+    // read now says what it looked for and did not find.
+    if (!items.length && itemRe) {
+      notes.push(`No item was found in \`${p.source}\`. Neither dialect matched: no line carries an id heading `
+        + `like \`**A-1 · Title** — **P1 · High**\`, and no bullet opens with a bracketed status like `
+        + `\`- **[open] Title**\`. The plan is read as empty because nothing in it parsed, not because it has no work in it.`);
+    }
+  }
 
   const tracks = [...new Set(items.map((i) => i.track))].map((name) => {
     const own = items.filter((i) => i.track === name);
@@ -121,19 +224,175 @@ export function readPlanning(root, cfg) {
   return {
     source: p.source,
     missing: false,
+    dialect,
     header: lines.slice(0, 6).join('\n'),
     items, tracks, notes,
-    bands: p.statusBands,
+    bands,
     stats: {
       total: items.length,
       mean: meanOf(items),
-      byStatus: p.statusBands.map((b) => ({ ...b, count: items.filter((i) => i.status?.label === b.label).length })),
+      byStatus: bands.map((b) => ({ ...b, count: items.filter((i) => i.status?.label === b.label).length })),
       byPriority: [...new Set(items.map((i) => i.priority))].sort()
         .map((pr) => ({ priority: pr, count: items.filter((i) => i.priority === pr).length })),
-      unknown: missingPct.length,
+      // `unknown` counts items that were *supposed* to carry a figure and do not — it is the "somebody has
+      // not filled this in" signal, and the status chart draws it as an extra bucket beside the bands. A
+      // status-tag plan has no figures at all by design, so every item would land in it: a chart totalling
+      // twice the item count, with `Unknown` the tallest bar, asserting that 156 items of known state are of
+      // unknown state. Nothing is hidden by the zero — every percentage renders as `—` and a note says why.
+      unknown: dialect === 'status-tags' ? 0 : missingPct.length,
       estimated: est.length,
     },
   };
+}
+
+/**
+ * The second dialect, read: `- **[open] P0 — Title.**` bullets under `## P1 — do next` headings.
+ *
+ * Two shapes of real document forced most of what is here. **Titles wrap**: 88 of the 156 items in the
+ * backlog this was built against close their bold run on a later line, so reading only `lines[i]` would take
+ * half of every long title and drop the rest into the body. And **the body often starts mid-line**, right
+ * after the closing `**`, so the classic "everything from the next line" boundary would silently discard the
+ * first sentence of the description — the sentence naming the file to change.
+ */
+function readTaggedItems(lines, trackRe, planSource) {
+  const items = [];
+  let track = null;
+  for (let i = 0; i < lines.length; i++) {
+    if (trackRe) {
+      trackRe.lastIndex = 0;
+      const t = trackRe.exec(lines[i]);
+      if (t) { track = t[1].trim(); continue; }
+    }
+    const m = TAGGED_ITEM_RE.exec(lines[i]);
+    if (!m) continue;
+    const head = boldHead(lines, i, m[0].length);
+    // An unterminated bold run is a malformed bullet, and it is skipped rather than guessed at: taking "the
+    // rest of the paragraph" as a title would put a screenful of prose in the item table.
+    if (!head) continue;
+
+    const body = taggedBody(lines, head.endLine, head.endCol, trackRe);
+    const tag = /^([A-Za-z][A-Za-z-]*)/.exec(m[1].trim());
+    const trackName = track || 'Untracked';
+    // Priority comes from the title when the author put it there, from the track heading when the heading is
+    // one (`## P2 — soon / investigate`), and otherwise stays null. There is no default: an item nobody
+    // ranked is an item nobody ranked, and inventing a `P3` for it would put a number on the page that no
+    // human ever wrote — the same lie as inventing a completion figure, in a different column.
+    const pri = /^(P\d)\b[ \t]*(?:[—–-]+[ \t]*)?/.exec(head.title);
+    items.push({
+      // Not an identifier. See NO_ID.
+      id: NO_ID(i + 1), idKind: 'locator',
+      state: tag ? tag[1].toLowerCase() : null,
+      stateNote: m[1].trim().slice(tag ? tag[1].length : 0).replace(/^[\s,;:—–-]+/, '').trim() || null,
+      title: (pri ? head.title.slice(pri[0].length) : head.title).trim(),
+      priority: pri ? pri[1] : (/^(P\d)\b/.exec(trackName)?.[1] ?? null),
+      // This dialect has no criticality field at all — not an empty one, none. Null, so a consumer can tell
+      // "the document does not record this" from "the document records it as blank".
+      criticality: null,
+      track: trackName,
+      line: i + 1,
+      summary: summaryOf(body),
+      description: body,
+      sources: sourcesIn(body, planSource),
+      percent: null, estimated: false,
+    });
+  }
+  return items;
+}
+
+/**
+ * The bolded head of a tagged bullet, from just after `**[tag]` to its closing `**`, across wrapped lines.
+ *
+ * Returns where the run ended as well as what it said, because the caller needs the tail of that same line:
+ * `…and the single-instance guard.** \`Common/AppTeardown.swift\` and …` is a title and the first words of a
+ * description sharing one line.
+ */
+function boldHead(lines, i, startCol) {
+  const parts = [];
+  for (let j = i; j < Math.min(i + 8, lines.length); j++) {
+    const seg = j === i ? lines[j].slice(startCol) : lines[j];
+    // A blank line, a heading or the next bullet all mean the run never closed. Scanning past any of them
+    // would let one malformed bullet swallow the item after it.
+    if (j > i && (!seg.trim() || HEADING_RE.test(seg) || TAGGED_ITEM_RE.test(seg))) return null;
+    const at = seg.indexOf('**');
+    if (at >= 0) {
+      parts.push(seg.slice(0, at));
+      return {
+        title: parts.join(' ').replace(/\s+/g, ' ').trim(),
+        endLine: j,
+        endCol: (j === i ? startCol : 0) + at + 2,
+      };
+    }
+    parts.push(seg);
+  }
+  return null;
+}
+
+/** Everything after the title, bounded by the next item or track heading, dedented to the left margin. */
+function taggedBody(lines, endLine, endCol, trackRe) {
+  const rest = [lines[endLine].slice(endCol)];
+  const wrapped = [];
+  for (let j = endLine + 1; j < lines.length; j++) {
+    if (TAGGED_ITEM_RE.test(lines[j])) break;
+    if (trackRe) { trackRe.lastIndex = 0; if (trackRe.test(lines[j])) break; }
+    wrapped.push(lines[j]);
+  }
+  // Continuation lines are indented under the bullet. Left as-is, four-space-indented prose renders as a code
+  // block and a two-space sub-list nests one level too deep. The *common* indent is removed, not a fixed two,
+  // so relative structure inside the item — nested bullets, fenced code — survives intact.
+  const indents = wrapped.filter((l) => l.trim()).map((l) => l.length - l.trimStart().length);
+  const strip = indents.length ? Math.min(...indents) : 0;
+  return [...rest, ...wrapped.map((l) => (l.trim() ? l.slice(strip) : l))].join('\n').trim();
+}
+
+/** The bands actually present, in a fixed order, plus `Unknown` only if some tag was not one of them. */
+function tagBandsFor(items) {
+  const known = new Set(TAGGED_BANDS.map((b) => b.state));
+  const stray = items.some((i) => !known.has(i.state));
+  return stray ? [...TAGGED_BANDS, UNKNOWN_BAND] : [...TAGGED_BANDS];
+}
+
+function bandOfState(state, bands) {
+  return bands.find((b) => b.state === state) || UNKNOWN_BAND;
+}
+
+/**
+ * What the second dialect cannot do, stated on the page rather than discovered later.
+ *
+ * These land in `notes`, which the dashboard prints under "What this dashboard does not show". The id note is
+ * the important one and it is deliberately blunt: a reader who takes `L27` for a ticket number will wonder
+ * for a while why no commit ever seems to touch any item.
+ *
+ * **`atlas tasks` does not print `notes` at all** — `formatTasks` in `scripts/atlas.mjs` never has. On the
+ * first dialect that costs a caveat; on this one it withholds the whole of what the reading cannot do, so
+ * the terminal shows locator ids with nothing saying they are locators. Fixing that is one line in a file
+ * this change does not own, and it is reported rather than reached for.
+ */
+function taggedNotes(items, source) {
+  const out = [];
+  const noPriority = items.filter((i) => i.priority === null).length;
+  out.push(`\`${source}\` was read in the **status-tag dialect**: ${num(items.length)} bullet(s) carrying a `
+    + `bracketed status such as \`[open]\` or \`[done]\`, under priority headings. It declares no item ids, `
+    + `so the id-and-percentage reader found nothing in it — this is the same document, read the way it is written.`);
+  out.push(`**These items cannot be named by a commit.** The document gives them no identifier, and none was `
+    + `invented: the id shown is \`L\` plus the line the item starts on, which locates it in `
+    + `\`${source}\` today and changes the moment anything above it is edited. Spec-to-build coverage, the `
+    + `Gantt and the branch-contention check all bind on an item id, so against this plan they have nothing `
+    + `to bind to and report nothing — that is a property of the document, not a failure of the read.`);
+  out.push(`This plan records **status, not completion**. No item carries a percentage, so every completion `
+    + `figure, the mean and every progress bar are empty by construction rather than missing — \`[open]\` `
+    + `means not started, not 0% measured, and the two are not the same claim.`);
+  if (noPriority) {
+    out.push(`${num(noPriority)} item(s) sit under a heading that names no \`P0\`–\`P4\` priority and are left `
+      + `without one. No default was applied — a priority nobody wrote is not a priority.`);
+  }
+  return out;
+}
+
+/** The first paragraph of a body, flattened and clamped — the same field, and the same 220, as the classic read. */
+function summaryOf(body) {
+  const first = String(body || '').split(/\n\s*\n/)[0] || '';
+  const flat = first.replace(/\s+/g, ' ').replace(/[*`]/g, '').trim();
+  return flat.slice(0, 220);
 }
 
 /**
