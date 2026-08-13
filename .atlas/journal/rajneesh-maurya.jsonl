@@ -71,3 +71,10 @@
 {"at":"2026-08-12T01:50:18.213Z","agent":"subagent","kind":"progress","text":"a subagent finished on feat/git-insight-commands at 9e6fc66","refs":["feat/git-insight-commands@9e6fc66"]}
 {"at":"2026-08-12T02:09:34.171Z","agent":"main","kind":"progress","text":"work landed on fix/hook-build-stamp — now at 53f5a35","refs":["fix/hook-build-stamp@53f5a35"]}
 {"at":"2026-08-12T02:09:37.946Z","agent":"subagent","kind":"progress","text":"a subagent finished on fix/hook-build-stamp at 53f5a35","refs":["fix/hook-build-stamp@53f5a35"]}
+{"at":"2026-08-13T16:25:36.383Z","agent":"main","kind":"progress","text":"work landed on main — now at 2718026","refs":["main@2718026"]}
+{"at":"2026-08-13T16:28:35.317Z","agent":"subagent","kind":"progress","text":"a subagent finished on main at 2718026","refs":["main@2718026"]}
+{"at":"2026-08-13T17:38:35.113Z","agent":"compaction","kind":"progress","text":"context compacted on main at 2718026 — anything not journalled before this is gone","refs":["main@2718026"]}
+{"at":"2026-08-13T17:40:41.126Z","agent":"subagent","kind":"progress","text":"a subagent finished on main at 2718026","refs":["main@2718026"]}
+{"at":"2026-08-13T17:43:17.792Z","agent":"subagent","kind":"progress","text":"a subagent finished on main at 2718026","refs":["main@2718026"]}
+{"at":"2026-08-13T17:48:24.231Z","agent":"subagent","kind":"progress","text":"a subagent finished on main at 2718026","refs":["main@2718026"]}
+{"at":"2026-08-13T19:45:18.885Z","agent":"main","kind":"progress","text":"work landed on main — now at 11830f8","refs":["main@11830f8"]}

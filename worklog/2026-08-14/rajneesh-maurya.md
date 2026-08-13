@@ -6,8 +6,8 @@ _Written by `atlas worklog`. Measured from git and the corpus; no prompt text, a
 
 | | |
 |---|---|
-| Commits | 1 |
-| Lines | +30 / −11 |
+| Commits | 3 |
+| Lines | +1,741 / −212 |
 | Rework rate | 81.5% — a file re-touched within 3 days |
 | Reverts | 0 |
 | Documentation | 0 blocking finding(s) at end of day |
@@ -15,10 +15,13 @@ _Written by `atlas worklog`. Measured from git and the corpus; no prompt text, a
 ## Plan items advanced
 
 - **Q-5** A page can be rendered from the wrong repository, and a test passes because of it — 60%
+- **A-61** A product is several repositories, and the directory holding them is not one — 100%
 
 ## Commits
 
 - `09b709d` fix(tests): a test that could not pass on the branch a release is cut from (Q-5)
+- `7cd3e2e` feat(product): a product of thirteen repositories showed up as one, and the directory it lives in is not a repository (A-61)
+- `11830f8` chore(release): 0.1.73 — four workstreams, and two tests that were lying about themselves
 
 ---
 
