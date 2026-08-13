@@ -31,7 +31,7 @@ import { writeDay, contributorSlug } from '../scripts/lib/worklog.mjs';
 import { buildPrompt } from '../scripts/lib/prompt.mjs';
 import { readDeck } from '../scripts/lib/deck.mjs';
 import { RAMP, STATUS, INK, viewPage, signalGroups } from '../scripts/lib/dashboard.mjs';
-import { CAT, CAT_MAX, donut, lineChart, stackedArea, sparkbars } from '../scripts/lib/charts.mjs';
+import { CAT, CAT_MAX, BAND_FILL, catTokens, donut, lineChart, stackedArea, sparkbars } from '../scripts/lib/charts.mjs';
 import { automationAllows } from '../scripts/lib/config.mjs';
 import { buildWikiPages, wikiPageName, isSafePageName, exportSingleFile, exportBundle, RESERVED, gitlabPagesJob, stageWiki, stripLocalOnly, stripLocalOnlyTree, stagePages, assertNoLocalOnly, BUNDLE_PAGES } from '../scripts/lib/publish.mjs';
 import { confine, isAtOrInside, realpathOrBest } from '../scripts/lib/paths.mjs';
@@ -3162,11 +3162,14 @@ test('charts · a sparkline refuses one point, and speaks every value it draws',
   const s = sparkbars({ values: [3, 0, 7], labels: ['a', 'b', 'c'], caption: 'per week', unit: ' commits' });
   includes(s, 'aria-label="per week: a 3, b 0, c 7"', 'every value is readable without a pointer');
   includes(s, '<title>a: 3 commits</title>', 'and each bar names itself on hover as well');
-  eq((s.match(/<rect/g) || []).length, 3, 'a measured zero keeps its slot');
+  // Counted by class, not by tag. A sparkline now also draws a hit area and a readout plate per slot, and
+  // `<rect` counts every one of them — a proxy that would report nine bars for three and, worse, would keep
+  // passing if a bar went missing while a plate stayed.
+  eq((s.match(/<rect class="sb"/g) || []).length, 3, 'a measured zero keeps its slot');
   includes(s, 'height="0.00"', 'and draws nothing in it');
 
   const gap = sparkbars({ values: [3, null, 7], labels: ['a', 'b', 'c'], caption: 'per week' });
-  eq((gap.match(/<rect/g) || []).length, 2, 'an unknown is a gap, not a floor-height bar');
+  eq((gap.match(/<rect class="sb"/g) || []).length, 2, 'an unknown is a gap, not a floor-height bar');
   includes(gap, 'b unknown', 'and it is named as unknown rather than dropped');
 });
 
@@ -11371,6 +11374,189 @@ test('A-56 · the branch table names each open branch\'s origin, and marks it as
   includes(out, 'same point as', 'and a sibling fork is named rather than resolved into a parent');
   includes(out, 'Origins are inferred from the commit graph', 'with the hedge stated once, in full, under the list');
   includes(out, 'Git records no parent for a branch');
+});
+
+/* ==================================================================== charts · readable and interactive
+ *
+ * **Every case below is synchronous.** `pendingAsync` is drained thousands of lines above this point, so an
+ * `async` case appended here would be registered, never awaited, and reported as a pass it never earned.
+ *
+ * Each of these was checked by reverting the change it guards and watching it fail — the alphas, the edge,
+ * the bands, the role, the clamp, the tick spacing, and the two shapes this stylesheet must never contain.
+ */
+
+/** The value a y coordinate stands for, inverting the scale both time charts draw with. */
+const valueOfY = (yPx, max, h = 170, pad = { t: 10, b: 22 }) =>
+  ((h - pad.b - yPx) / (h - pad.t - pad.b)) * max;
+
+const attrsOf = (html, cls) =>
+  [...html.matchAll(new RegExp(`<(\\w+) class="${cls}"([^>]*)>`, 'g'))].map((m) => m[2]);
+
+test('charts · the area chart sums its series, and says so with a translucent fill under an opaque edge', () => {
+  // **Stacked, not overlaid, and the distinction decides what the fix even means.** Overlaid, a near-solid
+  // fill hides the series behind it and transparency is a correctness fix. Stacked, nothing is behind
+  // anything — what the old `fill-opacity:.82` hid was the y-axis, so a reader could see the shape and had
+  // nothing to measure it against. Asserted on the geometry rather than on a comment: the top of the last
+  // band has to sit at the sum, which is false for every overlaid drawing.
+  const html = stackedArea({
+    title: 'x', labels: ['w1', 'w2'], unit: ' lines',
+    series: [{ label: 'added', values: [10, 20] }, { label: 'removed', values: [5, 5] }],
+  });
+  const edges = [...html.matchAll(/class="c-edge" d="M([^"]+)"/g)].map((m) => m[1]);
+  eq(edges.length, 2, 'each band states its own top edge as its own path');
+  const yAt = (d, i) => Number(d.split(' L').map((p) => p.trim().split(/\s+/))[i][1]);
+  const max = 25;                                        // the tallest total, which is what the axis is scaled to
+  ok(Math.abs(valueOfY(yAt(edges[0], 0), max) - 10) < 0.05, 'the first band tops out at its own value');
+  ok(Math.abs(valueOfY(yAt(edges[1], 0), max) - 15) < 0.05,
+     'the second band tops out at the running total — if it topped out at 5 the chart would be overlaid');
+  ok(Math.abs(valueOfY(yAt(edges[1], 1), max) - 25) < 0.05, 'and again at the next position');
+
+  // The edge is a line, never a closed shape: it states the boundary and fills nothing.
+  for (const d of edges) eq(/Z\s*$/.test(d), false, 'a top edge that closes back on itself is an area, not an edge');
+
+  // The fill carries no opacity of its own. It reads --band-fill, which is defined per theme, because an
+  // alpha baked into the attribute cannot differ between a near-white card and a near-black one.
+  eq(html.includes('fill-opacity'), false, 'the fill alpha belongs to the stylesheet, not to the markup');
+  eq(html.includes('stroke="var(--surface)"'), false,
+     'the old band outline painted the boundary in the background colour, which erases it');
+  eq(attrsOf(html, 'c-fill').length, 2, 'and every band still has a fill');
+});
+
+test('charts · the two fill alphas are stated for all three theme states, and hold their own floor', () => {
+  // Never only inside a media query: bare :root is the un-stamped state, and a colour defined only in the
+  // media block does not apply there. Three declarations, and the light and dark values genuinely differ —
+  // the same alpha over #faf8f5 and over #101018 is not the same fill.
+  const css = catTokens();
+  ok(BAND_FILL.light !== BAND_FILL.dark, 'one alpha for two grounds is a guess, not a measurement');
+  const root = /:root \{([^}]*)\}/.exec(css)[1];
+  includes(root, `--band-fill:${BAND_FILL.light}`, 'the bare :root carries the light value');
+  const media = /@media \(prefers-color-scheme: dark\) \{[^{]*\{([^}]*)\}/.exec(css)[1];
+  includes(media, `--band-fill:${BAND_FILL.dark}`);
+  const explicit = /:root\[data-theme="dark"\] \{([^}]*)\}/.exec(css)[1];
+  includes(explicit, `--band-fill:${BAND_FILL.dark}`, 'an explicit dark choice must win in both directions');
+
+  // The floor the two alphas were chosen against: every categorical slot, composited on its own card, has
+  // to reach 1.6:1 — enough that a band is visible as a region and not only as its edge. Recomputed here so
+  // a "quick nudge" to either alpha cannot pass unnoticed.
+  const hex = (s) => [1, 3, 5].map((i) => parseInt(s.slice(i, i + 2), 16));
+  const lin = (c) => (c / 255 <= 0.04045 ? c / 255 / 12.92 : ((c / 255 + 0.055) / 1.055) ** 2.4);
+  const lum = (rgb) => 0.2126 * lin(rgb[0]) + 0.7152 * lin(rgb[1]) + 0.0722 * lin(rgb[2]);
+  const ratio = (a, b) => (Math.max(lum(a), lum(b)) + 0.05) / (Math.min(lum(a), lum(b)) + 0.05);
+  const CARD = { light: '#faf8f5', dark: '#101018' };
+  for (const mode of ['light', 'dark']) {
+    const bg = hex(CARD[mode]);
+    const alpha = Number(BAND_FILL[mode]);
+    for (const c of CAT[mode]) {
+      const over = hex(c).map((v, i) => alpha * v + (1 - alpha) * bg[i]);
+      ok(ratio(over, bg) >= 1.6, `${mode} ${c} fills at only ${ratio(over, bg).toFixed(2)}:1 against its card`);
+      ok(ratio(hex(c), bg) >= 3, `${mode} ${c} edge is ${ratio(hex(c), bg).toFixed(2)}:1 — identity rides on the edge`);
+    }
+  }
+});
+
+test('charts · every chart states the value at a point, to a pointer and to a keyboard alike', () => {
+  const labels = ['w1', 'w2', 'w3'];
+  const line = lineChart({ title: 'x', labels, unit: ' commits',
+    series: [{ label: 'all', values: [4, null, 6] }, { label: 'AI', values: [1, 2, 3] }] });
+  const area = stackedArea({ title: 'x', labels, unit: ' lines',
+    series: [{ label: 'added', values: [10, 20, 30] }, { label: 'removed', values: [5, 5, 5] }] });
+  const pie = donut({ title: 'x', unit: ' h', slices: [{ label: 'a', value: 3 }, { label: 'b', value: 1 }] });
+  const spark = sparkbars({ values: [3, 0, 7], labels, caption: 'per week', unit: ' commits' });
+
+  for (const [name, html, expected] of [['line', line, 3], ['area', area, 3], ['donut', pie, 2]]) {
+    const bands = [...html.matchAll(/<g class="c-band[^"]*" tabindex="0" role="img" aria-label="([^"]*)"/g)].map((m) => m[1]);
+    eq(bands.length, expected, `${name}: one focusable readout per position`);
+    for (const label of bands) ok(/\d/.test(label), `${name}: "${label}" states no figure`);
+    // role="img" on the root would make the whole picture one opaque graphic and discard every focusable
+    // child inside it — the charts had to stop claiming to be pictures to become reachable at all.
+    eq(/<svg[^>]*role="img"/.test(html), false, `${name}: an interactive chart must not be marked as an image`);
+    includes(html, '<svg', `${name}: still inline SVG`);
+  }
+
+  // A gap is stated in the readout rather than skipped, so an absence is read at the same moment as its
+  // neighbours' figures rather than noticed later, or not at all.
+  includes(line, 'aria-label="w2: all —, AI 2 commits"', 'a missing value is spoken as missing');
+  includes(area, 'total 35 lines', 'a stacked chart states the total it is asking to be read as');
+
+  // The sparkline takes one tab stop for the whole series rather than one per bar: five of these in a stat
+  // strip would otherwise put sixty stops ahead of the page's first control, for a series its own label
+  // already reads out in full.
+  includes(spark, 'role="img" tabindex="0"');
+  includes(spark, 'aria-label="per week: w1 3, w2 0, w3 7"');
+  includes(spark, '<title>w1: 3 commits</title>', 'and every bar still names itself under a pointer');
+
+  // The route interaction travels by. Inline handler attributes are what a strict CSP refuses, and a chart
+  // that needed a script would go dead the moment live reload replaced the markup without re-running it.
+  for (const html of [line, area, pie, spark]) {
+    eq(/\son[a-z]+\s*=/.test(html), false, 'no inline handler attribute survives a strict CSP');
+    eq(html.includes('<script'), false, 'and no chart ships a script of its own');
+    eq(/\sid="/.test(html), false, 'no ids: the bundler renames colliding ones and the verifier fails duplicates');
+  }
+});
+
+test('charts · a readout is drawn inside the picture, at either end and however wide its text', () => {
+  // The same defect the last axis label had, arrived at from the other side: a plate anchored at the point
+  // runs off the edge at the last position, and a plate wider than the plot runs off both. Checked with a
+  // deliberately long series name so the plate is wider than half the chart.
+  const w = 460;
+  const html = stackedArea({
+    title: 'x', labels: ['01-01', '02-01', '03-01', '04-01'], unit: ' lines of source',
+    series: [{ label: 'added by an automated session', values: [1200, 4300, 900, 5000] },
+             { label: 'removed by an automated session', values: [400, 2100, 50, 900] }],
+  });
+  const plates = [...html.matchAll(/class="c-tipbg" x="([\d.]+)" y="([\d.]+)" width="([\d.]+)" height="([\d.]+)"/g)]
+    .map((m) => m.slice(1).map(Number));
+  eq(plates.length, 4, 'one plate per position');
+  for (const [x, y, pw, ph] of plates) {
+    ok(x >= 0 && x + pw <= w, `a readout runs from ${x.toFixed(1)} to ${(x + pw).toFixed(1)} in a ${w}px box`);
+    ok(y >= 0 && y + ph <= 170, `a readout runs from ${y.toFixed(1)} to ${(y + ph).toFixed(1)} in a 170px box`);
+  }
+});
+
+test('charts · no two x labels are printed on top of each other', () => {
+  // The stepped labels land on multiples of `step` and the last lands on n-1, which is only a multiple when
+  // the count divides evenly. At fourteen points the step is 3, so labels were drawn at 12 and 13 —
+  // seventeen pixels apart, two five-character dates over each other, on any chart with that many buckets.
+  for (const n of [2, 5, 7, 8, 13, 14, 20, 31]) {
+    const labels = Array.from({ length: n }, (_, i) => `0${1 + (i % 9)}-${String(1 + (i % 28)).padStart(2, '0')}`);
+    for (const [name, draw] of [['lineChart', lineChart], ['stackedArea', stackedArea]]) {
+      const html = draw({ title: 'x', labels, series: [{ label: 'y', values: labels.map((_, i) => i + 1) }] });
+      const ticks = svgText(html).filter((t) => t.y === 164);         // the x axis row
+      ok(ticks.length >= 2, `${name} @ ${n}: an axis needs at least two labels`);
+      const spans = ticks.map(extent).sort((a, b) => a[0] - b[0]);
+      for (let i = 1; i < spans.length; i++) {
+        ok(spans[i][0] >= spans[i - 1][1],
+           `${name} @ ${n}: a label ending at ${spans[i - 1][1].toFixed(1)} is overprinted by one starting at ${spans[i][0].toFixed(1)}`);
+      }
+      includes(html, `>${labels[n - 1]}</text>`, `${name} @ ${n}: the last label is always drawn`);
+    }
+  }
+});
+
+test('charts · the chart stylesheet contains nothing the page tools read with a regular expression', () => {
+  // This block is emitted into a style element in the document head, and two tools downstream read the page
+  // with regular expressions rather than a parser. `exportBundle` takes a page body by matching from the
+  // first opening main tag to the first closing one, and censuses ids by matching the id attribute pattern.
+  // The first draft of the interaction comment wrote both shapes in prose: the bundle came out with every
+  // page's topbar nested inside another page's section, and the clock declared twelve times.
+  const css = catTokens();
+  eq(/<main\b/.test(css), false, 'a main tag in a comment becomes the start of every page body match');
+  eq(/\bid="/.test(css), false, 'an id attribute in a comment becomes a duplicate id in the bundle');
+  eq(css.includes('`'), false, 'a backtick ends the template literal this stylesheet is written in');
+  // Every class the charts put in markup has to be defined here, or `verifyPage` reports the page's
+  // stylesheet as missing — the check that caught a bundle shipping every figure with none of its CSS.
+  const html = [
+    stackedArea({ title: 'x', labels: ['a', 'b'], series: [{ label: 's', values: [1, 2] }] }),
+    lineChart({ title: 'x', labels: ['a', 'b'], series: [{ label: 's', values: [1, 2] }] }),
+    donut({ title: 'x', slices: [{ label: 'a', value: 2 }, { label: 'b', value: 1 }] }),
+    sparkbars({ values: [1, 2, 3], labels: ['a', 'b', 'c'] }),
+  ].join('\n');
+  const defined = new Set([...css.matchAll(/\.([A-Za-z][\w-]*)/g)].map((m) => m[1]));
+  for (const m of html.matchAll(/class="([^"]+)"/g)) {
+    for (const c of m[1].split(/\s+/).filter(Boolean)) {
+      ok(defined.has(c), `.${c} is used in chart markup and defined by no rule in catTokens()`);
+    }
+  }
 });
 
 console.log(`\n${pass} passed, ${fail} failed${skipped ? `, ${skipped} skipped on ${process.platform}` : ''}\n`);

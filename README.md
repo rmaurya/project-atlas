@@ -109,6 +109,18 @@ else — every claim in them cites the code, `path:line`:
 | [**The feature inventory**](docs/FEATURES.md) | Every command, rot signal, slash command, hook, MCP tool and generated file, each with the line of code that implements it and a status — including what is partial, what is not built, and what a document claims that the code does not do. |
 | [**Frequently asked questions**](docs/FAQ.md) | The questions that come up before installing and in the first hour after. |
 
+### The cheatsheet
+
+[![project-atlas — every command, grouped by intent](docs/assets/cheatsheet.svg)](docs/assets/cheatsheet.pdf)
+
+Every command on one card, grouped by what you are trying to do. **[Download the A4 PDF](docs/assets/cheatsheet.pdf)**, or
+click the image above.
+
+*Nothing on it is typed by hand.* Both files are generated from the command surface itself — the dispatch
+table in `scripts/atlas.mjs` and the directories under `skills/` — by `node scripts/gen-cheatsheet.mjs`.
+Regenerating twice produces identical bytes, and a test fails when a command is added and the card is not
+rebuilt, so it cannot quietly fall out of date the way a hand-written list does.
+
 ## Install
 
 **One line, any runtime:**
@@ -541,7 +553,7 @@ node tests/run.mjs               # integration tests against throwaway git repos
 node tests/run.mjs --filter H6   # or a subset
 ```
 
-**The suite holds 541 test cases.** That figure is not maintained by hand: a test reads it out of this
+**The suite holds 547 test cases.** That figure is not maintained by hand: a test reads it out of this
 sentence and compares it against the cases it can count in `tests/run.mjs`, so adding a test and forgetting
 this line fails the suite. A count stated in prose beside a list that grows is a defect waiting to happen,
 and this repository has proved that three times (A-29) — most recently across the four public pages, where
