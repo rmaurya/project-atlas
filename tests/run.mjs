@@ -24,7 +24,7 @@ import { runHealth, formatReport, SIGNALS, OPERATOR_SIGNALS, readParallelism,
 import { readSessionParallelism } from '../scripts/lib/parallelism.mjs';
 import { readContention, formatContention, definedIds } from '../scripts/lib/contention.mjs';
 import { SIGNALS as CORPUS_SIGNALS } from '../scripts/lib/signals.mjs';
-import { renderSite, writeBuildStamp, BUILD_CLAIM, BUILD_MARKERS, groupNav, NAV_GROUPS } from '../scripts/lib/render.mjs';
+import { renderSite, writeBuildStamp, BUILD_CLAIM, BUILD_MARKERS, groupNav, NAV_GROUPS, generatedPaths } from '../scripts/lib/render.mjs';
 import { renderMarkdown, inline } from '../scripts/lib/markdown.mjs';
 import { readPlanning, DEFAULT_PLANNING } from '../scripts/lib/planning.mjs';
 import { writeDay, contributorSlug } from '../scripts/lib/worklog.mjs';
@@ -1833,57 +1833,193 @@ test('runtimes · the hook fires on git commit and ignores everything else', () 
   const root = path.join(HERE, '..');
   const hooks = JSON.parse(fs.readFileSync(path.join(root, 'hooks', 'hooks.json'), 'utf8'));
   const cmd = hooks.hooks.PreToolUse[0].hooks[0].command;
-  const run = (input) => spawnSync('sh', ['-c', cmd], {
-    input: JSON.stringify({ tool_input: { command: input } }),
+  const run = (dir, input) => spawnSync('sh', ['-c', cmd], {
+    cwd: dir,
+    input: JSON.stringify({ cwd: dir, tool_input: { command: input } }),
     encoding: 'utf8', env: { ...process.env, CLAUDE_PLUGIN_ROOT: root },
   });
-  // On a feature branch a commit is allowed through; the guard only refuses on a protected branch.
-  ok(run('ls -la').status === 0, 'a non-commit Bash call must never be blocked');
-  ok(run('npm test').status === 0);
-  const onCommit = run('git commit -m "x"');
-  includes(onCommit.stderr + onCommit.stdout, 'Types:', 'a git commit must invoke the branch guard');
+  const dir = fixture('hook-fires', { 'docs/A.md': '# A\n' });
+  execFileSync('git', ['branch', '-M', 'main'], { cwd: dir, stdio: 'ignore' });
+
+  // Nothing at all for a call that is not a commit — this hook sees every Bash invocation, so silence is
+  // most of its behaviour.
+  for (const other of ['ls -la', 'npm test', 'echo git commit is mentioned but not run']) {
+    const r = run(dir, other);
+    eq(r.status, 0, `a non-commit Bash call must never be blocked: ${other}`);
+  }
+  ok(!run(dir, 'ls -la').stdout && !run(dir, 'ls -la').stderr, 'and must be silent about it');
+
+  // A commit on a protected branch reaches the branch guard, whose own words come back — the hook is not
+  // paraphrasing a verdict it did not compute.
+  const onCommit = run(dir, 'git commit -m "x"');
+  includes(onCommit.stderr, 'protected', 'a git commit must invoke the branch guard');
 }, { needsPosixShell: true });
 
-test('runtimes · the branch guard exits 2 on a protected branch and 0 everywhere else', () => {
-  // The hook shipped as `… && "$ROOT/bin/atlas" branch >&2 || exit 0`. `A && B || exit 0` swallows B's
+test('runtimes · a protected branch warns and lets the commit through, and refuses only on request', () => {
+  // Two failures, a release apart, in opposite directions.
+  //
+  // The hook first shipped as `… && "$ROOT/bin/atlas" branch >&2 || exit 0`. `A && B || exit 0` swallows B's
   // status, so the guard printed eleven lines of refusal and exited 0 — and a PreToolUse hook that exits 0
   // sends its stderr to the debug log and lets the tool call through. Nothing was ever blocked, on any
-  // branch, for the entire life of the hook. **Exit 2 is the only code that puts stderr in front of Claude.**
+  // branch. **Exit 2 is the only code that puts stderr in front of Claude**, and that is still true.
+  //
+  // Then it blocked, and blocking on *this* is the wrong call: which branch somebody commits on is a claim
+  // about their working method, not a claim that the repository is wrong. It warns, and a repository that
+  // wants the refusal asks for it — the same shape as `branching.posture`, which already exists because a
+  // tool that only knows how to refuse gets switched off entirely by the first team it does not fit.
   const root = path.join(HERE, '..');
   const cmd = JSON.parse(fs.readFileSync(path.join(root, 'hooks', 'hooks.json'), 'utf8'))
     .hooks.PreToolUse[0].hooks[0].command;
-  const run = (dir, input) => spawnSync('sh', ['-c', cmd], {
+  const run = (dir, input, env = {}) => spawnSync('sh', ['-c', cmd], {
     cwd: dir,
-    input: JSON.stringify({ tool_input: { command: input } }),
-    encoding: 'utf8', env: { ...process.env, CLAUDE_PLUGIN_ROOT: root },
+    input: JSON.stringify({ cwd: dir, tool_input: { command: input } }),
+    encoding: 'utf8', env: { ...process.env, CLAUDE_PLUGIN_ROOT: root, ...env },
   });
 
   const onMain = fixture('hook-main', { 'docs/A.md': '# A\n' });
   execFileSync('git', ['branch', '-M', 'main'], { cwd: onMain, stdio: 'ignore' });
-  const blocked = run(onMain, 'git commit -m "x"');
-  eq(blocked.status, 2, `a commit on main must exit 2 to block; got ${blocked.status}`);
-  includes(blocked.stderr, 'protected', 'the refusal must reach stderr, which is what exit 2 forwards');
+  const warned = run(onMain, 'git commit -m "x"');
+  eq(warned.status, 0, `a commit on main must warn, not block; got ${warned.status}`);
+  includes(warned.stderr, 'protected', 'the warning still says what is wrong');
+  includes(warned.stderr, 'WARNING', 'and says which of the two verdicts this is');
+  includes(warned.stderr, 'atlas branch <type> <slug>', 'a warning that does not say what to do is noise');
+  // On exit 0 stderr reaches only the debug log, so the warning has to travel as hook JSON on stdout or it
+  // reaches nobody at all — which is precisely how a "warning" becomes a silent gate.
+  const j = JSON.parse(warned.stdout);
+  includes(j.systemMessage, 'protected', 'the person is told');
+  includes(j.hookSpecificOutput.additionalContext, 'protected', 'and so is the model');
+  eq(j.hookSpecificOutput.hookEventName, 'PreToolUse');
+
+  const strict = run(onMain, 'git commit -m "x"', { ATLAS_COMMIT_SOP: 'enforce' });
+  eq(strict.status, 2, 'the escape hatch for the old strictness must still refuse');
+  includes(strict.stderr, 'protected');
 
   eq(run(onMain, 'ls -la').status, 0, 'a non-commit Bash call must never be blocked, even on main');
   eq(run(onMain, 'npm test').status, 0);
 
   const onBranch = fixture('hook-branch', { 'docs/A.md': '# A\n' });
   execFileSync('git', ['switch', '-c', 'fix/thing'], { cwd: onBranch, stdio: 'ignore' });
-  eq(run(onBranch, 'git commit -m "x"').status, 0, 'a commit on a conventional branch must pass');
+  const clean = run(onBranch, 'git commit -m "x"');
+  eq(clean.status, 0, 'a commit on a conventional branch must pass');
+  eq(clean.stdout, '', 'and must say nothing at all — a hook that prints on every commit is one people disable');
 }, { needsPosixShell: true });
 
-test('runtimes · a guard that cannot run at all blocks and says so, rather than passing silently', () => {
-  // Same rule as every report in this tool: a check that could not run is never reported as having passed.
+test('runtimes · a guard that cannot run says so loudly and still does not block', () => {
+  // Half of the old rule survives and half of it was wrong. Still true: a check that could not run is never
+  // reported as having passed, so this says "NOT checked" in as many words. No longer true: that it should
+  // refuse. One of the refusals that stalled a live session was a crash inside the gate — `Cannot read
+  // properties of null (reading 'missing')` — and charging the operator for a defect in this tool is how a
+  // guard earns being switched off, after which nothing is checked at all.
   const root = path.join(HERE, '..');
   const cmd = JSON.parse(fs.readFileSync(path.join(root, 'hooks', 'hooks.json'), 'utf8'))
     .hooks.PreToolUse[0].hooks[0].command;
   const dir = fixture('hook-broken', { 'docs/A.md': '# A\n' });
-  const r = spawnSync('sh', ['-c', cmd], {
-    cwd: dir, input: JSON.stringify({ tool_input: { command: 'git commit -m "x"' } }),
-    encoding: 'utf8', env: { ...process.env, CLAUDE_PLUGIN_ROOT: path.join(tmpRoot, 'no-such-plugin-root') },
+
+  // A plugin root that has the guard but no `bin/atlas` behind it: every gate exits 127 and none of them
+  // evaluated anything.
+  const halfInstalled = path.join(tmpRoot, 'half-installed-plugin');
+  fs.mkdirSync(path.join(halfInstalled, 'hooks'), { recursive: true });
+  fs.copyFileSync(path.join(root, 'hooks', 'on-commit.sh'), path.join(halfInstalled, 'hooks', 'on-commit.sh'));
+
+  const call = (pluginRoot, env = {}) => spawnSync('sh', ['-c', cmd], {
+    cwd: dir, input: JSON.stringify({ cwd: dir, tool_input: { command: 'git commit -m "x"' } }),
+    encoding: 'utf8', env: { ...process.env, CLAUDE_PLUGIN_ROOT: pluginRoot, ...env },
   });
-  eq(r.status, 2, 'a missing bin/atlas must not wave the commit through');
-  includes(r.stderr, 'NOT checked');
+
+  const r = call(halfInstalled);
+  eq(r.status, 0, 'a broken guard must not refuse somebody else\'s commit');
+  includes(r.stderr, 'NOT checked', 'and must never be mistaken for a pass');
+  includes(r.stderr, 'could not run (exit 127)', 'naming which gate failed and with what exit code');
+  includes(JSON.parse(r.stdout).systemMessage, 'NOT checked', 'the warning has to actually reach the session');
+
+  eq(call(halfInstalled, { ATLAS_COMMIT_SOP: 'enforce' }).status, 2,
+     'a repository that wants the old behaviour still gets it');
+
+  // And the outermost case: the guard script itself is missing, which `hooks.json` handles inline because
+  // there is no script left to handle it. Same verdict, for a stronger reason — the plugin is installed
+  // user-wide, so refusing here would block commits in repositories that never adopted this tool at all.
+  const gone = call(path.join(tmpRoot, 'no-such-plugin-root'));
+  eq(gone.status, 0, 'a missing guard script must not block every commit on the machine');
+  includes(gone.stderr, 'NOT checked');
+  includes(JSON.parse(gone.stdout).systemMessage, 'not readable');
+}, { needsPosixShell: true });
+
+/**
+ * A repository the plan gate will actually run in: a config file (no config, no gate), a planning source
+ * with an open item, and a staged change to a shipped path.
+ */
+function gateFixture(name) {
+  const dir = fixture(name, {
+    'docs/A.md': '# A\n',
+    'docs/TASKS.md': ['# Tasks', '', '| Item | % |', '|---|---|', '| A-1 | 0 |', '',
+                      '## Track', '', '**A-1 · Something open** — **P1 · High**', '*Open.*', ''].join('\n'),
+    'project-atlas.config.json': JSON.stringify({ planning: { source: 'docs/TASKS.md' } }),
+  });
+  execFileSync('git', ['switch', '-c', 'fix/thing'], { cwd: dir, stdio: 'ignore' });
+  fs.mkdirSync(path.join(dir, 'scripts'), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'scripts', 'shipped.mjs'), 'export const x = 1;\n', 'utf8');
+  execFileSync('git', ['add', '-A'], { cwd: dir, stdio: 'ignore' });
+  return dir;
+}
+
+test('runtimes · the shapes that put a live session in a loop warn, and are diagnosed correctly', () => {
+  // The three commands below are the ones that actually happened. Every one of them was refused, none of
+  // them was wrong, and the first is a loop with no exit: a PreToolUse hook runs *before* the shell, so
+  // `cat > msg.txt && git commit -F msg.txt` is refused whole, the file is never written, and the retry then
+  // fails because the file is missing. The gate was reading a message that structurally could not exist yet.
+  const root = path.join(HERE, '..');
+  const cmd = JSON.parse(fs.readFileSync(path.join(root, 'hooks', 'hooks.json'), 'utf8'))
+    .hooks.PreToolUse[0].hooks[0].command;
+  const dir = gateFixture('hook-shapes');
+  const run = (input, env = {}) => spawnSync('sh', ['-c', cmd], {
+    cwd: dir, input: JSON.stringify({ cwd: dir, tool_input: { command: input } }),
+    encoding: 'utf8', env: { ...process.env, CLAUDE_PLUGIN_ROOT: root, ...env },
+  });
+
+  const msgPath = path.join(dir, 'msg.txt');       // deliberately never created
+
+  const compound = run(`cat > ${msgPath} <<'EOF'\nchore: x\nEOF\ngit commit -F ${msgPath}`);
+  eq(compound.status, 0, 'the shape that looped must not block');
+  includes(compound.stderr, 'structurally cannot exist yet',
+    'and must name the real cause: the file is written by the command being judged');
+  ok(!compound.stderr.includes('passed on stdin'), 'the old text blamed stdin for all three of these');
+
+  const fromVar = run('git commit -F "$MSGFILE"');
+  eq(fromVar.status, 0);
+  includes(fromVar.stderr, 'was given with a variable', 'an unexpanded variable is its own diagnosis');
+  ok(!fromVar.stderr.includes('passed on stdin'));
+
+  const named = run('git commit -m "fix(x): something (A-1)"');
+  eq(named.status, 0, 'naming an item passes');
+  eq(named.stdout, '', 'and silently — the gate speaks only when it has something to say');
+
+  const unnamed = run('git commit -m "fix(x): something"');
+  eq(unnamed.status, 0, 'and a commit that names nothing warns rather than refusing');
+  includes(unnamed.stderr, 'names no roadmap item');
+  includes(unnamed.stderr, 'A-1', 'the warning lists what could have been named');
+  eq(run('git commit -m "fix(x): something"', { ATLAS_COMMIT_SOP: 'enforce' }).status, 2,
+     'the escape hatch covers the plan gate too');
+}, { needsPosixShell: true });
+
+test('runtimes · a blocking documentation signal still refuses, and says so alongside the warnings', () => {
+  // The line the whole redesign turns on. A dead link is a claim that the *repository* is wrong: no
+  // legitimate exception, nothing for a person to weigh, and the commit would land known rot. That still
+  // exits 2 — and the SOP warnings ride along with it rather than being swallowed by it.
+  const root = path.join(HERE, '..');
+  const cmd = JSON.parse(fs.readFileSync(path.join(root, 'hooks', 'hooks.json'), 'utf8'))
+    .hooks.PreToolUse[0].hooks[0].command;
+  const dir = gateFixture('hook-blocking');
+  fs.writeFileSync(path.join(dir, 'docs', 'A.md'), '# A\n\n[gone](./nowhere.md)\n', 'utf8');
+  execFileSync('git', ['add', '-A'], { cwd: dir, stdio: 'ignore' });
+
+  const r = spawnSync('sh', ['-c', cmd], {
+    cwd: dir, input: JSON.stringify({ cwd: dir, tool_input: { command: 'git commit -m "chore: x"' } }),
+    encoding: 'utf8', env: { ...process.env, CLAUDE_PLUGIN_ROOT: root },
+  });
+  eq(r.status, 2, 'documentation rot blocks, and is the only thing here that does');
+  includes(r.stderr, 'blocking documentation signal', 'the refusal reaches the model, which is what exit 2 is for');
+  includes(r.stderr, 'names no roadmap item', 'the SOP warning is still said, and is marked as not the blocker');
+  includes(r.stderr, 'none of these blocked this commit');
 }, { needsPosixShell: true });
 
 test('runtimes · each runtime manifest is where that runtime looks for it', () => {
@@ -4419,7 +4555,6 @@ test('spec gate · names the actual reason the message was unreadable, not alway
 
   const unresolved = specVerdict({ changed, message: null, items, whyUnreadable: 'unresolved' });
   includes(unresolved.message, 'could not be opened');
-  includes(unresolved.message, 'shell expands it');
   ok(!unresolved.message.includes('stdin'),
     'an unresolvable -F path must not be blamed on stdin — that is the misdiagnosis this fixes');
 
@@ -4427,8 +4562,29 @@ test('spec gate · names the actual reason the message was unreadable, not alway
   includes(absent.message, 'Neither `-m` nor `-F`');
   ok(!absent.message.includes('stdin'), 'no message flag at all is not a stdin problem either');
 
-  // Whatever the cause, the verdict still refuses: a gate that waves through what it could not parse is off.
-  for (const v of [stdin, unresolved, absent]) eq(v.ok, false);
+  // Two more causes, split out of `unresolved` because they are not the same mistake and one of them is not
+  // a mistake at all. `pending` is `cat > msg.txt && git commit -F msg.txt`: the hook runs before the shell,
+  // so the file cannot exist yet — the case that put a session in a retry loop against a file the refusal
+  // was itself preventing. `unexpanded` is `-F "$DIR/msg.txt"`, where the path is still literal text.
+  const pending = specVerdict({ changed, message: null, items, whyUnreadable: 'pending' });
+  includes(pending.message, 'structurally cannot exist yet');
+  includes(pending.message, 'nothing about the commit needs changing');
+  const unexpanded = specVerdict({ changed, message: null, items, whyUnreadable: 'unexpanded' });
+  includes(unexpanded.message, 'variable or `~`');
+
+  // A cause this build does not know falls back to the general text rather than printing `undefined` into a
+  // guard's output. The value arrives as a string from a shell script, which is where a typo comes from.
+  const bogus = specVerdict({ changed, message: null, items, whyUnreadable: 'no-such-reason' });
+  eq(bogus.unreadable, 'absent');
+  ok(!bogus.message.includes('undefined'), 'a guard must never print `undefined` at somebody');
+
+  // Whatever the cause, the verdict is `ok: false` — the gate never reports success for a message it could
+  // not read. What changed is what the *hook* does with that: it warns. See `hooks/on-commit.sh`.
+  for (const v of [stdin, unresolved, absent, pending, unexpanded, bogus]) eq(v.ok, false);
+  for (const v of [stdin, unresolved, absent, pending, unexpanded]) {
+    includes(v.message, 'Nothing is wrong with the commit',
+             'every one of these is a limit of the gate, not a fault in the commit');
+  }
 });
 
 test('export · a snapshot says it is one, and cannot pretend to be live', () => {
@@ -5676,6 +5832,142 @@ test('inflight · a working tree that could not be read is never reported as qui
   includes(html, 'the working tree could not be read', 'and the tile carries the same reason');
   ok(!html.includes('Nothing in flight'), 'an unread tree must never be presented as a quiet one');
   ok(!html.includes('Not shown on this page'), 'a panel that failed must not be reported as one with no data');
+});
+
+/* ============================== the build does not change an input to itself (A-36) */
+
+console.log('\nthe build, from a genuinely clean tree (A-36)');
+
+/**
+ * **Every case here is synchronous.** `pendingAsync` is drained thousands of lines above, so an `async` case
+ * appended here would be registered, never awaited, and reported as a pass it never earned.
+ */
+
+/** Snapshot every byte a build wrote, so two builds can be compared as builds rather than as page fragments. */
+function siteSnapshot(outDir) {
+  const snap = {};
+  const walk = (d, base = '') => {
+    for (const e of fs.readdirSync(d, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+      const full = path.join(d, e.name);
+      if (e.isDirectory()) walk(full, base + e.name + '/');
+      else snap[base + e.name] = fs.readFileSync(full, 'utf8');
+    }
+  };
+  walk(outDir);
+  return snap;
+}
+
+test('A-36 · a build from a clean tree is byte-identical to the next, with its own worklog written in between', () => {
+  // The measurement that filed this: clone, build, build, build — hashes `ca9a07e…`, `882db45…`, `882db45…`.
+  // The build writes `worklog/<today>/<who>.md`, that file is in the working tree, and the working tree is an
+  // input, so build 1 read a tree that build 2 did not. The consequence is worse than an unstable hash: the
+  // byte-identical property this tool asserts about itself **cannot be observed from a fresh checkout at
+  // all**, because clone-build-build is exactly the pair that differs. It also corrupted a real test run.
+  //
+  // This is that sequence, in the order a build performs it: render, then write the day's log, then render.
+  //
+  // The day's log is already committed here, which is the ordinary state of a repository that has been built
+  // before, and the build rewrites it. **The four fields the worklog panel reads back — the heading, Commits,
+  // Lines, Rework — are the same before and after**, which is what confines this case to the readers of the
+  // *working tree*. When those fields move as well, a second reader is involved: `worklogPanel` renders the
+  // file itself, and the CLI rewrites it *after* `renderSite` has already read it, so the page is always one
+  // build behind. That half is recorded in A-36 and is a change to the order of two statements in the CLI.
+  const today = dayKey(Date.now());
+  const dir = fixture('a36-idempotent', {
+    'docs/README.md': '# Index\n\n[A](A.md)\n',
+    'docs/A.md': '# Alpha\n\nbody\n',
+    [`worklog/${today}/test.md`]: `# ${today} — Test\n\n_Written before the last build; same figures, older prose._\n`,
+  });
+  execFileSync('git', ['switch', '-qc', 'feat/underway'], { cwd: dir, stdio: 'ignore' });
+
+  const build = () => {
+    const cfg = resolveConfig(dir);
+    const index = buildIndex(dir, cfg);
+    return siteSnapshot(renderSite(index, runHealth(index, cfg, dir), cfg, dir).outDir);
+  };
+  const first = build();
+
+  // Exactly what `doBuild` does after `renderSite` returns, through the same two functions.
+  const cfg = resolveConfig(dir);
+  const day = dayKey(Date.now());
+  const written = writeDay(dir, cfg, renderDay({
+    day, identity: 'Test', contrib: readContrib(dir, cfg), health: { blockingCount: 0 },
+    plan: null, commits: [],
+  }), day, 'Test');
+  ok(written && fs.existsSync(written), 'the fixture must actually reproduce the write, or this proves nothing');
+  ok(execFileSync('git', ['status', '--porcelain'], { cwd: dir, encoding: 'utf8' }).includes('worklog/'),
+     'and the write must actually dirty the working tree the next build reads');
+
+  eq(build(), first, 'the build must not be able to tell that it has already run');
+});
+
+test('A-36 · the build subtracts only what it declared, and says so rather than hiding it', () => {
+  // The plan's own warning about this fix: *"a build that quietly filters its own output out of its own
+  // input is easy to get subtly wrong in a way that looks exactly like correctness."* Three properties keep
+  // it honest, and all three are asserted here: the subtraction happens only for a caller that declared a
+  // generated set, the declaration comes from the modules that do the writing, and the page says the rule is
+  // in force whether or not it fired.
+  const day = dayKey(Date.now());
+  const dir = fixture('a36-declared', { 'docs/A.md': '# A\n', [`worklog/${day}/test.md`]: '# log\n' });
+  execFileSync('git', ['switch', '-qc', 'feat/underway'], { cwd: dir, stdio: 'ignore' });
+  const cfg = resolveConfig(dir);
+
+  // One tracked file a person changed, one tracked file the build rewrote, one file the build created.
+  fs.appendFileSync(path.join(dir, 'docs/A.md'), 'a human edit\n');
+  fs.writeFileSync(path.join(dir, 'worklog', day, 'test.md'), '# log\n\nrewritten by the build\n');
+  fs.writeFileSync(path.join(dir, 'worklog', day, 'someone-else.md'), '# another\n');   // untracked
+
+  const generated = generatedPaths(cfg);
+  ok(generated.includes('worklog/'), 'the worklog directory is declared by the module that writes it');
+  ok(generated.some((p) => p.startsWith(cfg.output.replace(/\/$/, ''))), 'and so is the output directory');
+
+  const undeclared = readInflight(dir, cfg, {});
+  eq(undeclared.tracked.map((f) => f.path).sort(), [`worklog/${day}/test.md`, 'docs/A.md'].sort(),
+     'a caller that declares nothing — `atlas changes` in a terminal — still sees every one of them');
+  eq(undeclared.untracked, 1);
+  eq(undeclared.generated, 0);
+  ok(!inflightSentence(undeclared).includes('the build writes itself'),
+     'and is told nothing about a boundary it did not ask for');
+
+  const declared = readInflight(dir, { ...cfg, __generated: generated }, {});
+  eq(declared.tracked.map((f) => f.path), ['docs/A.md'], 'the build sees the human edit and not its own output');
+  eq(declared.untracked, 0, 'including the file it created rather than modified');
+  eq(declared.generated, 2, 'and keeps the count of what it subtracted');
+  includes(inflightSentence(declared), 'Files the build writes itself',
+           'the rule is printed, so a reader can tell "nothing in flight" from "nothing looked at"');
+
+  // The clause is a statement of the rule and never a count. A count is 0 on the first build of a clean
+  // checkout and 1 on the second — which is the very defect this fixes, reintroduced in the sentence that
+  // announces the fix. That draft was written, and this is the case that caught it.
+  const nothingFiltered = readInflight(dir, { ...cfg, __generated: ['no-such-directory/'] }, {});
+  eq(nothingFiltered.generated, 0);
+  includes(inflightSentence(nothingFiltered), 'Files the build writes itself',
+           'the rule holds whether or not it fired, so the sentence must not depend on whether it did');
+});
+
+test('Q-5 · a page is rendered from the repository it was given, not the one the process is standing in', () => {
+  // Every panel that reads a working tree resolves it as `cfg.__root`, and `__root` is written in exactly one
+  // place — `renderSite`. When it was not written, the fallback beneath it (`|| process.cwd()`) was not a
+  // fallback at all but the only branch that ever ran: a build of one repository from inside another put the
+  // *other* repository's in-flight files on the page, with its branch name, and looked entirely correct.
+  //
+  // This runs the way that failure is actually reached: the process cwd is this checkout, the render is of a
+  // fixture somewhere else. Four `|| process.cwd()` fallbacks are still in `dashboard.mjs` and are dead only
+  // because the line asserted here keeps them dead.
+  const here = execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'],
+    { cwd: REPO_ROOT, encoding: 'utf8' }).trim();
+  const dir = fixture('q5-elsewhere', { 'docs/A.md': '# A\n' });
+  execFileSync('git', ['switch', '-qc', 'feat/only-in-the-fixture'], { cwd: dir, stdio: 'ignore' });
+  fs.writeFileSync(path.join(dir, 'docs/B.md'), '# B\n');
+
+  const { cfg, index, health } = analyse(dir);
+  const { outDir } = renderSite(index, health, cfg, dir);
+  for (const page of ['index.html', 'dashboard.html']) {
+    const html = fs.readFileSync(path.join(outDir, page), 'utf8');
+    includes(html, 'feat/only-in-the-fixture', `${page} must describe the repository it was asked to render`);
+    ok(here === 'feat/only-in-the-fixture' || !html.includes(here),
+       `${page} names the branch of the checkout the test runner happens to be in — that is the defect`);
+  }
 });
 
 console.log('\nthe live dashboard, and saying where it is');
@@ -10880,6 +11172,36 @@ test('A-27 · every page carries the footer, and each asks for the stamp beside 
   // printing a label with nothing after it.
   includes(footerFixture.read('index.html'), '<noscript>');
   includes(footerFixture.read('index.html'), 'not readable without JavaScript');
+});
+
+test('A-27 · the credit and the stamp share one row, and wrap instead of overflowing', () => {
+  // They were two stacked rows for two lines of information that belong on one. The layout is a single
+  // wrapping flex rule rather than a breakpoint: one row while both fit, two when they do not, and nothing
+  // to keep in sync with a width somebody guessed.
+  const css = footerFixture.read('atlas.css');
+  const footer = /(^|\n)footer \{([^}]*)\}/.exec(css);
+  ok(footer, 'the footer rule must exist to be reasoned about');
+  const rule = footer[2].replace(/\s+/g, ' ');
+  includes(rule, 'display:flex');
+  includes(rule, 'flex-wrap:wrap', 'a narrow viewport must wrap rather than overflow');
+  includes(rule, 'justify-content:space-between', 'credit left, stamp right, on the one baseline');
+  includes(rule, 'align-items:baseline', 'two different type sizes sit on one line only if they share it');
+  ok(/gap:\s*\d/.test(rule), 'the wrapped row needs its own spacing, since the stamp no longer has a margin');
+
+  // The stamp is `hidden` until a build time has been read. `display:flex` on `.builtat` outranks the UA rule
+  // that honours the attribute, so the restatement below is what keeps the not-yet-loaded state from
+  // rendering as an empty flex item — a stray gap in a row that is now horizontal.
+  includes(css, '.builtat[hidden] { display:none; }');
+  ok(!/\.builtat \{[^}]*margin:8px/.test(css),
+     'the old stacked margin would push the stamp off the shared baseline');
+
+  // And the three states the stamp can be in all render as one item on that row: nothing, a time, or the
+  // honest admission. None of them may leave a separator behind, so there is no separator to leave.
+  const html = footerFixture.read('index.html');
+  const foot = html.slice(html.indexOf('<footer>'), html.indexOf('</footer>'));
+  eq((foot.match(/class="genby"/g) || []).length, 1);
+  eq(/·|—\s*<\/p>|<span class="sep"/.test(foot.replace(/edit the markdown[^<]*/, '')), false,
+     'no punctuation between the two halves: the row is made of gaps, which vanish with the item');
 });
 
 test('A-27 · served: the stamp exists, and the footer states it in both zones', () => {

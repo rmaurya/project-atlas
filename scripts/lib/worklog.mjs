@@ -120,6 +120,25 @@ export function contributorSlug(identity) {
 }
 
 /**
+ * The directory this module authors, repo-relative and posix, with a trailing slash. (A-36)
+ *
+ * It is exported because **somebody else needs to know that these bytes were written by the tool rather than
+ * by a person**. `atlas build` regenerates the day's entry, the entry lands in the working tree, and the
+ * working tree is an input to the same build — `inflight.mjs` reads it — so the first build after a clean
+ * checkout produced different bytes from the second, and byte-identical rebuild could not be observed at all
+ * from a fresh clone.
+ *
+ * The knowledge lives here, with the writer, and not as a string in the reader. A reader that hardcoded
+ * `worklog/` would silently stop filtering the day this becomes configurable, and the failure would look
+ * exactly like the defect it was written to fix. `render.mjs::generatedPaths` composes this with the output
+ * directory and hands the result to the readers as `cfg.__generated`.
+ */
+export function worklogDir(cfg = {}) {
+  const dir = String(cfg.worklog?.dir || 'worklog').replace(/\\/g, '/').replace(/^\.\//, '').replace(/\/+$/, '');
+  return dir ? `${dir}/` : '';
+}
+
+/**
  * Write the day's entry. Returns the path written, or `null` when the log is switched off.
  *
  * One file per contributor per day, not one file per day. `worklog/YYYY-MM-DD/log.md` was a single file the
@@ -132,7 +151,7 @@ export function contributorSlug(identity) {
  */
 export function writeDay(root, cfg, entry, day, identity) {
   if (cfg.worklog?.enabled === false) return null;
-  const dir = path.join(root, cfg.worklog?.dir || 'worklog', day);
+  const dir = path.join(root, worklogDir(cfg), day);
   fs.mkdirSync(dir, { recursive: true });
   const file = path.join(dir, `${contributorSlug(identity)}.md`);
   fs.writeFileSync(file, entry, 'utf8');

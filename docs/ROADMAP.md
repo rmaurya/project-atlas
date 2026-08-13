@@ -40,16 +40,16 @@ measured against the code — the same distinction the tool preserves everywhere
 | C-7 | 100 | C-8 | 100 | | |
 | C-9 | 100 | A-31 | 100 | A-30 | 100 |
 | C-10 | 45 | C-11 | 30 | Q-4 | 90 |
-| Q-5 | 10 | A-32 | 100 | A-33 | 100 |
+| Q-5 | 60 | A-32 | 100 | A-33 | 100 |
 | A-34 | 100 | A-35 | 100 | Q-6 | 100 |
-| A-36 | 0 | A-37 | 100 | A-38 | 100 |
+| A-36 | 70 | A-37 | 100 | A-38 | 100 |
 | A-39 | 100 | A-40 | 100 | A-41 | 100 |
 | A-42 | 100 | A-43 | 100 | A-44 | 100 |
 | A-45 | 100 | A-46 | 100 | A-48 | 100 |
 | M-5 | 100 | A-47 | 100 | A-49 | 100 |
 | A-50 | 100 | A-51 | 0 | A-52 | 100 |
 | A-53 | 100 | A-54 | 100 | A-55 | 100 |
-| A-56 | 100 | P-9 | 100 | | |
+| A-56 | 100 | P-9 | 100 | A-57 | 100 |
 
 ---
 
@@ -513,6 +513,46 @@ to have a gitignored `.atlas/tasks-live.jsonl` of its own and fails everywhere e
 on `main` today.** Found while building C-10 and deliberately not fixed there: the fix belongs in the
 dashboard, which was being changed concurrently by another line of work.
 
+### Where it actually stands, checked line by line
+
+*The line numbers above have moved and one of the two claims is now out of date, so here is the state as
+read, not as remembered.*
+
+**The false green is gone.** `execCtx` — the helper every view test builds its page from — now sets
+`__root: dir`, and the case it named passes on a clean checkout. It was renamed on the way past and is
+`testcases · the panel spans, and the view declares it where it renders`.
+
+**The `render.mjs` half is done, under A-43.** `indexPage` takes `root` as a parameter and the fallback is
+gone with it; its docblock records that the fallback *was* the only branch that ever ran, and that a build of
+`rB` from `rA` put rA's seven in-flight files on rB's homepage.
+
+**Four fallbacks remain, all in `dashboard.mjs`, none of them reachable today:**
+
+| Line | Call |
+|---|---|
+| `scripts/lib/dashboard.mjs:145` | `readInflight(cfg.__root \|\| process.cwd(), …)` — the tile strip and the in-flight card |
+| `scripts/lib/dashboard.mjs:1496` | `branchInventory` — `const root = cfg.__root \|\| process.cwd()` |
+| `scripts/lib/dashboard.mjs:1830` | the token-economics reader |
+| `scripts/lib/dashboard.mjs:2265` | `readChanges(cfg.__root \|\| process.cwd(), …)` — the developer view's Changes panel |
+
+`__root` is written in exactly one place in the whole codebase (`render.mjs:353`, `ctx.cfg = { ...cfg,
+__root: root }`) and read in exactly one file (`dashboard.mjs`), so during a build every one of those
+fallbacks is dead code. **That is what makes it worth closing rather than leaving:** it is a trap set for the
+next caller — a test, an MCP surface, an export — which will silently render a page describing the wrong
+repository, and the page will look entirely correct. Two panels in the same file already take the shape that
+cannot go wrong: `decisionsPanel` and `testcasesPanel` are passed `cfg.__root` with no fallback at all.
+
+**The instruction, for whoever holds `dashboard.mjs`:** delete `|| process.cwd()` at all four sites. Where
+the value is then missing, fail loudly rather than substituting — a default that silently reads a different
+repository cannot report the mistake it is covering for, which is the sentence A-43 already added to
+`render.mjs`. Nothing in the shipped build passes a config without `__root`, so this is a no-op at runtime
+and a guarantee afterwards.
+
+*Pinned meanwhile, from the side that is fixed:* `Q-5 · a page is rendered from the repository it was given,
+not the one the process is standing in` renders a fixture from a process whose own cwd is a different
+repository and asserts the fixture's branch is what reaches the page. It fails if `renderSite` ever stops
+attaching `__root`, which is the regression that would make all four fallbacks live at once.
+
 **Q-6 · Three shipped defects: two axes that mislead, and a publish boundary that eats prose** — **P1 · High**
 
 *Three defects found by reading the shipped output rather than the code, all present on `main`, all fixed
@@ -682,6 +722,55 @@ someone has to remember, and a step people forget is a surface that goes stale �
 project exists to detect, reproduced in its own operation. Designed in
 [`docs/references/autonomy.md`](references/autonomy.md); the boundary is that autonomy covers derived state
 and stops at anything outward-facing.*
+
+**A-57 · The commit guard refused on things that are somebody's judgement, and on its own crashes** — **P1 · High**
+
+*Filed and fixed together, from a live session it was actively obstructing.* Every refusal that session
+printed opened with **"Safe to commit here. Branch follows the convention and is not protected"** — nothing
+was wrong with the repository — and then blocked because the guard could not read a commit message that
+**structurally could not exist yet**. A `PreToolUse` hook runs before the shell, so
+`cat > msg.txt && git commit -F msg.txt` was refused whole, the file was never written, and the retry failed
+because the file was missing: a loop with no exit, over a message that had been written correctly. One of the
+refusals was not a refusal at all but a crash inside the gate — `Cannot read properties of null (reading
+'missing')`, which is `readPlanning` returning `null` when no planning source is configured and
+`atlas.mjs` reading `plan.missing` off it.
+
+*The distinction this tool already draws everywhere else, and had forgotten here.* H17 is advisory **because**
+"you should have parallelised" is a claim about somebody's working method rather than about the corpus. The
+blocking set is for claims that the **repository is wrong**. Applied to the hook:
+
+| Gate | The claim | Now |
+|---|---|---|
+| `atlas health --gate` | a dead link, a duplicate title, a missing H1 | **blocks**, exit 2 |
+| `atlas branch` | protected branch, or off the naming convention | warns |
+| `atlas spec --gate` | this shipped change names no plan item | warns |
+| any gate exiting other than 0 or 1 | the guard is broken | warns, always |
+
+**A warning has to be visible, and on exit 0 stderr is not.** Claude Code shows a `PreToolUse` hook's stderr
+to the model only on exit 2; on exit 0 it goes to the debug log. So a warning that was merely printed would
+have been a gate switched off in all but name. Warnings are emitted as hook JSON on stdout —
+`systemMessage` for the person, `hookSpecificOutput.additionalContext` for the model — and on stderr as well,
+for the log and for any other runtime.
+
+**And a warning has to teach**: it names the SOP, why the SOP exists, and what to do, then gets out of the
+way. `spec.mjs` now separates the three ways a `-F <path>` fails to open, because they are three different
+sentences: `pending` (the same command line writes the file — nothing is wrong and nothing needs changing),
+`unexpanded` (a variable the shell has not substituted yet), and `unresolved` (a path that is simply not
+there). An unknown reason falls back to the general text rather than printing `undefined` at somebody.
+
+*The escape hatch is a config key rather than a default*, because a repository that wants the old strictness
+should keep it: `branching.sopGate: "enforce"` — or `ATLAS_COMMIT_SOP=enforce` for one command or one CI job
+— restores refusal on the SOPs and on a gate that could not run. Documented in
+[`branching.md`](references/branching.md#the-commit-guard-warns-and-refuses-in-different-cases) and
+[`hooks/README.md`](../hooks/README.md).
+
+*`hooks.json` was carrying the same defect one level out*: an unreadable `on-commit.sh` — a half-installed
+plugin — exited 2 for every `git commit` on the machine, including in repositories that never adopted this
+tool, over a defect in the tool. It warns.
+
+*Not fixed here, and it is the root cause of the crash:* `scripts/atlas.mjs` reads `plan.missing` from
+`readPlanning`, which returns `null` when `planning.source` is unset. The hook can no longer turn that into
+a refusal, but the crash itself belongs to whoever holds that file — one `if (!plan || plan.missing …)`.
 
 **A-1 · The autonomy switch** — **P1 · High**
 *Shipped in 0.1.50.*
@@ -1105,6 +1194,52 @@ session that filed this — were measuring the wrong pair and reported a pass th
 has to know what those are. The first is cleaner; the second is less disruptive. Decide before implementing:
 a build that quietly filters its own output out of its own input is easy to get subtly wrong, and the wrongness
 would look exactly like correctness.
+
+### Decided: the build declares what it authors, and the readers of the working tree subtract it
+
+Reproduced first, on a clean clone: build 1 `ca9a07e…`, builds 2 and 3 both `882db45…`, and the only tree
+change was `worklog/2026-08-13/rajneesh-maurya.md`. Nine of the built pages differed.
+
+**The second option, and the first was rejected on evidence rather than taste.** Stopping the write fixes one
+file; the defect is a class. A-2 exists to make derived output maintain itself rather than wait to be
+remembered, so more reports will be generated into the tree over time, and every one of them re-breaks this
+the moment it lands — because a reader that cannot tell generated output from a person's work will always
+count it as a person's work. That is also a defect in its own right, independent of idempotency: a pristine
+checkout reported *"1 file(s) in flight"* for a file nobody had touched.
+
+`render.mjs::generatedPaths` composes the list from the modules that do the writing — `worklog.mjs` exports
+the directory it authors, the output directory comes from the config — and attaches it to the config as
+`__generated`. `changes.mjs` subtracts those paths from the *uncommitted and staged* rows and returns them as
+`generated`; `inflight.mjs` subtracts them from the untracked count. Three things keep the filter from being
+the quiet mistake this entry warns about: only a caller that declares a set gets one (`atlas changes` in a
+terminal declares nothing and still shows every file, which is right — a generated file you are about to
+commit is one you need to see), the list is never a literal in a reader, and nothing disappears silently.
+Committed rows are deliberately left alone: once the worklog is in a commit it is part of the record, and it
+cannot make two consecutive builds disagree.
+
+*The one thing to be careful of, because it was written and then caught by its own test:* the in-flight
+sentence first said "1 generated file(s) … not counted here". That count is 0 on the first build of a clean
+checkout and 1 on the second — the whole defect, reintroduced in the sentence announcing the fix. It states
+the **rule** instead, which is true on every build.
+
+*Remaining, and why this is not 100.* Two consecutive builds now agree on everything except the pages
+carrying the **daily work log panel**, and that half cannot be fixed from the reader's side by design:
+`dashboard.mjs::worklogPanel` reads `worklog/<day>/<who>.md` and *should* — its docblock argues correctly
+that the log records the day it was written on and must not be recomputed. The CLI rewrites that file
+**after** `renderSite` has already read it (`atlas.mjs`, the `autoDerived` block), so every build renders the
+previous build's log and the first build after any commit differs from the second.
+
+**The remaining change is the order of two statements in `scripts/atlas.mjs`: move the `autoDerived` worklog
+refresh from after the `renderSite` call to before it.** Then every build reads the log it has just written,
+and the write stops being a change to a later build's input. Verified by experiment in a throwaway clone with
+this change applied on top of the subtraction: builds 1, 2 and 3 all hashed `204b3c35b186`, with the only
+remaining difference `all.standalone.html`, whose `generatedAt` is timestamped by design (like
+`build-stamp.txt`, and excluded from the byte-identical guarantee for the same reason). That file is held by
+another line of work in this session, which is why it is written down here rather than done.
+
+*Tested:* `A-36 · a build from a clean tree is byte-identical to the next, with its own worklog written in
+between` performs the real sequence — render, write the day's log, render — and `A-36 · the build subtracts
+only what it declared` pins all three honesty properties. Both fail when the subtraction is reverted.
 
 **A-32 · Work in flight survives the session that was doing it** — **P1 · High**
 

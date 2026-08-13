@@ -17,6 +17,7 @@ import { readDeck, deckPage } from './deck.mjs';
 import { readContrib, taskCoverage } from './contrib.mjs';
 import { writeKnowledgeGraph, KB_DIR } from './kb.mjs';
 import { readInflight } from './inflight.mjs';
+import { worklogDir } from './worklog.mjs';
 import { resolveViews, navItems, viewFile } from './views.mjs';
 import { risks, summarise } from './insight.mjs';
 import { repoComponents, scorecard } from './score.mjs';
@@ -218,7 +219,45 @@ function releaseOutputDir(outDir) {
   fs.rmSync(path.join(outDir, BUILD_CLAIM), { force: true });
 }
 
+/**
+ * Every path in this repository that a build writes, repo-relative, posix, directory prefixes. (A-36)
+ *
+ * ## Why a build has to declare this to itself
+ *
+ * `atlas build` is supposed to be a function of the repository: same input, same bytes. It is not, and the
+ * reason is that **the build writes into the tree it reads**. `worklog/<today>/<contributor>.md` is authored
+ * by the build and then read back by the *next* build as work in flight, so on a clean clone build 1 hashed
+ * `ca9a07e…` and builds 2 and 3 both hashed `882db45…`. The consequence is worse than an unstable hash: the
+ * byte-identical property this tool asserts about itself **could not be observed from a fresh checkout at
+ * all**, because the honest-looking comparison — clone, build, build — is exactly the pair that differs.
+ *
+ * Two fixes were available. The build could stop writing the worklog, since `atlas worklog` exists; or the
+ * readers of the working tree could subtract what the build itself authored. The second is what this is, and
+ * the first was rejected for a reason that outlives it: stopping the write fixes this one file, while the
+ * defect is a *class*. Any report this tool learns to generate into the tree — and A-2 exists precisely to
+ * make derived output maintain itself rather than wait to be remembered — re-breaks the property the moment
+ * it lands, because a reader that cannot tell generated output from a person's work will always count it as
+ * a person's work. Subtracting names the boundary once.
+ *
+ * The danger in it is stated in the plan: *"a build that quietly filters its own output out of its own input
+ * is easy to get subtly wrong in a way that looks exactly like correctness."* Three things hold it honest:
+ *
+ *  1. **The list is composed from the writers**, never spelled out at a reader. `worklogDir` comes from
+ *     `worklog.mjs`, the output directory from the config this function is already given.
+ *  2. **Only a caller that declares it gets it.** `atlas changes` in a terminal declares nothing and still
+ *     shows the worklog, because a generated file you are about to commit is one you need to see.
+ *  3. **Nothing vanishes.** `readChanges` returns what it subtracted as `generated`, and the in-flight
+ *     sentence says so in words when there is any.
+ */
+export function generatedPaths(cfg = {}) {
+  const out = String(cfg.output || '').replace(/\\/g, '/').replace(/^\.\//, '').replace(/\/+$/, '');
+  return [worklogDir(cfg), out ? `${out}/` : ''].filter(Boolean);
+}
+
 export function renderSite(index, health, cfg, root) {
+  // Declared once, at the top, so every reader reached from here — the homepage's own `readInflight` call and
+  // every panel that resolves the working tree through `ctx.cfg` — is looking at the same boundary.
+  cfg = { ...cfg, __generated: generatedPaths(cfg) };
   const outDir = prepareOutputDir(root, cfg);
   const pagesDir = path.join(outDir, 'pages');
   fs.mkdirSync(pagesDir, { recursive: true });
@@ -1514,18 +1553,28 @@ code, pre, .dp { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospac
   }
   .navmenu a { padding:10px 10px; }
 }
-footer { border-top:1px solid var(--line); padding:20px 5%; color:var(--muted); font-size:13px; }
+/* One row while it fits, two when it does not — and no breakpoint to maintain. (A-27)
+   The credit and the build stamp are one line of information between them, so they share a baseline:
+   space-between puts the credit left and the stamp right while both fit, and the *same* rule left-aligns
+   each of them when the stamp wraps onto its own row, because a single item on a wrapped line sits at
+   flex-start. A margin-left:auto on the stamp would have produced the same desktop layout and stranded it
+   against the right edge of a 390px screen, alone on its row and aligned to nothing.
+   The stamp is hidden until a build time has been read, and [hidden] restores display:none below — a flex
+   container gaps only between the items it actually has, so the not-yet-loaded state is a footer with one
+   item in it, not a footer with a hole where the second one goes. */
+footer { border-top:1px solid var(--line); padding:20px 5%; color:var(--muted); font-size:13px;
+  display:flex; flex-wrap:wrap; align-items:baseline; justify-content:space-between; gap:8px 24px; }
 .genby { display:flex; align-items:center; gap:9px; margin:0; }
 
-/* The build stamp, under the credit line. Same type treatment as the header clock — tabular figures, a muted
-   uppercase zone chip, --ink for the digits against --muted surroundings — because it answers the other half
-   of the clock's question and a reader compares the two.
+/* The build stamp, beside the credit line. Same type treatment as the header clock — tabular figures, a
+   muted uppercase zone chip, --ink for the digits against --muted surroundings — because it answers the
+   other half of the clock's question and a reader compares the two.
    The [hidden] rule is restated because the UA rule that honours the attribute is display:none at the lowest
    cascade level, and the author display:flex below beats it: without this line the empty element renders
    as a bare "Last built" label with no value, which is precisely the broken state it exists to avoid.
-   It wraps rather than scrolls: two dates and two times do not fit one line on a phone, and a footer is the
-   one place where a second line costs nothing. */
-.builtat { display:flex; align-items:baseline; flex-wrap:wrap; gap:4px 10px; margin:8px 0 0;
+   It wraps internally as well as against the credit: two dates and two times do not fit beside a sentence on
+   a phone, and a footer is the one place where a second line costs nothing. */
+.builtat { display:flex; align-items:baseline; flex-wrap:wrap; gap:4px 10px; margin:0;
   font-size:12px; color:var(--muted); font-variant-numeric:tabular-nums; }
 .builtat[hidden] { display:none; }
 .builtat-k { font-size:10px; letter-spacing:.04em; text-transform:uppercase; color:var(--muted); }

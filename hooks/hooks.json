@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "S=\"${CLAUDE_PLUGIN_ROOT}/hooks/on-commit.sh\"; if [ -r \"$S\" ]; then sh \"$S\"; else payload=$(cat); printf '%s' \"$payload\" | grep -qE '(^|[^[:alnum:]_./-])git[[:space:]]+commit' || exit 0; echo \"project-atlas: the commit guard is not readable at $S. This commit was NOT checked.\" >&2; exit 2; fi"
+            "command": "S=\"${CLAUDE_PLUGIN_ROOT}/hooks/on-commit.sh\"; if [ -r \"$S\" ]; then sh \"$S\"; else payload=$(cat); printf '%s' \"$payload\" | grep -qE '(^|[^[:alnum:]_./-])git[[:space:]]+commit' || exit 0; M=\"project-atlas: the commit guard is not readable at $S, so this commit was NOT checked. That is a half-installed plugin, not a problem with the commit — it warns rather than refusing, because a broken guard must not stop other people's work in repositories that may never have adopted this tool.\"; echo \"$M\" >&2; printf '{\"systemMessage\":\"%s\",\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"additionalContext\":\"%s\"}}\\n' \"$M\" \"$M\"; exit 0; fi"
           }
         ]
       }

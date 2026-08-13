@@ -38,7 +38,7 @@
  *   5. **The session's task list**, replayed from the recorded log — subjects and statuses, which are the
  *      titles of work someone chose to open, not the contents of anything.
  *
- * ## Four rules, each of which is a way this could otherwise lie
+ * ## Five rules, each of which is a way this could otherwise lie
  *
  * **1. Committed work is in flight only when the branch actually diverged.** `readChanges` compares against
  * the merge-base when there is one and falls back to `HEAD~2` when there is not. Those last two commits are
@@ -58,12 +58,22 @@
  * **4. No completion figure, ever.** There is no denominator for work nobody has written down. A percentage
  * here would be the most confident lie on the page — worse than the blind panel it replaces, because it
  * would look like it had been measured.
+ *
+ * **5. What the build wrote is not what somebody is working on.** (A-36) The build authors
+ * `worklog/<day>/<who>.md` into the very tree this reads, so every page built from a clean checkout reported
+ * one file in flight that no person had touched — and the *second* build of the same checkout produced
+ * different bytes from the first because of it. The build declares what it authors as `cfg.__generated` and
+ * those paths are subtracted here — but never silently: the sentence states the rule whenever a caller has
+ * declared one, because a filter whose effect cannot be seen is indistinguishable from a filter that is
+ * wrong. It states the *rule* and not the count, since the count is 0 on the first build and 1 on the second
+ * and would put the defect straight back. `atlas changes` declares nothing and so still shows every one of
+ * them, which is right: a generated file you are about to commit is one you need to be told about.
  */
 
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { readChanges } from './changes.mjs';
+import { readChanges, isGeneratedPath } from './changes.mjs';
 import { branchStatus } from './branch.mjs';
 import { read as readJournal } from './journal.mjs';
 
@@ -95,10 +105,15 @@ function git(root, args) {
  * reported because `git status` could not run would put "working tree clean" on the page as a measurement
  * nobody made.
  */
-function untrackedCount(root) {
+function untrackedCount(root, cfg) {
   const out = git(root, ['status', '--porcelain']);
   if (out === null) return null;
-  return out.split('\n').filter((l) => l.startsWith('??')).length;
+  // A-36 · the first build of a new day *creates* `worklog/<day>/<who>.md`, so on that day the build's own
+  // output arrives here as an untracked file rather than as a modified one. Same subtraction, same rule, and
+  // the count of what was subtracted is returned beside it — see `readChanges`.
+  const untracked = out.split('\n').filter((l) => l.startsWith('??')).map((l) => l.slice(3).trim());
+  const mine = untracked.filter((p) => isGeneratedPath(cfg, p));
+  return { count: untracked.length - mine.length, generated: mine.length };
 }
 
 /**
@@ -194,7 +209,13 @@ export function readInflight(root, cfg = {}, { index = null, plan = null } = {})
   const unrecognised = items.length ? named.filter((id) => !byId.has(id)) : [];
 
   const tracked = dedupe([...changes.unstaged, ...changes.staged, ...committed]);
-  const untracked = untrackedCount(root);
+  const u = untrackedCount(root, cfg);
+  const untracked = u === null ? null : u.count;
+  // What the build wrote itself, tracked and untracked together, and whether the caller declared any such
+  // paths at all. The count is for a caller outside the byte-identical guarantee — a terminal, a test; the
+  // flag is what a rendered page is allowed to depend on, because it is the same on every build. (A-36)
+  const generated = (changes.generated?.length || 0) + (u === null ? 0 : u.generated);
+  const declaresGenerated = Array.isArray(cfg.__generated) && cfg.__generated.length > 0;
 
   // Which parts of the corpus the change lands in. `readChanges` resolves a path to its cluster only for
   // documents the index holds, so everything else is code or an unindexed file — counted under its own name
@@ -298,6 +319,8 @@ export function readInflight(root, cfg = {}, { index = null, plan = null } = {})
     outsideCorpus,
     journal,
     sessionTasks,
+    generated,
+    declaresGenerated,
     quiet,
   };
 }
@@ -311,9 +334,23 @@ export function readInflight(root, cfg = {}, { index = null, plan = null } = {})
  */
 export function inflightSentence(k) {
   if (!k.available) return null;
+  /*
+   * A-36 · what the build wrote itself is not in flight, and is not hidden either. Saying so is the
+   * difference between a boundary and a fudge: a reader who sees a modified worklog in `git status` and
+   * "nothing in flight" on the page can tell, from the page, that the two are not in disagreement.
+   *
+   * **It is a statement of the rule and deliberately not a count.** The first version said "1 generated
+   * file(s) … not counted here", which is more informative and reintroduced the entire defect: the number is
+   * 0 on the first build of a clean checkout and 1 on the second, so the page was once again a function of
+   * whether it had been built before. The rule holds whether or not it fired, so the rule is what is
+   * printed, and the count stays in the data for a caller that is not part of the byte-identical guarantee.
+   */
+  const gen = k.declaresGenerated
+    ? ' Files the build writes itself — the worklog and the output directory — are not counted as in flight.'
+    : '';
   if (k.quiet) {
     return `Nothing in flight: no uncommitted change on \`${k.branch}\`` +
-      (k.diverged ? ', and nothing committed here since it diverged' : '') + '.';
+      (k.diverged ? ', and nothing committed here since it diverged' : '') + '.' + gen;
   }
 
   const parts = [];
@@ -326,7 +363,7 @@ export function inflightSentence(k) {
   if (!parts.length && k.journal.records) parts.push(`${k.journal.records} journal record(s) since the last commit`);
 
   const lead = `${parts.join(', ')} on \`${k.branch}\`.`;
-  if (!k.hasPlan) return `${lead} No planning document is configured, so none of it can be matched to an item.`;
-  if (!k.namedItems.length) return `${lead} No plan item is named by any of it.`;
-  return `${lead} Names ${k.namedItems.map((i) => i.id).join(', ')}.`;
+  if (!k.hasPlan) return `${lead} No planning document is configured, so none of it can be matched to an item.${gen}`;
+  if (!k.namedItems.length) return `${lead} No plan item is named by any of it.${gen}`;
+  return `${lead} Names ${k.namedItems.map((i) => i.id).join(', ')}.${gen}`;
 }

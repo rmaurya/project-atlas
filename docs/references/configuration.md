@@ -257,8 +257,18 @@ produced 3.3 MB. Documents past the limit are **counted and reported**, never si
 |---|---|---|
 | `automation.buildOnWrite` | `true` | Rebuild the site after a session writes a `.md` file |
 | `automation.healthOnCommit` | `true` | Refuse a commit that would land a **blocking** signal |
+| `automation.specOnCommit` | `true` | Ask a shipped change to name the plan item it advances — **warns**, never refuses |
+| `automation.planOnBranch` | `true` | Mark a plan item in progress when a branch or a commit names it |
 
-Both are on because a derived surface that refreshes only when someone remembers is a stale surface, and
+**Only one of these refuses.** A blocking signal is a claim that the repository is wrong — a dead link, two
+documents claiming one title, a file with no `# ` heading — and there is no legitimate exception to weigh. The
+branch guard and the plan gate make claims about *how somebody is working*, which is a judgement a person
+makes, so they say their piece and let the commit through. That line is the same one
+[`autonomy.md`](autonomy.md) draws when it keeps H17 advisory, and
+[`branching.md`](branching.md#the-commit-guard-warns-and-refuses-in-different-cases) explains what it cost to
+learn it. To refuse on the SOPs as well, set `branching.sopGate` to `"enforce"`.
+
+The first two are on because a derived surface that refreshes only when someone remembers is a stale surface, and
 "remember to regenerate it" is the reason hand-maintained documentation rots in the first place. The build
 covers everything `atlas build` produces — index, dashboard, health page, and the role views — so the
 dashboard is never older than the markdown behind it.

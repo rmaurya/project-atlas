@@ -14,7 +14,7 @@ each other. It is the same drift the tool detects in documentation, in the docum
 | after a `.md` write | `on-write.sh` | `atlas build` — index, dashboard, health, role views, knowledge graph | never |
 | after `TaskCreate` / `TaskUpdate` | `on-task.sh` | records the task change, then rebuilds so the page is not stale | never |
 | after **any** tool use | `on-activity.sh` | keeps the dashboard alive; tells this session its URL once | never |
-| before `git commit` | `on-commit.sh` | `atlas branch`, then `atlas health --gate` | yes, exit 2 |
+| before `git commit` | `on-commit.sh` | `atlas branch`, `atlas health --gate`, `atlas spec --gate` | only on documentation rot |
 | `Stop` · `SubagentStop` · `PreCompact` | `on-continuity.sh` | flushes a journal record at each boundary | never |
 
 Every one of them is inert in a repository with no `project-atlas.config.json`. The plugin is installed
@@ -24,31 +24,51 @@ commits — has decided someone else's policy for them.
 `atlas-bin.sh` is a helper rather than a hook: it decides *which build answers*, so that working on this tool
 does not have the installed copy rebuild the working copy's output with an older feature set.
 
-## The branch guard
+## Two verdicts, and the line between them
 
-Before any `git commit`, `atlas branch` runs and exits non-zero when the working branch is protected. The
-assistant sees the refusal and the fix — `atlas branch <type> <slug>` — before the commit happens rather than
-after review.
+The commit hook runs three checks and they do not all carry the same weight.
 
-**The hook exits 2, and that number is the whole mechanism.** Claude Code only feeds a `PreToolUse` hook's
-stderr back to the model, and only blocks the call, on exit code 2; on exit 0 the same text goes to the debug
-log and the tool call proceeds. This hook shipped as `... && atlas branch >&2 || exit 0`, where `A && B ||
-exit 0` swallows B's status — the guard printed eleven lines of refusal and exited 0, so nothing was ever
-blocked and nothing ever reached the assistant.
+| Check | The claim | Verdict |
+|---|---|---|
+| `atlas health --gate` | the **repository** is wrong: a dead link, a duplicate title, a missing `# ` | refuses, exit 2 |
+| `atlas branch` | you are on a protected branch, or off the naming convention | warns |
+| `atlas spec --gate` | this shipped change names no plan item | warns |
+| any check that could not run | the **guard** is broken | warns, and says "NOT checked" |
 
-It exists because this project's own first five commits went straight to `main` while its contributing guide
-preached discipline. A rule nobody notices being broken is not a rule.
+**Blocking is reserved for a claim nobody can reasonably disagree with.** The other two are process SOPs —
+statements about how work is organised, which is a judgement a person makes. Advisory health signals say
+nothing at all here, for the same reason: they have legitimate causes, and a gate that fires on them is a
+gate that gets switched off within a week.
+
+That split was learned late and expensively. For one release everything here refused, and it stalled a live
+session: each refusal opened with *"Safe to commit here. Branch follows the convention and is not
+protected"* and then blocked over a commit message that **could not exist yet** — a `PreToolUse` hook runs
+before the shell, so `cat > msg.txt && git commit -F msg.txt` was refused whole, the file was never written,
+and the retry failed because the file was missing. One refusal was a crash inside the gate rather than a
+finding. **A guard people disable is worse than no guard.**
+
+**Exit 2 is the whole mechanism, and it is why a warning cannot simply be printed.** Claude Code feeds a
+`PreToolUse` hook's stderr back to the model, and blocks the call, only on exit code 2; on exit 0 the same
+text goes to the debug log. So warnings are written to stderr *and* emitted as hook JSON on stdout —
+`systemMessage` for the person, `hookSpecificOutput.additionalContext` for the model — which is what makes a
+non-blocking warning something anybody actually sees. (An earlier version shipped as `... && atlas branch >&2
+|| exit 0`, where `A && B || exit 0` swallows B's status: eleven lines of refusal, exit 0, nothing ever
+blocked and nothing ever read.)
+
+The branch half exists because this project's own first five commits went straight to `main` while its
+contributing guide preached discipline. A rule nobody notices being broken is not a rule — but noticing is
+what it is for, and noticing does not require refusing.
 
 **It only fires on `git commit`.** Every other Bash call exits 0 immediately, so the cost is one `jq` and one
-`grep` per Bash invocation.
+`grep` per Bash invocation. It is silent when everything passes.
 
-## The health gate
+**To restore the old strictness**, per repository:
 
-`atlas health --gate` runs after the branch guard passes and refuses the commit if a **blocking** signal fires
-— a dead internal link, a duplicate title, a missing `# ` heading. Advisory signals say nothing: they have
-legitimate causes, and a gate that fires on them is a gate that gets switched off within a week.
+```json
+{ "branching": { "sopGate": "enforce" } }
+```
 
-It is silent when the corpus is clean. A hook that prints on every commit is a hook people disable.
+or `ATLAS_COMMIT_SOP=enforce` for one command. Then the SOPs and the could-not-run case refuse as well.
 
 ## The rebuild, and a reversal
 
@@ -161,10 +181,10 @@ overwrite a statusline somebody else wrote. Full description in
 
 ## Turning them off
 
-Both switches live in `project-atlas.config.json`, both default to `true`:
+The switches live in `project-atlas.config.json`, and all default to `true`:
 
 ```json
-{ "automation": { "buildOnWrite": true, "healthOnCommit": true } }
+{ "automation": { "buildOnWrite": true, "healthOnCommit": true, "specOnCommit": true } }
 ```
 
 An unknown key under `automation` is refused rather than ignored, and so is a non-boolean — `"false"` is a
@@ -180,6 +200,8 @@ silently absent, which is the same rule the reports follow: a check that did not
 having passed.
 
 For the same reason, an `atlas branch` that cannot run at all — a half-installed plugin, a missing `bin/atlas`
-— exits 2 and names the exit code rather than waving the commit through unchecked.
+— says so and names the exit code rather than waving the commit through unchecked. It does not refuse: the
+plugin is installed for a user rather than a project, so a broken guard that blocked would stop commits in
+repositories that never adopted this tool, over a defect in the tool.
 
 To remove them entirely: `/plugin` → disable the plugin. They are guards, not locks.
