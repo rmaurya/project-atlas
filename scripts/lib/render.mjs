@@ -561,6 +561,153 @@ const THEME_WIRE = `(function(){
   });
 })();`;
 
+/* ------------------------------------------------------------------ navigation */
+
+/**
+ * **The site menu, grouped — because fifteen links in a row is not a menu, it is a list.**
+ *
+ * `navItems` in views.mjs generates one entry per page that exists, which is the right rule and the reason
+ * adding a view costs one config line. It had grown to fifteen entries: Home, twelve views, Wiki, Deck and
+ * Health. Measured, that row is wider than a 1280px laptop window, so it wrapped to two lines and pushed the
+ * clock down onto the second; below 820px it wrapped to four and the header owned a fifth of a phone screen.
+ * The old fix was to let it wrap and say so. This one gives the reader a shape to scan instead.
+ *
+ * **The grouping is read off what the views are, not off who they are addressed to.** Every view is already
+ * a role's first screen, so grouping by role would be a second copy of the same axis and would need names
+ * nobody looks under ("Leadership", "Engineering"). What differs between them is the *source they read*, and
+ * that is exactly the question a reader arrives with:
+ *
+ *  - **Plan** — the three views over `docs/ROADMAP.md`: every task in full (Backlog), scope against
+ *    completion (Product), and the few numbers that survive summarising (Executive).
+ *  - **Work** — the three views over git and the session store, which answer three different questions and
+ *    are constantly mistaken for each other: *when and by whom* (Delivery), *where in the tree* (Repository),
+ *    *at what cost* (Economics). views.mjs argues that distinction at length; the menu now shows it.
+ *  - **Design** — the design record: the measurements about it (Architecture) and the record itself,
+ *    assembled in dependency order (Blueprint).
+ *  - **Documents** — the corpus and its condition: the browser (Wiki), what a change has put at risk
+ *    (Developer), where it is wrong and how often work is redone (Quality), and the rot signals (Health).
+ *
+ * Home and Overview stay one click away because they are where a reader lands, and Deck stays top level
+ * because it is not a view of anything — it is a talk.
+ *
+ * **Two rules keep this from rotting into a hand-maintained list.** A view named here that no longer exists
+ * contributes nothing; a nav entry named by nobody stays a top-level link. So a configured `views` array that
+ * shares no ids with the shipped set produces exactly today's flat nav rather than an empty menu bar — the
+ * grouping degrades to the thing it replaced, which is the only safe failure for navigation.
+ */
+export const NAV_GROUPS = [
+  { label: 'Plan', hrefs: ['view-backlog.html', 'view-product.html', 'view-executive.html'] },
+  { label: 'Work', hrefs: ['view-delivery.html', 'view-repository.html', 'view-economics.html'] },
+  { label: 'Design', hrefs: ['view-architecture.html', 'view-blueprint.html'] },
+  { label: 'Documents', hrefs: ['wiki.html', 'view-qc.html', 'view-developer.html', 'health.html'] },
+];
+
+/**
+ * Fold a flat nav list into links and groups, preserving order.
+ *
+ * Ungrouped entries keep their place relative to the groups as a block: those before the first grouped entry
+ * lead (Home, Overview), those after trail (Deck). Sorting them individually against groups that have no
+ * single position would have put Deck between two menus for no reason a reader could see.
+ *
+ * **A group of one is rendered as a link.** A disclosure widget that opens onto a single item costs a click
+ * and hides a word, which is worse than the word.
+ */
+export function groupNav(items = []) {
+  const labelOf = new Map();
+  for (const g of NAV_GROUPS) for (const h of g.hrefs) labelOf.set(h, g.label);
+
+  const buckets = new Map(NAV_GROUPS.map((g) => [g.label, []]));
+  const lead = [], trail = [];
+  let grouped = false;
+  for (const n of items) {
+    const label = labelOf.get(n.href);
+    if (label) { buckets.get(label).push(n); grouped = true; continue; }
+    (grouped ? trail : lead).push({ kind: 'link', ...n });
+  }
+
+  const groups = [];
+  for (const g of NAV_GROUPS) {
+    const members = buckets.get(g.label);
+    if (!members.length) continue;
+    if (members.length === 1) { groups.push({ kind: 'link', ...members[0] }); continue; }
+    groups.push({ kind: 'group', label: g.label, items: members, current: members.some((m) => m.current) });
+  }
+  return [...lead, ...groups, ...trail];
+}
+
+/**
+ * The menu, as markup.
+ *
+ * **`<details>`/`<summary>` and no library.** A disclosure widget is what a dropdown is, the browser already
+ * ships one with keyboard handling, focus order and an announced expanded/collapsed state, and every page
+ * this tool writes has to survive a CSP that forbids fetching anything. The script below adds Escape,
+ * click-outside and tab-out; with scripts off the menu still opens and closes on click and on Enter/Space,
+ * which is the whole navigation working rather than a degraded copy of it.
+ *
+ * **The burger is a `<details>` holding nothing, and its open state is read by a sibling selector.** The
+ * obvious construction — wrap the list in the details — cannot work: a closed `<details>` hides its content
+ * through a UA mechanism that CSS on the child cannot override, so the desktop nav would need
+ * `::details-content`, which is not available in every browser this output travels to. A toggle whose
+ * `[open]` attribute a sibling rule reads works everywhere `<details>` does.
+ *
+ * **A group holding the current page says so.** It carries `.here`, which paints the summary in the active
+ * colour and adds a dot, and it carries the same statement in words for a reader who cannot see either.
+ * `aria-current="page"` stays on the link itself, where it belongs, and is never moved onto the summary — a
+ * group is not a page.
+ */
+function navMarkup(nav, base) {
+  const link = (n) => `<a href="${escapeAttr(base + n.href)}"${n.current ? ' aria-current="page"' : ''}>${escapeHtml(n.label)}</a>`;
+  return groupNav(nav).map((e) => (e.kind === 'link'
+    ? `<li>${link(e)}</li>`
+    : `<li class="navgroup"><details${e.current ? ' class="here"' : ''}>` +
+      `<summary>${escapeHtml(e.label)}` +
+      (e.current ? '<span class="vh"> (contains the current page)</span>' : '') +
+      '<span class="navchev" aria-hidden="true">▾</span></summary>' +
+      `<ul class="navmenu">${e.items.map((i) => `<li>${link(i)}</li>`).join('')}</ul>` +
+      '</details></li>')).join('\n        ');
+}
+
+/**
+ * What the browser adds to a menu that already works without it: Escape, click-outside and tab-out.
+ *
+ * None of the three is reachable from CSS, and all three are what a reader who has used any other menu
+ * expects. Everything else — opening, closing, keyboard focus, the announced state — is `<details>` doing its
+ * own job, so this file having failed to load costs three conveniences and no navigation.
+ *
+ * `toggle` does not bubble, hence the capturing listener: one open panel at a time, because two overlapping
+ * absolutely-positioned menus on a narrow window is the bug this would otherwise introduce.
+ */
+const NAV_WIRE = `(function(){
+  var nav = document.querySelector('.sitenav');
+  if (!nav) return;
+  var burger = nav.querySelector('.navburger');
+  var groups = [].slice.call(nav.querySelectorAll('.navgroup > details'));
+  function shut(list, keep){ list.forEach(function(d){ if (d !== keep && d.open) d.open = false; }); }
+  nav.addEventListener('toggle', function(e){
+    if (e.target.open && groups.indexOf(e.target) !== -1) shut(groups, e.target);
+  }, true);
+  document.addEventListener('keydown', function(e){
+    if (e.key !== 'Escape' && e.key !== 'Esc') return;
+    // Innermost first: a group inside the open burger closes before the burger does, so one Escape never
+    // takes away more than the reader just opened.
+    var open = groups.filter(function(d){ return d.open; });
+    var target = open.length ? open[0] : (burger && burger.open ? burger : null);
+    if (!target) return;
+    target.open = false;
+    var sum = target.querySelector('summary');
+    if (sum) sum.focus();
+  });
+  document.addEventListener('focusin', function(e){
+    shut(groups.filter(function(d){ return !d.contains(e.target); }), null);
+    if (burger && burger.open && !nav.contains(e.target)) burger.open = false;
+  });
+  document.addEventListener('pointerdown', function(e){
+    if (nav.contains(e.target)) return;
+    shut(groups, null);
+    if (burger) burger.open = false;
+  });
+})();`;
+
 /* ------------------------------------------------------------------ shell */
 
 /**
@@ -620,9 +767,28 @@ ${extraHead}
     siteTitle === 'project-atlas'
       ? '<span class="wordmark"><span>project-</span>atlas</span>'
       : escapeHtml(siteTitle)}</span></a>
-  <nav>
-    ${(nav || []).map((n) => `<a href="${escapeAttr(base + n.href)}"${n.current ? ' aria-current="page"' : ''}>${escapeHtml(n.label)}</a>`).join('\n    ')}
+  <nav class="sitenav" aria-label="Site">
     ${/*
+      * The burger holds no links — see `navMarkup`. It comes first in the DOM so that the panel it reveals
+      * follows it in reading and tab order, which is the order a reader who cannot see the layout needs.
+      */''}<details class="navburger"><summary><span class="navburger-bars" aria-hidden="true"></span><span class="vh">Menu</span></summary></details>
+    <ul class="navlist">
+        ${navMarkup(nav || [], base)}
+    </ul>
+  </nav>
+  ${/*
+    * **The clock and the theme toggle are siblings of the nav, not children of it.**
+    *
+    * Neither is navigation — one says what the time is and the other changes how the page looks — and the
+    * distinction stopped being pedantic the moment the nav became a menu. `exportSingleFile` removes the
+    * topbar nav, because in a standalone file every link in it points at a sibling page that is not there;
+    * with the two controls inside it they went too, and the export shipped a theme script whose
+    * `if (!btn) return;` fired before it could apply a saved preference. That was patched by teaching the
+    * export to keep the non-links, which worked while the nav was a flat row of `<a>`. It is now a burger,
+    * a list and four disclosure groups, and "everything that is not an anchor" would leave four labelled
+    * empty menus behind. Putting the controls where they belong is the fix that does not need the export to
+    * understand the menu at all.
+    */''}${/*
       * **The clock is rendered by the browser, never by the build.**
       *
       * A dashboard people leave open needs to say when "now" is, and both zones: local for the person reading
@@ -638,8 +804,7 @@ ${extraHead}
       * So the markup ships empty and JavaScript fills it. `<time>` with no datetime and no text: a reader
       * without scripts sees nothing rather than a stale time presented as the current one.
       */''}<time class="clock" id="clock" aria-live="off"></time>
-    <button type="button" class="theme-toggle" id="themeToggle" aria-label="Theme: system">◐</button>
-  </nav>
+  <button type="button" class="theme-toggle" id="themeToggle" aria-label="Theme: system">◐</button>
 </header>
 <main>
 ${body}
@@ -648,6 +813,7 @@ ${body}
 ${scripts}
 <script>${THEME_WIRE}</script>
 <script>${CLOCK_WIRE}</script>
+<script>${NAV_WIRE}</script>
 </body>
 </html>
 `;
@@ -1073,39 +1239,142 @@ a { color:var(--link); text-decoration:none; }
 a:hover { text-decoration:underline; }
 code, pre, .dp { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; }
 
-/* The navigation wraps, and that is the whole fix.
+/* The navigation groups, and that is the whole fix.
  *
- * Measured at 390px: the nav was 778px wide inside a 386px viewport. The overflow-x:hidden on html and body
- * meant the page did not scroll sideways — so nothing *looked* broken — and every link past the second was
- * simply clipped away and unreachable. A menu that is invisible and unscrollable is worse than one that
- * overflows visibly, because there is no cue that anything is missing.
+ * **What was here before, and why letting it wrap was not enough.** Measured at 390px, the flat row of links
+ * was 778px wide inside a 386px viewport; overflow-x:hidden meant nothing *looked* broken while every link
+ * past the second was clipped away and unreachable. Wrapping fixed the unreachability and bought the problem
+ * it could afford at ten links: at fifteen the bar was two rows on a 1280px laptop — the clock pushed onto
+ * the second one — and four rows on a phone, where the header owned a fifth of the screen before any content.
  *
- * Wrapped rather than turned into a horizontal scroll strip: a scroll strip reintroduces exactly that
- * problem, hiding items behind a gesture with no indication they exist. Ten links over two or three lines
- * costs vertical space and hides nothing. */
+ * A row of fifteen peers is also not a menu. navMarkup folds it into six: two links, four disclosure
+ * groups, and Deck when a deck exists. That fits one line down to the breakpoint on every width measured
+ * (1600, 1280, 1024) in both themes, and below it the whole list moves behind one burger.
+ *
+ * **The breakpoint is 820px, and it is the same 820px the clock already used.** One narrow mode rather than
+ * two: the bar goes from "brand · links · clock · toggle" straight to "brand · burger · toggle", instead of
+ * passing through a stage where the clock has gone and the links have not. */
 .topbar {
   position:sticky; top:0; z-index:10; display:flex; align-items:center; gap:12px 24px;
   flex-wrap:wrap; padding:12px 5%; background:var(--bg); border-bottom:1px solid var(--line);
 }
+/* **Sticky at every width now, and the mobile panel depends on it.**
+ *
+ * It used to go static below 1024px because the bar was two or three rows there and pinning a 130px header
+ * to the top of a tablet costs more than it gives. The bar is one row at every width, so the reason is gone —
+ * and the open burger panel is positioned against this element, which requires it to stay a positioned
+ * ancestor. Turning sticky off again would drop the panel onto the viewport's containing block, where
+ * left:0; right:0 means something else entirely. */
 .brand { font-weight:650; color:var(--ink); white-space:nowrap; }
-.topbar nav { display:flex; flex-wrap:wrap; gap:10px 16px; margin-left:auto; align-items:center; }
-@media (max-width:760px) {
-  /* Below this the brand and ten links cannot share a line at a readable size. The nav takes its own row
-   * and starts at the left edge, so it reads as a menu rather than as a ragged tail of the title. */
+
+/* Said to a screen reader, shown to nobody. Used for the burger's name and for the sentence that tells a
+ * reader which group holds the page they are on — both of which are otherwise carried by shape alone. */
+.vh { position:absolute; width:1px; height:1px; margin:-1px; padding:0; overflow:hidden;
+  clip-path:inset(50%); white-space:nowrap; border:0; }
+
+.sitenav { display:flex; flex-wrap:wrap; align-items:center; gap:10px 16px; margin-left:auto; }
+/* **The 1024px step, measured rather than guessed.**
+ *
+ * Grouping alone was not enough at the bottom of the desktop range. At 1024 the bar wanted 946px of a 922px
+ * content box — brand 134, menu 496, clock 214, toggle 30, three 24px gaps — and lost by 25, which put the
+ * theme toggle alone on a second row. Three small economies rather than one large one: a tighter gutter,
+ * tighter gaps, and 15px on the menu, which together return about 85px and leave the bar with room for a
+ * site title half again as long as this one. Nothing is hidden and nothing moves out of the bar; the clock
+ * and the toggle keep their places at the right. */
+@media (max-width:1200px) {
+  .topbar { gap:10px 16px; padding-inline:3.5%; }
+  .sitenav { gap:10px 12px; font-size:15px; }
+}
+/* wrap, not nowrap, even though six entries never need it: a configured views array can name more
+ * pages than this menu knows how to group, and those arrive as top-level links. Wrapping is a worse menu;
+ * clipping them behind overflow-x:hidden is no menu at all, which is the bug this file already fixed once. */
+.navlist { display:flex; flex-wrap:wrap; align-items:center; gap:10px 16px;
+  margin:0; padding:0; list-style:none; }
+.navlist > li { display:flex; align-items:center; }
+.sitenav a { color:var(--link); white-space:nowrap; }
+/* The active page was marked for assistive technology and for nobody else — aria-current was on the link
+ * and no rule read it. */
+.sitenav a[aria-current="page"] { color:var(--ink); font-weight:620; }
+
+/* A group summary is a control, so it looks like the links it sits among and behaves like a button: no UA
+ * marker, a chevron that turns, and a focus ring that is visible in both themes. */
+.sitenav summary { list-style:none; cursor:pointer; display:inline-flex; align-items:center; gap:5px;
+  color:var(--link); white-space:nowrap; border-radius:6px; }
+.sitenav summary::-webkit-details-marker { display:none; }
+.sitenav summary:hover { color:var(--ink); }
+.sitenav summary:focus-visible { outline:2px solid var(--acc); outline-offset:3px; }
+/* 11px, measured on the rendered bar: at 9px the glyph collapsed to something a reader takes for a middle
+ * dot, and a menu that does not look like a menu is not one. */
+.navchev { font-size:11px; line-height:1; transform:translateY(1px); }
+.navgroup > details[open] > summary .navchev { transform:translateY(1px) rotate(180deg); }
+/* The group holding the current page. The dot is the visible half of the same statement .vh makes in
+ * words — a collapsed group must say that what you are looking at is inside it, or the reader concludes the
+ * page they are on is not in the menu. */
+.navgroup > details.here > summary { color:var(--ink); font-weight:620; }
+.navgroup > details.here > summary::before {
+  content:""; width:5px; height:5px; border-radius:50%; background:var(--acc); flex:0 0 auto;
+}
+
+.navgroup { position:relative; }
+.navmenu {
+  position:absolute; top:calc(100% + 10px); left:-10px; z-index:20; min-width:200px;
+  display:flex; flex-direction:column; gap:2px; margin:0; padding:6px; list-style:none;
+  background:var(--surface); border:1px solid var(--line); border-radius:10px;
+  /* Literal rather than --shadow, which is none in dark: the panel overlaps page content and needs to
+   * lift off it in both themes. Dark grounds swallow it, and the border carries the edge there. */
+  box-shadow:0 8px 24px rgba(10,10,15,.18);
+}
+.navmenu a { display:block; padding:7px 10px; border-radius:6px; }
+.navmenu a:hover { background:var(--surface-3); text-decoration:none; }
+.navmenu a[aria-current="page"] { background:var(--surface-3); }
+
+/* The burger holds nothing and toggles the list beside it — see navMarkup for why it cannot hold it. */
+.navburger { display:none; }
+.navburger > summary { padding:8px; border:1px solid var(--bd); border-radius:8px; }
+.navburger-bars { position:relative; display:block; width:18px; height:2px; border-radius:2px;
+  background:var(--fg); }
+.navburger-bars::before, .navburger-bars::after {
+  content:""; position:absolute; left:0; display:block; width:18px; height:2px; border-radius:2px;
+  background:var(--fg);
+}
+.navburger-bars::before { top:-6px; }
+.navburger-bars::after { top:6px; }
+.navburger[open] > summary { border-color:var(--acc); }
+.navburger[open] .navburger-bars { background:transparent; }
+.navburger[open] .navburger-bars::before { top:0; transform:rotate(45deg); }
+.navburger[open] .navburger-bars::after { top:0; transform:rotate(-45deg); }
+
+@media (max-width:820px) {
   .topbar { gap:8px; padding:10px 4%; }
-  .topbar nav { margin-left:0; width:100%; gap:8px 14px; }
+  .navburger { display:block; }
+  .navlist { display:none; }
+  /* An overlay, not a row that pushes the page down: the header stays the height it was, so the content a
+   * reader is trying to get back to does not move under an opening menu. Capped and scrollable, because
+   * fifteen entries at a 44px target is taller than a phone in landscape. */
+  .navburger[open] ~ .navlist {
+    display:flex; flex-direction:column; align-items:stretch; flex-wrap:nowrap; gap:0;
+    position:absolute; left:0; right:0; top:100%; z-index:15;
+    max-height:75vh; overflow-y:auto; padding:4px 4% 14px;
+    background:var(--bg); border-bottom:1px solid var(--line); box-shadow:0 10px 24px rgba(10,10,15,.16);
+  }
+  .navlist > li { display:block; }
   /* 44px of vertical target, per the platform guidance, without moving the text. Measured rather than
    * assumed: 6px of padding produced 38px and had to be raised. */
-  .topbar nav a { padding:9px 0; }
+  .sitenav a, .navgroup > details > summary { display:block; padding:11px 2px; }
+  /* The chevron goes to the right edge on its own, rather than the row being justified apart: with
+   * space-between the current-page group has three flex items, and the dot, the label and the chevron ended
+   * up spread across 390px with the label stranded in the middle. Measured on the phone layout. */
+  .navgroup > details > summary { display:flex; }
+  .navgroup > details > summary .navchev { margin-left:auto; }
+  /* Nested and indented rather than floating: a panel over a panel on a 390px screen covers the thing the
+   * reader was reading, and there is no room to put it beside. */
+  .navgroup { position:static; }
+  .navmenu {
+    position:static; min-width:0; padding:0 0 6px 12px; margin:0 0 0 3px;
+    background:none; border:0; border-left:2px solid var(--line); border-radius:0; box-shadow:none;
+  }
+  .navmenu a { padding:10px 10px; }
 }
-/* Sticky only while the bar is a single row.
- *
- * CSS cannot ask whether a flex line wrapped, so this is a width proxy — and the first attempt put it at
- * 760px, which left a 768px tablet pinning a 130px two-row bar to the top of every scroll. Ten links need
- * roughly a laptop to sit on one line, so that is where sticky resumes. Below it the bar scrolls away and is
- * one flick back, which costs less than a sixth of the screen held permanently by navigation, on pages whose
- * whole job is to show figures. */
-@media (max-width:1024px) { .topbar { position:static; } }
 footer { border-top:1px solid var(--line); padding:20px 5%; color:var(--muted); font-size:13px; }
 .genby { display:flex; align-items:center; gap:9px; margin:0; }
 .atlas-mark { flex:0 0 auto; }

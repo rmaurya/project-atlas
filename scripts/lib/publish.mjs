@@ -1112,15 +1112,21 @@ export function exportSingleFile(root, cfg, which = 'dashboard') {
   // Sibling pages do not exist beside a standalone file, so every cross-page link would be dead. Strip the
   // navigation and demote the brand to plain text rather than shipping links that go nowhere.
   //
-  // **Keep the controls that are not links.** The theme toggle lives inside <nav> but acts on this page alone,
-  // and removing it while still shipping its script left the export with `if (!btn) return;` — no toggle, and
-  // a saved light preference silently ignored because `paint()` sits after that return. The export always
-  // rendered in whatever the OS asked for, with no way to change it. Anything in there that is not an <a> is
-  // a same-page control and survives.
-  html = html.replace(/<nav>([\s\S]*?)<\/nav>/, (_, inner) => {
-    const kept = inner.replace(/<a\b[\s\S]*?<\/a>/g, '').trim();
-    return kept ? `<nav>${kept}</nav>` : '';
-  });
+  // **The whole element goes, and the same-page controls are no longer in it to go with it.**
+  //
+  // This used to strip the anchors and keep whatever else was inside, because the theme toggle lived in the
+  // topbar <nav> and deleting it while still shipping its script left the export with `if (!btn) return;` —
+  // no toggle, and a saved light preference silently ignored because `paint()` sits after that return.
+  //
+  // Keeping "everything that is not an anchor" only worked while the nav was a flat row of them. It is a
+  // burger and four <details> groups now, and that rule would have kept four labelled menus with nothing in
+  // them. `render.mjs::shell` moved the clock and the toggle out to the header, where a clock and a theme
+  // control belong, so this can go back to the simple statement: a standalone file has no sibling pages, and
+  // everything left in here addresses one.
+  //
+  // Matched with attributes: the nav carries a class and an accessible name, and the old exact-tag pattern
+  // silently stopped matching the moment it did — which ships every dead link rather than failing.
+  html = html.replace(/<nav\b[^>]*>[\s\S]*?<\/nav>\s*/, '');
   html = html.replace(/<a class="brand" href="[^"]*">([\s\S]*?)<\/a>/, '<span class="brand">$1</span>');
   // The build stamp poll has nothing to poll against outside the site directory.
   html = html.replace(/poll\(\); setInterval\(poll, \d+\);/, '/* live reload disabled in standalone export */');

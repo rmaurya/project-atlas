@@ -21,7 +21,7 @@ import { buildIndex } from '../scripts/lib/scan.mjs';
 import { runHealth, formatReport, SIGNALS, OPERATOR_SIGNALS, readParallelism,
          DEFAULT_PARALLELISM_EDITS, CORPUS_SIGNALS as HEALTH_CORPUS_SIGNALS } from '../scripts/lib/health.mjs';
 import { SIGNALS as CORPUS_SIGNALS } from '../scripts/lib/signals.mjs';
-import { renderSite, BUILD_CLAIM, BUILD_MARKERS } from '../scripts/lib/render.mjs';
+import { renderSite, BUILD_CLAIM, BUILD_MARKERS, groupNav, NAV_GROUPS } from '../scripts/lib/render.mjs';
 import { renderMarkdown, inline } from '../scripts/lib/markdown.mjs';
 import { readPlanning, DEFAULT_PLANNING } from '../scripts/lib/planning.mjs';
 import { writeDay, contributorSlug } from '../scripts/lib/worklog.mjs';
@@ -1228,17 +1228,31 @@ test('publish · every control the export scripts reach for is actually rendered
   }
 });
 
-test('publish · the export keeps same-page controls and drops only the dead links', () => {
+test('publish · the export keeps same-page controls and drops the whole navigation', () => {
+  // The bug this guards: the export stripped the topbar nav to remove cross-page links, and took the theme
+  // toggle with it while still shipping the toggle's script — `if (!btn) return;` fired before `paint()`, so
+  // a saved light preference was silently ignored and the file always rendered whatever the OS asked for.
+  //
+  // It was fixed once by keeping everything in the nav that was not an <a>. That rule died with the flat
+  // row: the menu is a burger and four <details> groups now, and "not an anchor" would have kept four
+  // labelled menus with nothing inside them. The clock and the toggle are siblings of the nav instead, so
+  // the assertion is the plainer one — nothing navigational survives, both controls do.
   const cfg = resolveConfig(pubRepo);
   const index = buildIndex(pubRepo, cfg);
   renderSite(index, runHealth(index, cfg, pubRepo), cfg, pubRepo);
+  const built = fs.readFileSync(path.join(pubRepo, cfg.output, 'dashboard.html'), 'utf8');
   const html = exportSingleFile(pubRepo, cfg, 'dashboard');
 
-  const nav = /<nav>([\s\S]*?)<\/nav>/.exec(html);
-  ok(nav, 'the nav must survive when it still holds a control');
-  ok(!/<a\b/.test(nav[1]), 'a cross-page link in a single file goes nowhere and must be stripped');
-  includes(nav[1], 'themeToggle', 'the toggle acts on this page alone, so it stays');
+  // The built page is the control: it has the nav, the groups and the links this export must not keep.
+  includes(built, '<nav class="sitenav"', 'sanity: the built page carries the site nav this export strips');
+  ok(!/<nav class="sitenav"/.test(html), 'the topbar nav addresses sibling pages that do not exist here');
   ok(!/href="[^"]*view-\w+\.html"/.test(html), 'no sibling page link may remain anywhere');
+  ok(!/class="navgroup"|class="navburger"/.test(html), 'and no empty menu scaffolding may be left behind');
+
+  const bar = /<header class="topbar">[\s\S]*?<\/header>/.exec(html);
+  ok(bar, 'the topbar itself stays — it carries the controls');
+  includes(bar[0], 'id="themeToggle"', 'the toggle acts on this page alone, so it stays');
+  includes(bar[0], 'id="clock"', 'and so does the clock');
 });
 
 test('bundle · every page becomes a reachable section, and no id is duplicated', () => {
@@ -8920,6 +8934,141 @@ test('inventory · the README quotes the real length of install.sh and the real 
     fs.readFileSync(path.join(REPO_ROOT, 'tests', 'run.mjs'), 'utf8')).length;
   includes(docText('README.md'), `The suite holds ${cases} test cases.`,
     'add a test and this fails until the README says so — which is the whole point of this block');
+});
+
+/* ================================================================== the site menu */
+
+console.log('\nthe site menu');
+
+/**
+ * **Every case here is synchronous.** `pendingAsync` is drained thousands of lines above, so an `async` case
+ * appended down here is registered, never awaited, and reported as a pass it did not earn.
+ */
+
+test('nav · fifteen entries become seven, and not one of them is dropped on the way', () => {
+  // The failure this is written against is not "the menu looks wrong", it is a page that quietly stops being
+  // reachable because its href was never named in a group and never fell through to the top level either.
+  const flat = navItems(DEFAULT_VIEWS, { hasDeck: true });
+  ok(flat.length >= 15, `sanity: the flat nav is the row this replaces — ${flat.length} entries`);
+
+  const menu = groupNav(flat);
+  eq(menu.map((e) => e.label), ['Home', 'Overview', 'Plan', 'Work', 'Design', 'Documents', 'Deck'],
+    'the top level is two links, four groups and the deck, in that order');
+
+  // Flattened, the menu is the same set of pages as the row it replaces — same hrefs, no duplicates.
+  const reachable = menu.flatMap((e) => (e.kind === 'group' ? e.items : [e])).map((n) => n.href);
+  eq([...reachable].sort(), flat.map((n) => n.href).sort(), 'a page named by the nav must still be reachable');
+  eq(reachable.filter((h, i) => reachable.indexOf(h) !== i), [], 'and reachable in exactly one place');
+
+  for (const e of menu) {
+    if (e.kind !== 'group') continue;
+    ok(e.items.length > 1, `${e.label} is a menu of ${e.items.length} — a group of one should render as a link`);
+  }
+});
+
+test('nav · a view this menu has never heard of stays a top-level link', () => {
+  // The grouping is a hand-written list of hrefs and the views are configuration, so the two can disagree at
+  // any time. When they do the menu must degrade to the flat row it replaced, not swallow the page: an entry
+  // nobody named is still an entry somebody has to click.
+  const custom = [
+    { href: 'index.html', label: 'Home' },
+    { href: 'view-invented.html', label: 'Invented' },
+    { href: 'view-product.html', label: 'Product' },
+  ];
+  const menu = groupNav(custom);
+  eq(menu.map((e) => `${e.kind}:${e.label}`), ['link:Home', 'link:Invented', 'link:Product'],
+    'nothing groupable and one unknown view: the result is the flat row, and Product alone is a link not a menu');
+
+  // And the whole shipped set, minus every view: still a menu, still complete.
+  eq(groupNav([]).length, 0, 'no entries, no menu — never an empty menu bar');
+});
+
+test('nav · the group holding the current page says so, in colour and in words', () => {
+  // A collapsed group that gives no sign it holds the page you are on tells the reader their page is not in
+  // the menu. `aria-current` stays on the link, where it means "this page"; the group carries the fact that
+  // it contains it, and carries it twice — once as a dot, once as a sentence for a reader who cannot see one.
+  const dir = fixture('nav-current', { 'docs/A.md': '# A\n' });
+  const cfg = resolveConfig(dir);
+  const index = buildIndex(dir, cfg);
+  const site = renderSite(index, runHealth(index, cfg, dir), cfg, dir);
+  const html = fs.readFileSync(path.join(site.outDir, 'view-economics.html'), 'utf8');
+  const bar = /<header class="topbar">[\s\S]*?<\/header>/.exec(html)[0];
+
+  includes(bar, '<a href="view-economics.html" aria-current="page">Economics</a>',
+    'the link to the current page keeps aria-current, wherever in the menu it sits');
+  const here = /<details class="here">([\s\S]*?)<\/details>/.exec(bar);
+  ok(here, 'the group holding the current page is marked');
+  includes(here[1], '<summary>Work', 'and it is the group that actually holds it');
+  includes(here[1], '(contains the current page)', 'said in words, not only in colour');
+  eq((bar.match(/<details class="here">/g) || []).length, 1, 'exactly one group can hold the current page');
+
+  // The other pages are not on this one, so no other group may claim it.
+  const home = fs.readFileSync(path.join(site.outDir, 'index.html'), 'utf8');
+  eq((home.match(/<details class="here">/g) || []).length, 0,
+    'Home is a top-level link, so on the homepage no group contains the current page');
+  includes(home, '<a href="index.html" aria-current="page">Home</a>', 'and the top-level link still marks itself');
+});
+
+test('nav · the menu is <details>, so it works with no script at all', () => {
+  // The constraint is a CSP that forbids fetching anything and a page that has to survive with scripts off.
+  // `<details>` is the browser's own disclosure widget: it opens on click and on Enter/Space, it announces
+  // its own expanded state, and none of that is ours to break. The script adds Escape, click-outside and
+  // tab-out — three conveniences — so it may never be the thing that opens a menu.
+  const dir = fixture('nav-noscript', { 'docs/A.md': '# A\n' });
+  const cfg = resolveConfig(dir);
+  const index = buildIndex(dir, cfg);
+  const site = renderSite(index, runHealth(index, cfg, dir), cfg, dir);
+  const html = fs.readFileSync(path.join(site.outDir, 'index.html'), 'utf8');
+  const bar = /<header class="topbar">[\s\S]*?<\/header>/.exec(html)[0];
+
+  ok(!/on[a-z]+=/.test(bar), 'no inline handler in the topbar — the CSP would refuse it and the menu must not need it');
+  for (const g of NAV_GROUPS) {
+    if (!bar.includes(`<summary>${g.label}`)) continue;
+    includes(bar, `<summary>${g.label}`, `${g.label} opens a <details>, not a scripted div`);
+  }
+  includes(bar, '<details class="navburger"><summary>', 'the burger is a disclosure widget too');
+
+  // The burger holds no links: it toggles the list that *follows* it, through the [open] sibling selector.
+  // A closed <details> hides its children by a UA mechanism the child cannot override, so the list has to be
+  // outside it and after it — inside, the desktop nav would be invisible. Markup and stylesheet have to agree
+  // about that or the burger opens onto nothing at all.
+  const opens = bar.indexOf('<details class="navburger">');
+  const closes = bar.indexOf('</details>', opens);
+  const list = bar.indexOf('<ul class="navlist">');
+  ok(opens !== -1 && list !== -1, 'sanity: the burger and the list both render');
+  ok(closes < list, 'the list is a following sibling of the burger, never a child of it');
+  includes(fs.readFileSync(path.join(site.outDir, 'atlas.css'), 'utf8'), '.navburger[open] ~ .navlist',
+    'and the stylesheet must be the rule that reads its open state');
+
+  // The clock and the toggle sit beside the menu, not inside it — the export deletes the nav wholesale.
+  ok(bar.indexOf('</nav>') < bar.indexOf('id="clock"'), 'the clock is not inside the navigation');
+  ok(bar.indexOf('</nav>') < bar.indexOf('id="themeToggle"'), 'nor is the theme toggle');
+});
+
+test('nav · every colour the menu adds is defined outside a media query', () => {
+  // The house rule, and the classic unreadable-page bug: a colour whose only definition sits inside
+  // `prefers-color-scheme` never applies in the un-stamped state, which is the most common one. Checked by
+  // deleting every @media block from the stylesheet and asserting the menu is still fully painted.
+  const dir = fixture('nav-theme', { 'docs/A.md': '# A\n' });
+  const cfg = resolveConfig(dir);
+  const index = buildIndex(dir, cfg);
+  const site = renderSite(index, runHealth(index, cfg, dir), cfg, dir);
+  const css = fs.readFileSync(path.join(site.outDir, 'atlas.css'), 'utf8');
+
+  // Nested one level at most in this stylesheet, so a non-greedy match to a closing brace at column 0 is
+  // exact rather than approximate.
+  const base = css.replace(/@media[^{]*\{[\s\S]*?\n\}/g, '');
+  for (const sel of ['.navmenu {', '.navburger-bars {', '.navgroup > details.here > summary {',
+                     '.sitenav summary {', '.sitenav a[aria-current="page"] {', '.vh {']) {
+    includes(base, sel, `${sel} must be defined outside any media query, or it does not apply in the default theme`);
+  }
+  // Both explicit themes are reached through tokens rather than through a second set of literals. Sliced out
+  // of the full stylesheet, not out of `base`: the mobile block is a media query and `base` no longer has one.
+  const menuRules = css.slice(css.indexOf('.sitenav {'), css.indexOf('@media (max-width:820px)'));
+  ok(menuRules.length > 500, 'sanity: that slice is the menu, not an empty string from a renamed selector');
+  eq((menuRules.match(/#[0-9a-fA-F]{3,8}\b/g) || []), [],
+    'the menu names no literal ink — every colour is a token, so both themes move together. The two overlay '
+    + 'shadows are rgba and deliberate: they lift a panel off the page on either ground.');
 });
 
 console.log(`\n${pass} passed, ${fail} failed${skipped ? `, ${skipped} skipped on ${process.platform}` : ''}\n`);
