@@ -130,7 +130,7 @@ clone this repository and call your agent's own plugin command.
 claude plugin marketplace add rmaurya/project-atlas && claude plugin install atlas@project-atlas
 ```
 
-Skills arrive namespaced — **thirty-nine of them**, one per directory under `skills/`. `/atlas:help` prints
+Skills arrive namespaced — **forty of them**, one per directory under `skills/`. `/atlas:help` prints
 the map. The ones worth knowing on day one: `/atlas:build` `/atlas:status` `/atlas:health` `/atlas:changes`
 `/atlas:diff` `/atlas:ask` `/atlas:review` `/atlas:config` `/atlas:publish` `/atlas:dashboard` `/atlas:mcp`
 `/atlas:plan`. The full list, each with the command it shells out to, is
@@ -228,6 +228,7 @@ at any time.
 | `atlas surviving` | Surviving lines by file — what of the work is still standing. |
 | `atlas worklog` | Write the day's log to `worklog/` — commits, rework rate, items closed. |
 | `atlas git-insights [section]` | What git history says that nothing else here reads: hotspots, coupling, branches, cadence, hygiene, change. Read-only. |
+| `atlas git-tree` | The branch topology — what was cut from what, and where. Git records no parent for a branch, so every origin is inferred from the commit graph and says so. Read-only. |
 | `atlas tokens` | Where the tokens went — local transcripts, opt-in, never published. |
 | `atlas sessions` | How sessions went — turns, interruptions, friction, rework. |
 | `atlas prompt` | A system prompt assembled from this repository's own rules and state, for an agent that cannot load the plugin. |
@@ -243,7 +244,7 @@ above because a second row is the copy that goes stale. `atlas spec --gate` is t
 check; it reads the message from **stdin** and prints nothing when it passes, which is why it is a gate rather
 than a command you type. **Bare `atlas spec` is not a command at all** — it exits 2 with *Unknown command*,
 and it is written here with its flag so that nobody types the half that does not exist. The table plus this
-paragraph now name all 39, and a test fails if a dispatched command appears in neither (A-50).
+paragraph now name all 40, and a test fails if a dispatched command appears in neither (A-50).
 
 `atlas help` prints the same list from the CLI, and **that list is complete** — a test derives the dispatch
 table from the source and fails when a command is missing from it, or when it names one that does not exist.
@@ -540,7 +541,7 @@ node tests/run.mjs               # integration tests against throwaway git repos
 node tests/run.mjs --filter H6   # or a subset
 ```
 
-**The suite holds 526 test cases.** That figure is not maintained by hand: a test reads it out of this
+**The suite holds 541 test cases.** That figure is not maintained by hand: a test reads it out of this
 sentence and compares it against the cases it can count in `tests/run.mjs`, so adding a test and forgetting
 this line fails the suite. A count stated in prose beside a list that grows is a defect waiting to happen,
 and this repository has proved that three times (A-29) — most recently across the four public pages, where

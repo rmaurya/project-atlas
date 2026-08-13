@@ -48,7 +48,7 @@ import { readTokens, formatTokens, formatSessions, transcriptDir, assertNotPubli
          readTokenEconomics, formatEconomics, writeTokenSnapshot } from './lib/tokens.mjs';
 import { pauseSession, readParked, verifyParked, stopSession, WIP_PREFIX } from './lib/session.mjs';
 import { readChanges, formatChanges, fileDiff } from './lib/changes.mjs';
-import { readGitInsight, formatGitInsight, GITINSIGHT_SECTIONS } from './lib/gitinsight.mjs';
+import { readGitInsight, formatGitInsight, GITINSIGHT_SECTIONS, branchTree, formatBranchTree } from './lib/gitinsight.mjs';
 import { formatVersion, updateNotice, isPluginCache } from './lib/version.mjs';
 import { specVerdict, idsIn } from './lib/spec.mjs';
 import { checkForUpdate, readCache } from './lib/update.mjs';
@@ -989,6 +989,31 @@ async function main() {
     say(formatGitInsight(k, color));
     // Exit 1 only when there was nothing to read. Findings here are observations, not defects — a repository
     // with forty hotspots is not failing a check, and making this gate a build would teach people to skip it.
+    if (!k.available) process.exitCode = 1;
+    return;
+  }
+
+  /*
+   * `atlas git-tree` — the same refs as `git-insights branches`, drawn as a shape instead of a table (A-56).
+   *
+   * A separate command rather than a seventh section, because it answers a different question with the same
+   * facts: the table says how far ahead each branch is, one independent row at a time, and the tree says how
+   * they relate. It reuses `branchHealth` wholesale — nothing here re-derives a branch figure, which is the
+   * defect the tool exists to detect and would be the loudest possible one to ship inside it.
+   *
+   * **Read-only, like every other `git-*` command**, down to printing no `git branch -d` for anyone to paste.
+   * Exit 1 only when the refs could not be read at all: a repository whose topology is one branch is not
+   * failing a check.
+   */
+  if (cmd === 'git-tree') {
+    const k = branchTree(root, cfg);
+    if (flag('json')) {
+      // The tree is cyclic-free but node objects nest, and `ancestry.of` is a Map — flattened here rather than
+      // in the builder, so the terminal path never pays for a shape only a program wants.
+      console.log(JSON.stringify(k, (key, v) => (v instanceof Map ? Object.fromEntries(v) : v), 2));
+      return;
+    }
+    say(formatBranchTree(k, color));
     if (!k.available) process.exitCode = 1;
     return;
   }
@@ -2018,6 +2043,7 @@ function usage() {
   atlas surviving [--json]   whose written lines are still in the tree, by \`git blame\` rather than by commit
   atlas git-insights [sect]  what git history says that nothing else here reads — strictly read-only
                              sections: hotspots, coupling, branches, cadence, hygiene, change
+  atlas git-tree             branch topology — what was cut from what, and where. Origins are inferred
   atlas health [--verbose]   report rot signals; exit 1 if any blocking signal fires
   atlas spec --gate          the commit gate: refuse a staged change whose message names no plan item.
                              Reads the message on stdin and prints nothing when it passes. Bare \`atlas spec\`
