@@ -50,7 +50,7 @@ measured against the code — the same distinction the tool preserves everywhere
 | A-50 | 100 | A-51 | 0 | A-52 | 100 |
 | A-53 | 100 | A-54 | 100 | A-55 | 100 |
 | A-56 | 100 | P-9 | 100 | A-57 | 100 |
-| I-4 | 100 | S-8 | 100 | | |
+| I-4 | 100 | S-8 | 100 | A-61 | 100 |
 
 ---
 
@@ -771,6 +771,48 @@ someone has to remember, and a step people forget is a surface that goes stale �
 project exists to detect, reproduced in its own operation. Designed in
 [`docs/references/autonomy.md`](references/autonomy.md); the boundary is that autonomy covers derived state
 and stops at anything outward-facing.*
+
+**A-61 · A product is several repositories, and the directory holding them is not one** — **P1 · High**
+
+*Extends A-19, which is a doorway rather than a view.* `atlas serve --launcher` links every dashboard on the
+machine; it knows **ports**, because a port is derived from a path. It knows nothing about repositories — not
+whether one has adopted the tool, not what its plan says, not whether anything is in flight. Pointed at the
+directory this was built against it lists **one** project and implies the other twelve do not exist.
+
+*The measured shape.* `~/Working/GitHub/UtilityServer/` is not a git repository. It holds thirteen
+independent checkouts and a parent-level `docs/` describing the product as a whole; exactly one of the
+thirteen has adopted atlas. The owner's requirement, verbatim: *"it should work with individual repository
+while creating a common connection (but this will never commit)"*.
+
+***The case that makes this worth building is the one where the rest of the tool is silent.*** Sessions are
+run from the product directory while the work happens in a child — the ordinary way to work on something
+like this. Every hook here opens with `root=$(git rev-parse --show-toplevel) || exit 0`, so from there each
+one exits 0 and does nothing: no task recording, no rebuild on write, no dashboard. `atlas product` is the
+only surface designed to be run from a directory that is not a checkout, and from there it is the only thing
+a person can see at all. *(The hooks themselves are a separate defect and are not fixed by this item.)*
+
+*Four decisions, each with the alternative it beat.* **Discovery over declaration** — a member list is a
+document that goes stale, and it would live in a file that is never committed, so it would not survive a
+cleanup either; a product root is a directory that is not a repository whose children are, and members are
+found. **`~/.claude/` over the product directory** — the parent is outside every repository only until
+somebody runs `git init` in it, and a guarantee that another person's command can revoke is not a guarantee;
+`~/.claude/` is not below the product root at all, so nothing done to the product can bring the page inside
+one. **Stated over hidden** — twelve of thirteen have not adopted, so an unadopted member is a row carrying
+the markdown count adoption would index and the command that does it, which is the omitted-panel failure
+this project has already shipped three times. **Named over indexed** — the product-level corpus is reported
+as a finding (*committed to no repository*) and never read into the page, because everything this tool
+renders is re-derivable from something under version control and that corpus is under none.
+
+*Cheap by construction, and honest about the one thing that is not.* Per member: one config parse, one plan
+file, three read-only git commands. No build, no index. Health cannot be had that way — it needs every
+member's whole corpus — so it is **not measured by default and the page says so in those words** rather than
+leaving a blank that reads as a clean bill; `--deep` buys it with real time.
+
+*Read-only is enforced, not promised.* Five allow-listed git subcommands, each passed
+`--no-optional-locks` — without it a bare `git status` rewrites `.git/index`, which is a write into somebody
+else's repository. One write, through one function, refused at or inside any member. The suite snapshots
+every file under every member including `.git` before and after and asserts they are byte-identical.
+Documented in [`docs/references/product-view.md`](references/product-view.md).
 
 **A-57 · The commit guard refused on things that are somebody's judgement, and on its own crashes** — **P1 · High**
 

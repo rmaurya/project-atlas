@@ -21,7 +21,7 @@ disable-model-invocation: true
 
 ---
 
-Forty slash commands is too many to list. **Give the user the group their question belongs to, then the
+Forty-one slash commands is too many to list. **Give the user the group their question belongs to, then the
 one or two commands in it** — the failure with a surface this size is never a missing command, it is a person
 choosing between three they cannot tell apart.
 
@@ -35,7 +35,10 @@ choosing between three they cannot tell apart.
 **Seeing where things stand**
 `/atlas:status` the corpus, the rot and the one next action · `/atlas:health` the full rot report ·
 `/atlas:tasks` the plan as progress bars · `/atlas:design` which design documents exist, and which are
-scaffolds still owing their substance · `/atlas:dashboard` build, serve and hand back a URL
+scaffolds still owing their substance · `/atlas:dashboard` build, serve and hand back a URL ·
+`/atlas:product` every sibling repository under one directory at once — which have adopted this tool and
+which have not — for the case where the session is running from a directory that is not a repository, and
+every other surface here is therefore blank
 
 **Working on a change**
 `/atlas:branch` is it safe to commit here · `/atlas:plan` propose the route and run none of it ·

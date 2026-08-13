@@ -72,6 +72,8 @@ import { testInventory, casesInFile } from '../scripts/lib/testcases.mjs';
 import { designRecord, undesigned, citationHealth, EXPECTED } from '../scripts/lib/design.mjs';
 import { scaffold as scaffoldDesign, TEMPLATES } from '../scripts/lib/scaffold.mjs';
 import { renderLauncher, launcherProjects } from '../scripts/lib/launcher.mjs';
+import { productRootFor, discoverMembers, readProduct, renderProduct, readMember,
+         productPagePath, writeProductPage, unownedCorpus, isRepository } from '../scripts/lib/product.mjs';
 import { handle as mcpHandle, TOOLS as MCP_TOOLS, PROTOCOL_VERSION as MCP_VERSION,
          connectionStatus, formatConnection, runningServers } from '../scripts/lib/mcp.mjs';
 import { runTask, TASKS } from '../scripts/lib/task.mjs';
@@ -12330,6 +12332,286 @@ test('S-8 · a refused item pattern does not fall through to the second dialect'
   eq(plan.items, []);
   includes(plan.notes.join(' '), 'was NOT applied');
   eq(plan.notes.some((n) => /status-tag dialect/.test(n)), false);
+});
+
+/* ================================================================== the product view (A-61) */
+
+console.log('\nproduct view');
+
+/*
+ * **Every case below is synchronous, deliberately.** `pendingAsync` is drained thousands of lines above this
+ * point, so an `async` case appended here is registered, never awaited, and counted as a pass it never
+ * earned. Everything here is `execFileSync` and `readFileSync`, which is also what the module under test uses.
+ */
+
+/**
+ * A real product: a parent directory that is NOT a repository, holding several that are.
+ *
+ * Built by hand rather than through `fixture()`, because `fixture()` makes one repository and the whole
+ * subject here is the directory *above* one. Three members, deliberately in the three states the page has to
+ * distinguish — adopted with a readable plan, adopted-but-broken, and never adopted — plus a plain directory
+ * that must not be mistaken for a member, plus a product-level corpus belonging to nobody.
+ */
+function productFixture(name, { staleIndex = true } = {}) {
+  const root = path.join(tmpRoot, name);
+  fs.mkdirSync(root, { recursive: true });
+  made.push(root);
+
+  const repo = (member, files) => {
+    const dir = path.join(root, member);
+    fs.mkdirSync(dir, { recursive: true });
+    for (const [p, body] of Object.entries(files)) {
+      const full = path.join(dir, p);
+      fs.mkdirSync(path.dirname(full), { recursive: true });
+      fs.writeFileSync(full, body, 'utf8');
+    }
+    execFileSync('git', ['init', '-q'], { cwd: dir, stdio: 'ignore' });
+    execFileSync('git', ['add', '-A'], { cwd: dir, stdio: 'ignore' });
+    execFileSync('git', ['-c', 'user.email=t@example.com', '-c', 'user.name=Test', 'commit', '-qm', 'init'],
+      { cwd: dir, stdio: 'ignore' });
+    // Rewrite one tracked file with identical bytes. The content is unchanged, the mtime is not, so the
+    // index's cached stat is now stale — which is the ONLY state in which a bare `git status` rewrites
+    // `.git/index`. Without this the no-writes test would pass even with `--no-optional-locks` removed.
+    if (staleIndex) {
+      const [first] = Object.keys(files);
+      fs.writeFileSync(path.join(dir, first), files[first], 'utf8');
+    }
+    return dir;
+  };
+
+  repo('alpha', {
+    'README.md': '# alpha\n',
+    'project-atlas.config.json': JSON.stringify({ siteTitle: 'Alpha', planning: { source: 'docs/TASKS.md' } }),
+    'docs/TASKS.md': [
+      '# Plan', '',
+      '## Track 1 — Work', '',
+      '**A-1 · Done** — **P1 · High**', '*shipped*', '',
+      '**A-2 · Half** — **P2 · Medium**', '*in progress*', '',
+      '| Item | % |', '|---|---|', '| A-1 | 100 |', '| A-2 | 0 |', '',
+    ].join('\n'),
+  });
+
+  repo('beta', { 'README.md': '# beta\n', 'docs/one.md': 'a\n', 'docs/two.md': 'b\n' });
+
+  // Adopted on paper and unreadable in practice: `resolveConfig` refuses invalid JSON rather than guessing.
+  repo('gamma', { 'README.md': '# gamma\n', 'project-atlas.config.json': '{ this is not json' });
+
+  // A child that is not a checkout. It must not appear as a member.
+  fs.mkdirSync(path.join(root, 'scratch'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'scratch', 'notes.md'), 'not a repository\n', 'utf8');
+
+  // The corpus that belongs to nobody. 1,234 lines, chosen so the page has to group a digit.
+  fs.mkdirSync(path.join(root, 'docs'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'docs', 'ARCHITECTURE.md'), 'x\n'.repeat(1233) + 'x', 'utf8');
+  fs.writeFileSync(path.join(root, 'docs', 'INTERCONNECTIONS.md'), '# how they talk\n', 'utf8');
+  fs.writeFileSync(path.join(root, 'README.md'), '# the product\n', 'utf8');
+
+  return root;
+}
+
+/** Every file under `dir`, as path → size:mtime. Includes `.git`, which is the half that catches a write. */
+function snapshotTree(dir) {
+  const out = {};
+  const walk = (d, rel) => {
+    for (const e of fs.readdirSync(d, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+      const full = path.join(d, e.name);
+      const key = rel ? `${rel}/${e.name}` : e.name;
+      if (e.isDirectory()) walk(full, key);
+      else {
+        const st = fs.statSync(full);
+        out[key] = `${st.size}:${st.mtimeMs}`;
+      }
+    }
+  };
+  walk(dir, '');
+  return out;
+}
+
+const PRODUCT = productFixture('product-basic');
+const PRODUCT_HOME = path.join(tmpRoot, 'product-home');
+
+test('product · members are discovered from the filesystem, and a child that is not a checkout is not one', () => {
+  const verdict = productRootFor(PRODUCT);
+  eq(verdict.ok, true, verdict.reason || '');
+  eq(verdict.members.map((m) => path.basename(m)), ['alpha', 'beta', 'gamma'],
+     'discovered, in a stable order, with no list to maintain anywhere');
+  // `scratch/` holds markdown and is not a repository. A view that counted it would be inventing a member.
+  eq(discoverMembers(PRODUCT).members.some((m) => /scratch$/.test(m)), false);
+  eq(isRepository(PRODUCT), false, 'the product root itself is not a repository — that is what makes it one');
+});
+
+test('product · an unadopted member is a stated row carrying what adoption would take', () => {
+  const model = readProduct(PRODUCT);
+  eq(model.counts.members, 3);
+  eq(model.counts.adopted, 1);
+  eq(model.counts.unadopted, 1);
+
+  const beta = model.members.find((m) => m.name === 'beta');
+  eq(beta.state, 'unadopted');
+  eq(beta.markdown, 3, 'the three markdown files adoption would index — the number that makes it actionable');
+
+  // The whole reason this is not the launcher: twelve of thirteen real members have not adopted, and a page
+  // that showed only the adopted one would report a one-repository product.
+  const html = renderProduct(model);
+  includes(html, 'beta', 'an unadopted member appears on the page');
+  includes(html, 'atlas init', 'and says what adopting it would take, rather than nothing');
+  includes(html, 'not adopted');
+});
+
+test('product · an unreadable member is a stated row, never a dropped one', () => {
+  const model = readProduct(PRODUCT);
+  const gamma = model.members.find((m) => m.name === 'gamma');
+  ok(gamma, 'a member whose config cannot be parsed is still a member');
+  eq(gamma.state, 'unreadable');
+  includes(gamma.reason, 'not valid JSON');
+  eq(model.counts.unreadable, 1);
+  // The count must agree with the rows. A dropped row is indistinguishable from a repository that is absent.
+  eq(model.members.length, model.counts.adopted + model.counts.unadopted + model.counts.unreadable);
+  includes(renderProduct(model), 'unreadable');
+});
+
+test('product · plan progress is read from the member’s own planning source, with nothing built', () => {
+  const alpha = readProduct(PRODUCT).members.find((m) => m.name === 'alpha');
+  eq(alpha.state, 'adopted');
+  eq(alpha.siteTitle, 'Alpha');
+  eq(alpha.plan.items, 2);
+  eq(alpha.plan.done, 1);
+  eq(alpha.plan.mean, 50);
+  // Derived, and derived cheaply: one config file and one markdown file, no index and no build output.
+  eq(fs.existsSync(path.join(PRODUCT, 'alpha', 'docs', '_wiki')), false, 'nothing was generated in the member');
+});
+
+test('product · health is not measured by default, and the page says so in those words', () => {
+  const model = readProduct(PRODUCT);
+  eq(model.deep, false);
+  eq(model.members.find((m) => m.name === 'alpha').health, null, 'null, not zero — nothing was measured');
+  const html = renderProduct(model);
+  includes(html, 'Health was not measured');
+  includes(html, '--deep');
+  // The failure this guards: a blank read as a clean bill of health, which is the omitted-panel defect again.
+  eq(/0 blocking/.test(html), false, 'a number nobody computed must not appear');
+});
+
+test('product · run from inside a member it names the parent instead of ascending on its own', () => {
+  const verdict = productRootFor(path.join(PRODUCT, 'alpha'));
+  eq(verdict.ok, false);
+  includes(verdict.reason, 'is itself a git repository');
+  includes(verdict.hint, '--product');
+  includes(verdict.hint, PRODUCT, 'it names the parent it can see');
+  eq(verdict.members, [], 'and returns no members — a guess about somebody’s layout is not a discovery');
+});
+
+test('product · a directory holding one checkout is not a product', () => {
+  const lonely = path.join(tmpRoot, 'product-lonely');
+  fs.mkdirSync(path.join(lonely, 'only'), { recursive: true });
+  fs.writeFileSync(path.join(lonely, 'only', 'README.md'), '# only\n', 'utf8');
+  execFileSync('git', ['init', '-q'], { cwd: path.join(lonely, 'only'), stdio: 'ignore' });
+  made.push(lonely);
+  const verdict = productRootFor(lonely);
+  eq(verdict.ok, false);
+  includes(verdict.reason, "a product view of one repository is that repository's own dashboard",
+           'one repository is its own dashboard, not a product');
+});
+
+test('product · the page is refused any destination inside a member, or inside the product root', () => {
+  const model = readProduct(PRODUCT);
+  const html = renderProduct(model);
+  let threw = null;
+  try { writeProductPage(path.join(PRODUCT, 'alpha', 'docs', 'product.html'), html, model); }
+  catch (err) { threw = err.message; }
+  ok(threw, 'writing into a member must throw, not warn — a warning is something a script ignores');
+  includes(threw, 'inside the member repository alpha');
+  eq(fs.existsSync(path.join(PRODUCT, 'alpha', 'docs', 'product.html')), false, 'and nothing was written');
+
+  let threw2 = null;
+  try { writeProductPage(path.join(PRODUCT, 'product.html'), html, model); }
+  catch (err) { threw2 = err.message; }
+  ok(threw2, 'the product root is outside every repository only until somebody runs git init there');
+  includes(threw2, 'inside the product root');
+  eq(fs.existsSync(path.join(PRODUCT, 'product.html')), false);
+
+  // And the destination it does accept is one it will actually write.
+  const good = path.join(PRODUCT_HOME, 'out', 'product.html');
+  eq(writeProductPage(good, html, model), good);
+  eq(fs.readFileSync(good, 'utf8'), html);
+});
+
+test('product · the default page path is outside the product and outside every member', () => {
+  const model = readProduct(PRODUCT);
+  const page = productPagePath(PRODUCT, { home: PRODUCT_HOME });
+  eq(isAtOrInside(PRODUCT, page), false, 'never below the product root');
+  for (const m of model.members) eq(isAtOrInside(m.path, page), false, `never inside ${m.name}`);
+  includes(page, path.join('atlas', 'products'));
+  // Two products with the same basename in different places must not collide on one file.
+  const other = path.join(tmpRoot, 'elsewhere', path.basename(PRODUCT));
+  fs.mkdirSync(other, { recursive: true });
+  ok(productPagePath(other, { home: PRODUCT_HOME }) !== page, 'the path is keyed by the whole resolved root');
+});
+
+test('product · drawing the page writes nothing into any member, not even git’s stat cache', () => {
+  // The constraint the owner stated in their own words, tested rather than promised. The `.git` half is the
+  // one that bites: a bare `git status` refreshes and rewrites `.git/index`, which is a write into somebody
+  // else’s repository. The fixture leaves that index stale on purpose so the rewrite would actually happen —
+  // remove `--no-optional-locks` from product.mjs and this fails on `alpha/.git/index`.
+  //
+  // **Its own fixture, and that is not tidiness.** Against the shared one this test passed with the flag
+  // removed, because an earlier case had already run `readProduct` and the first read is the one that
+  // refreshes a stale index. A guarantee test that only holds when it runs first is not a guarantee test.
+  const fresh = productFixture('product-no-writes');
+  const before = {};
+  for (const m of ['alpha', 'beta', 'gamma']) before[m] = snapshotTree(path.join(fresh, m));
+
+  const model = readProduct(fresh);
+  writeProductPage(path.join(PRODUCT_HOME, 'nowrite', 'product.html'), renderProduct(model), model);
+
+  for (const m of ['alpha', 'beta', 'gamma']) {
+    eq(snapshotTree(path.join(fresh, m)), before[m], `${m} was modified by a read-only view`);
+  }
+});
+
+test('product · the page is byte-identical for an unchanged product, and carries no clock', () => {
+  const a = renderProduct(readProduct(PRODUCT));
+  const b = renderProduct(readProduct(PRODUCT));
+  eq(a === b, true, 'two runs, same bytes — which is what makes a diff of this page mean the product changed');
+  eq(/\bUTC\b/.test(a), false, 'no generation stamp: the launcher records one, this must not');
+  eq(/generatedAt|Recorded /.test(a), false);
+});
+
+test('product · a figure on the page goes through num(), never straight into the template', () => {
+  // Two different regressions, and this catches the one the file-wide scan cannot. `${d.lines}` — a raw
+  // interpolation with no formatter at all — is not a `toLocaleString()` call, so the scan above never sees
+  // it; what it produces is `1234 lines` on a page where every other figure is grouped. The *locale* half
+  // (a bare `toLocaleString()` grouping as 12,34 under en-IN) is the scan's job, and it cannot be caught
+  // here: en-US and en-IN agree at four digits, and the suite runs under en-US.
+  const html = renderProduct(readProduct(PRODUCT));
+  includes(html, `${num(1234)} lines`, 'the unowned corpus is counted with num()');
+  eq(html.includes('1234 lines'), false, 'and never with a raw integer');
+});
+
+test('product · the product-level corpus is named and never indexed', () => {
+  const docs = unownedCorpus(PRODUCT).map((d) => d.path);
+  // Ordered by `localeCompare` under a pinned `en`, so the page is byte-identical on a machine whose default
+  // collation disagrees — the same reason `format.mjs` pins the number locale.
+  eq(docs, ['docs/ARCHITECTURE.md', 'docs/INTERCONNECTIONS.md', 'README.md']);
+  const html = renderProduct(readProduct(PRODUCT));
+  includes(html, 'docs/ARCHITECTURE.md', 'named');
+  includes(html, 'committed to no repository', 'and reported as the finding it is');
+  // Not indexed: no heading, no line, no word of their content reaches the page. Everything this tool
+  // renders is re-derivable from something under version control, and that corpus is under none.
+  eq(html.includes('how they talk'), false, 'the H1 of an unowned document must not appear on the page');
+});
+
+test('product · the whole git surface is read-only and passes --no-optional-locks', () => {
+  const src = fs.readFileSync(path.join(HERE, '..', 'scripts', 'lib', 'product.mjs'), 'utf8');
+  const calls = [...src.matchAll(/execFileSync\(/g)];
+  eq(calls.length, 1, 'one process is spawned from this module, so there is one place to audit');
+  includes(src, "'--no-optional-locks'",
+    'without it a bare `git status` rewrites .git/index — a write into a member repository');
+  // The allow-list is what makes "read-only" checkable rather than a comment. `commit`, `fetch`, `checkout`
+  // and `gc` are not on it, and the helper throws rather than running an unlisted subcommand.
+  for (const forbidden of ['commit', 'fetch', 'checkout', 'gc', 'add']) {
+    eq(new RegExp(`GIT_READS[^)]*'${forbidden}'`).test(src), false, `${forbidden} must not be on the allow-list`);
+  }
 });
 
 console.log(`\n${pass} passed, ${fail} failed${skipped ? `, ${skipped} skipped on ${process.platform}` : ''}\n`);

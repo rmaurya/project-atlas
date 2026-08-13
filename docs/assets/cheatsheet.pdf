@@ -10,7 +10,7 @@ endobj
 << /Type /Page /Parent 2 0 R /MediaBox [0 0 842 595] /Resources << /Font << /F1 5 0 R /F2 6 0 R /F3 7 0 R >> >> /Contents 4 0 R >>
 endobj
 4 0 obj
-<< /Length 16533 >>
+<< /Length 16734 >>
 stream
 1.0000 1.0000 1.0000 rg 0 0 842 595 re f
 BT 0.0706 0.1608 0.1686 rg /F2 17 Tf 1 0 0 1 20 558 Tm (project-atlas) Tj ET
@@ -50,43 +50,45 @@ BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 130.88 397.9 Tm (which design doc
 0.1098 0.2275 0.2431 RG 0.63 w 20.31 388.72 3.77 3.77 re S
 BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 28.4 386.9 Tm (dashboard) Tj ET
 BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 130.88 386.9 Tm (build, serve and hand back a URL) Tj ET
-BT 0.1098 0.2275 0.2431 rg /F2 8.8 Tf 1 0 0 1 20 373.8 Tm (Working on a change) Tj ET
-0.7373 0.7843 0.7765 rg 20 370.03 390 0.6 re f
-BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 28.4 359.1 Tm (branch [type slug]) Tj ET
-BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 130.88 359.1 Tm (is it safe to commit here) Tj ET
-BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 28.4 348.1 Tm (plan [slug]) Tj ET
-BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 130.88 348.1 Tm (propose the route and run none of it) Tj ET
-BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 28.4 337.1 Tm (changes [--json]) Tj ET
-BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 130.88 337.1 Tm (what is uncommitted and which documents cite it) Tj ET
-BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 28.4 326.1 Tm (diff <file>) Tj ET
-BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 130.88 326.1 Tm (one file, explained) Tj ET
-0.1098 0.2275 0.2431 RG 0.63 w 20.31 316.92 3.77 3.77 re S
-BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 28.4 315.1 Tm (review) Tj ET
-BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 130.88 315.1 Tm (what this diff breaks or fixes, before the commit) Tj ET
-BT 0.1098 0.2275 0.2431 rg /F2 8.8 Tf 1 0 0 1 20 302 Tm (Picking up cold) Tj ET
-0.7373 0.7843 0.7765 rg 20 298.23 390 0.6 re f
-BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 28.4 287.3 Tm (state [--json]) Tj ET
-BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 130.88 287.3 Tm (what a resuming session reads first) Tj ET
-BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 28.4 276.3 Tm (handoff) Tj ET
-BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 130.88 276.3 Tm (the derived half of a handoff, for the half only a person can write) Tj ET
-BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 28.4 265.3 Tm (note <kind> "<text>") Tj ET
-BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 130.88 265.3 Tm (record one decision, trap or blocker) Tj ET
-BT 0.1098 0.2275 0.2431 rg /F2 8.8 Tf 1 0 0 1 20 252.2 Tm (Digging into history) Tj ET
-0.7373 0.7843 0.7765 rg 20 248.43 390 0.6 re f
-BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 28.4 237.5 Tm (contrib [--json]) Tj ET
-BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 130.88 237.5 Tm (commits over time) Tj ET
-BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 28.4 226.5 Tm (ownership [--json]) Tj ET
-BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 130.88 226.5 Tm (authors per area, and where the bus factor is one) Tj ET
-BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 28.4 215.5 Tm (surviving [--json]) Tj ET
-BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 130.88 215.5 Tm (lines still in the tree) Tj ET
-BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 28.4 204.5 Tm (worklog [--day D]) Tj ET
-BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 130.88 204.5 Tm (what landed today) Tj ET
-BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 28.4 193.5 Tm (sessions [--out F]) Tj ET
-BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 130.88 193.5 Tm (how sessions went \227 turns, interruptions, friction, rework) Tj ET
-BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 28.4 182.5 Tm (tokens [--out FILE]) Tj ET
-BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 130.88 182.5 Tm (token accounting from local session transcripts \227 opt-in, never published) Tj ET
-BT 0.4314 0.4824 0.4745 rg /F3 7.2 Tf 1 0 0 1 35.6 172.5 Tm (--snapshot) Tj ET
-BT 0.4314 0.4824 0.4745 rg /F1 7.2 Tf 1 0 0 1 130.88 172.5 Tm (append the counts-only day rollup to .atlas/tokens.jsonl \(needs tokens.snapshot\)) Tj ET
+BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 28.4 375.9 Tm (product) Tj ET
+BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 130.88 375.9 Tm (every sibling repository under one directory at once) Tj ET
+BT 0.1098 0.2275 0.2431 rg /F2 8.8 Tf 1 0 0 1 20 362.8 Tm (Working on a change) Tj ET
+0.7373 0.7843 0.7765 rg 20 359.03 390 0.6 re f
+BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 28.4 348.1 Tm (branch [type slug]) Tj ET
+BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 130.88 348.1 Tm (is it safe to commit here) Tj ET
+BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 28.4 337.1 Tm (plan [slug]) Tj ET
+BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 130.88 337.1 Tm (propose the route and run none of it) Tj ET
+BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 28.4 326.1 Tm (changes [--json]) Tj ET
+BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 130.88 326.1 Tm (what is uncommitted and which documents cite it) Tj ET
+BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 28.4 315.1 Tm (diff <file>) Tj ET
+BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 130.88 315.1 Tm (one file, explained) Tj ET
+0.1098 0.2275 0.2431 RG 0.63 w 20.31 305.92 3.77 3.77 re S
+BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 28.4 304.1 Tm (review) Tj ET
+BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 130.88 304.1 Tm (what this diff breaks or fixes, before the commit) Tj ET
+BT 0.1098 0.2275 0.2431 rg /F2 8.8 Tf 1 0 0 1 20 291 Tm (Picking up cold) Tj ET
+0.7373 0.7843 0.7765 rg 20 287.23 390 0.6 re f
+BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 28.4 276.3 Tm (state [--json]) Tj ET
+BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 130.88 276.3 Tm (what a resuming session reads first) Tj ET
+BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 28.4 265.3 Tm (handoff) Tj ET
+BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 130.88 265.3 Tm (the derived half of a handoff, for the half only a person can write) Tj ET
+BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 28.4 254.3 Tm (note <kind> "<text>") Tj ET
+BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 130.88 254.3 Tm (record one decision, trap or blocker) Tj ET
+BT 0.1098 0.2275 0.2431 rg /F2 8.8 Tf 1 0 0 1 20 241.2 Tm (Digging into history) Tj ET
+0.7373 0.7843 0.7765 rg 20 237.43 390 0.6 re f
+BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 28.4 226.5 Tm (contrib [--json]) Tj ET
+BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 130.88 226.5 Tm (commits over time) Tj ET
+BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 28.4 215.5 Tm (ownership [--json]) Tj ET
+BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 130.88 215.5 Tm (authors per area, and where the bus factor is one) Tj ET
+BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 28.4 204.5 Tm (surviving [--json]) Tj ET
+BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 130.88 204.5 Tm (lines still in the tree) Tj ET
+BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 28.4 193.5 Tm (worklog [--day D]) Tj ET
+BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 130.88 193.5 Tm (what landed today) Tj ET
+BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 28.4 182.5 Tm (sessions [--out F]) Tj ET
+BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 130.88 182.5 Tm (how sessions went \227 turns, interruptions, friction, rework) Tj ET
+BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 28.4 171.5 Tm (tokens [--out FILE]) Tj ET
+BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 130.88 171.5 Tm (token accounting from local session transcripts \227 opt-in, never published) Tj ET
+BT 0.4314 0.4824 0.4745 rg /F3 7.2 Tf 1 0 0 1 35.6 161.5 Tm (--snapshot) Tj ET
+BT 0.4314 0.4824 0.4745 rg /F1 7.2 Tf 1 0 0 1 130.88 161.5 Tm (append the counts-only day rollup to .atlas/tokens.jsonl \(needs tokens.snapshot\)) Tj ET
 BT 0.1098 0.2275 0.2431 rg /F2 8.8 Tf 1 0 0 1 432 506.4 Tm (What git history says, and nothing else here reads) Tj ET
 0.7373 0.7843 0.7765 rg 432 502.63 390 0.6 re f
 BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 440.4 491.7 Tm (git-insights [sect]) Tj ET
@@ -211,11 +213,11 @@ xref
 0000000064 00000 n 
 0000000121 00000 n 
 0000000267 00000 n 
-0000016853 00000 n 
-0000016950 00000 n 
-0000017052 00000 n 
+0000017054 00000 n 
+0000017151 00000 n 
+0000017253 00000 n 
 trailer
 << /Size 8 /Root 1 0 R >>
 startxref
-17147
+17348
 %%EOF
