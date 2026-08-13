@@ -9,7 +9,7 @@ retract. That opening line — *"not yet built"* — then stayed put through the
 the ordinary way a design document becomes a lie: nobody re-reads the first paragraph of a file they are
 adding a section to.
 
-What ships today: the five automation switches, all defaulting on, enforced at `scripts/atlas.mjs:386`,
+What ships today: the five automation switches, all defaulting on, enforced at `scripts/atlas.mjs:415`,
 `:864`, `:896` and `:925`; the journal and its continuity hooks; the branch posture; the local artifact. What
 is still design and says so where it is described: nothing on the far side of the line below. **The line
 itself has held** — no release has moved push or publish out of "never", and `docs/references/agent-control.md`

@@ -19,7 +19,10 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { globToRegExp, resolveConfig, DEFAULT_CLUSTERS, DEFAULT_CONFIG, clusterFor, unsafeRegexReason, AUTOMATION_KEYS } from '../scripts/lib/config.mjs';
 import { buildIndex } from '../scripts/lib/scan.mjs';
 import { runHealth, formatReport, SIGNALS, OPERATOR_SIGNALS, readParallelism,
-         DEFAULT_PARALLELISM_EDITS, CORPUS_SIGNALS as HEALTH_CORPUS_SIGNALS } from '../scripts/lib/health.mjs';
+         DEFAULT_PARALLELISM_EDITS, PARALLELISM_SAMPLE, parallelismEvidence,
+         CORPUS_SIGNALS as HEALTH_CORPUS_SIGNALS } from '../scripts/lib/health.mjs';
+import { readSessionParallelism } from '../scripts/lib/parallelism.mjs';
+import { readContention, formatContention, definedIds } from '../scripts/lib/contention.mjs';
 import { SIGNALS as CORPUS_SIGNALS } from '../scripts/lib/signals.mjs';
 import { renderSite, BUILD_CLAIM, BUILD_MARKERS } from '../scripts/lib/render.mjs';
 import { renderMarkdown, inline } from '../scripts/lib/markdown.mjs';
@@ -6651,8 +6654,12 @@ test('H17 · measures the operator, not the corpus, and says so in its own descr
   includes(why.toLowerCase(), 'operator', 'H17 must name what it measures');
   includes(why.toLowerCase(), 'not the corpus', 'and must name what it does not measure');
   includes(why, String(DEFAULT_PARALLELISM_EDITS), 'the threshold must appear in the signal text');
-  includes(why, '25th percentile', 'and the evidence for the threshold, not just the number');
-  includes(why, '29 transcripts', 'and the sample that evidence was measured over — a percentile of what?');
+  // The evidence, and — since the measurement refused to justify a threshold — the admission that the number
+  // is chosen rather than derived. This assertion used to demand the words "25th percentile" and
+  // "29 transcripts", which the text duly contained and which were both false; see the case headed
+  // "every number in the printed justification is computed from the sample" for what replaced them.
+  includes(why, 'ARBITRARY ROUND NUMBER', 'a chosen default must say it was chosen');
+  includes(why, '29 sessions', 'and name the sample it was calibrated against — a note against what?');
 
   // The catalogue split is what makes the distinction structural rather than a comment: `signals.mjs` is the
   // corpus catalogue, and `config.mjs`, `prompt.mjs` and `kb.mjs` read it when they mean "rot signals".
@@ -8920,6 +8927,390 @@ test('inventory · the README quotes the real length of install.sh and the real 
     fs.readFileSync(path.join(REPO_ROOT, 'tests', 'run.mjs'), 'utf8')).length;
   includes(docText('README.md'), `The suite holds ${cases} test cases.`,
     'add a test and this fails until the README says so — which is the whole point of this block');
+});
+
+/* ================================================================== H17 is wired in, and its numbers are real (Q-4) */
+
+/**
+ * **H17 was filed at 100% and had never run once.** `readParallelism` was correct and tested; no caller ever
+ * passed `opts.sessions`, so every report on every machine printed *"H17 — (not evaluated)"*. And the
+ * paragraph justifying its threshold contained two figures that contradicted each other. Both halves are
+ * pinned here.
+ *
+ * **Synchronous, like everything appended below the drain.** `pendingAsync` is emptied thousands of lines
+ * above this point, so an `async` case registered here would never be awaited and would report a pass it
+ * never earned. Every case below was checked by reverting the change and watching it fail.
+ */
+
+console.log('\nH17 · wired in, and measured');
+
+test('H17 · every surface that reports health evaluates it, and only the commit gate does not', () => {
+  // **This is the test the defect needed and did not have.** Eight call sites, none with a fourth argument:
+  // the signal was designed, documented, unit-tested and unreachable. A test over `readParallelism` cannot
+  // see that, because `readParallelism` was never the broken part — the wiring was, and wiring is only
+  // visible from the caller.
+  const src = fs.readFileSync(path.join(REPO_ROOT, 'scripts', 'atlas.mjs'), 'utf8');
+  const calls = [...src.matchAll(/runHealth\(index, cfg, root([^)]*)\)/g)].map((m) => m[1]);
+  ok(calls.length >= 7, `expected the health call sites to still be here, found ${calls.length}`);
+
+  const bare = calls.filter((a) => !a.includes('healthOpts'));
+  eq(bare.length, 1,
+    'exactly one call site may omit the session aggregate; every other one prints a report that would say ' +
+    '"not evaluated" without it');
+
+  // And the one that omits it must be the gate, identified by what surrounds it rather than by counting.
+  const gate = src.slice(src.indexOf("if (cmd === 'health' && flag('gate'))"), src.indexOf("if (cmd === 'health' && flag('gate'))") + 1400);
+  ok(/runHealth\(index, cfg, root\)/.test(gate),
+    'the omission must be the --gate path — it reads blockingCount only, and H17 can never block');
+  includes(gate, 'No `healthOpts` here',
+    'and it must say why, so the omission does not read as the bug it is the fix for');
+});
+
+/** A store on disk in the shape Claude Code writes: a session file, and its subagents one directory down. */
+const H17_STORE = path.join(tmpRoot, 'h17-store');
+
+/** One assistant record. `tools` become `tool_use` blocks, which is where an edit is counted from. */
+const h17Turn = (o) => JSON.stringify({
+  type: 'assistant', timestamp: '2026-08-13T10:00:00Z', sessionId: o.sessionId,
+  ...(o.isSidechain === undefined ? {} : { isSidechain: o.isSidechain }),
+  message: { model: 'test-model', content: (o.tools || []).map((name) => ({ type: 'tool_use', name })) },
+});
+
+const h17Fixture = (() => {
+  const dir = fixture('h17-store-read', {
+    'project-atlas.config.json': JSON.stringify({ tokens: { transcriptRoot: H17_STORE } }),
+    'docs/README.md': '# H17 fixture index\n\n[A](A.md)\n',
+    'docs/A.md': '# H17 fixture page A\n\nBack to the [index](README.md).\n',
+  });
+  const slug = path.basename(transcriptDir(dir, { tokens: { transcriptRoot: H17_STORE } }));
+  const store = path.join(H17_STORE, slug);
+  fs.mkdirSync(path.join(store, 'fanned-session', 'subagents'), { recursive: true });
+
+  // A solo session: 41 main-thread edits across the four editing tools, and not one delegated turn.
+  const solo = [];
+  for (let i = 0; i < 38; i++) solo.push(h17Turn({ sessionId: 'solo-session', tools: ['Edit'] }));
+  solo.push(h17Turn({ sessionId: 'solo-session', tools: ['Write', 'MultiEdit'] }));
+  solo.push(h17Turn({ sessionId: 'solo-session', tools: ['NotebookEdit'] }));
+  // Neither of these is an edit, and counting them would make the threshold mean something else.
+  solo.push(h17Turn({ sessionId: 'solo-session', tools: ['Read', 'Bash', 'Grep'] }));
+  solo.push(JSON.stringify({ type: 'user', sessionId: 'solo-session', message: { content: 'assistant?' } }));
+  fs.writeFileSync(path.join(store, 'solo-session.jsonl'), solo.join('\n') + '\n', 'utf8');
+
+  // A session that delegated. Its main thread edited far more than the solo one, and H17 stays quiet on it.
+  fs.writeFileSync(path.join(store, 'fanned-session.jsonl'),
+    [h17Turn({ sessionId: 'fanned-session', tools: ['Agent'] }),
+     ...Array.from({ length: 200 }, () => h17Turn({ sessionId: 'fanned-session', tools: ['Edit'] }))]
+      .join('\n') + '\n', 'utf8');
+  // The subagent's own transcript, one directory down, carrying the PARENT's sessionId — which is the only
+  // reason the turns below get charged to `fanned-session` rather than to a session that does not exist.
+  //
+  // **The third record carries no `isSidechain` at all**, and that is the case that matters. `tokens.mjs`
+  // takes either witness — a record marked `isSidechain` is a subagent turn wherever it lives, and a record
+  // *in a subagent transcript* is one whether it says so or not — and only the second witness covers the
+  // older transcript shape. Without it that turn is charged to the operator as a main-thread edit, which is
+  // the direction that makes a session that fanned out look like one that did not.
+  fs.writeFileSync(path.join(store, 'fanned-session', 'subagents', 'agent-a1.jsonl'),
+    [h17Turn({ sessionId: 'fanned-session', isSidechain: true, tools: ['Edit'] }),
+     h17Turn({ sessionId: 'fanned-session', isSidechain: true, tools: ['Write'] }),
+     h17Turn({ sessionId: 'fanned-session', tools: ['Edit'] })].join('\n') + '\n', 'utf8');
+  return { dir, store, cfg: { ...resolveConfig(dir), tokens: { transcriptRoot: H17_STORE } } };
+})();
+
+test("H17 · the reader meets readParallelism's contract, from a store in the real shape", () => {
+  const r = readSessionParallelism(h17Fixture.dir, h17Fixture.cfg);
+  ok(r.available, r.reason || 'the store must be readable');
+  const by = Object.fromEntries(r.sessions.map((s) => [s.id, s]));
+
+  eq(by['solo-ses'].edits, 41, 'Edit, Write, MultiEdit and NotebookEdit count; Read, Bash and Grep do not');
+  eq(by['solo-ses'].subagentTurns, 0, 'and it delegated nothing');
+
+  // The subagent transcript lives under `<store>/<session>/subagents/`, which a flat readdir never sees — the
+  // omission that hid every token a subagent spent. Its turns belong to the parent, not to a third session.
+  eq(r.sessions.length, 2, 'two sessions, not three: a subagent transcript is not a session of its own');
+  eq(by['fanned-s'].subagentTurns, 3,
+    'the sidechain turns are charged to the session that spawned them — including the one that carries no ' +
+    '`isSidechain` and is a subagent turn only because of where it lives');
+  eq(by['fanned-s'].edits, 200,
+    "and only main-thread edits are charged to the operator — the subagent's three are not, which is the " +
+    'direction that would otherwise make a session that fanned out look like one that never did');
+
+  // The contract, met exactly: this object is passed straight through as the fourth argument.
+  const verdict = readParallelism(r, h17Fixture.cfg);
+  ok(verdict.available, "health must accept the reader's output with no adaptation");
+  eq(verdict.flagged.map((f) => f.id), ['solo-ses'],
+    'the 200-edit session delegated, so it is never flagged however large it is');
+});
+
+test('H17 · with no store the reader costs one stat, and reports unevaluated with the reason why', () => {
+  // The property `atlas health` needs on every commit: the empty case must not walk a directory, read a task
+  // log or shell out to git. `hasTranscripts` is the one call before the return, and this pins the contract
+  // that comes back out of it.
+  const dir = fixture('h17-no-store', { 'docs/A.md': '# H17 absent-store page\n' });
+  const cfg = { ...resolveConfig(dir), tokens: { transcriptRoot: path.join(tmpRoot, 'h17-store-absent') } };
+  const r = readSessionParallelism(dir, cfg);
+  ok(!r.available, 'a machine with no transcripts for this path has no evidence to offer');
+  includes(r.reason, 'No session transcripts for this repository');
+  ok(!/\.$/.test(r.reason),
+    'the reason is spliced mid-sentence by readParallelism, so it must not end in a full stop');
+
+  // And it travels all the way to the row a person reads: unevaluated, never "ok". (A-29)
+  const index = buildIndex(dir, cfg);
+  const health = runHealth(index, cfg, dir, { sessions: r });
+  ok(health.unevaluated.includes('H17'), 'no store means unevaluated, not clean');
+  const report = formatReport(health, index, { color: false });
+  ok(!/H17\s+ok\b/.test(report), 'a signal that could not run must never print ok');
+  includes(report, 'No session transcripts for this repository',
+    "the reader's reason must reach the Not-checked block, not be replaced by a generic one");
+});
+
+test('H17 · end to end: atlas health evaluates it and fires on the solo session', () => {
+  // The whole point, from the command line, through the real CLI. Before this change this command printed
+  // "(not evaluated — see Not checked)" on every machine in the world.
+  const r = cli(h17Fixture.dir, ['health', '--verbose']);
+  const h17Lines = r.stdout.split('\n').filter((l) => l.includes('H17')).join('\n');
+  ok(!/H17.*not evaluated/.test(r.stdout), `H17 must actually evaluate:\n${h17Lines}`);
+  includes(r.stdout, 'solo-ses', 'and it must name the session it fired on');
+  includes(r.stdout, '41 edit(s) in one main thread and no subagent turn');
+  ok(!r.stdout.includes('fanned-s'), 'the session that delegated must not be flagged');
+  includes(r.stdout, 'measures the operator, not the corpus', 'the row must still say which kind of claim it is');
+  eq(r.code, 0, 'H17 can never block, so it can never change the exit code');
+});
+
+test('H17 · every number in the printed justification is computed from the sample, not retyped', () => {
+  // **The old text was arithmetically impossible, and both figures printed on health.html.** It claimed 40
+  // was "the 25th percentile" of `12, 39, 58, 89, 116, 136, 164, 235, 694, 1114, 1650` — n=11, whose 25th
+  // percentile is 58 by nearest rank and 73.5 interpolated. It then said "20 of the 29 made fewer than 40
+  // edits", which puts 9 at or above 40; 9 of those 11 fanned-out sessions are already at or above 40, so no
+  // solo session was left above the line and the rule fired ZERO times on the sample it claimed to fire twice
+  // on. Nothing could catch that, because prose about a distribution is not the distribution.
+  const ev = parallelismEvidence();
+  const s = PARALLELISM_SAMPLE;
+
+  eq([ev.sessions, ev.fanned, ev.solo], [29, 12, 17], 'the sample as re-measured on 2026-08-13');
+  eq(ev.fanned + ev.solo, s.fannedOut.length + s.solo.length, 'every session is in exactly one population');
+  eq(ev.p25, { nearest: 39, interpolated: 53.25 },
+    'the two standard percentile conventions disagree by 37% on this sample — which is the argument for ' +
+    'not resting a default on either');
+  eq(ev.fires, 2, 'at 40 the rule fires on two sessions, which is a note rather than a nag');
+  eq([ev.fannedBelow, ev.soloAtOrAbove], [3, 2],
+    'the populations OVERLAP in both directions, so no cut point separates them and no percentile of this ' +
+    'sample can justify a threshold');
+  eq([ev.below, ev.zeroEdits], [18, 10]);
+  eq(ev.fires, s.solo.filter((e) => e >= DEFAULT_PARALLELISM_EDITS).length,
+    'the fire count is read off the sample, so it cannot contradict the list printed beside it');
+
+  const why = SIGNALS.H17.why;
+  const n = (s) => Number(String(s).replace(/,/g, ''));
+
+  // **The two sentences that carry the arithmetic are parsed back out and compared to the sample.** A
+  // substring check cannot catch the failure that actually happened: the old paragraph said "29" in one place
+  // and implied a different total in the next clause, and both substrings were present. Reading the numbers
+  // out of the prose is the only assertion that makes the paragraph unable to contradict itself.
+  const sample = /— ([\d,]+) stores, ([\d,]+) transcript files, ([\d,]+) sessions —/.exec(why);
+  ok(sample, 'the justification must state the sample it was calibrated against, in a parseable form');
+  eq(sample.slice(1).map(n), [PARALLELISM_SAMPLE.stores, PARALLELISM_SAMPLE.transcriptFiles, ev.sessions],
+    'the stated sample must be the measured sample');
+
+  const stated = new RegExp('the rule fires on ([\\d,]+) of the ([\\d,]+) sessions, ([\\d,]+) of which made ' +
+    'fewer than ([\\d,]+) edits and ([\\d,]+) of which made none at all').exec(why);
+  ok(stated, 'the calibration sentence must be present in a parseable form');
+  eq(stated.slice(1).map(n), [ev.fires, ev.sessions, ev.below, DEFAULT_PARALLELISM_EDITS, ev.zeroEdits],
+    'every figure in the calibration sentence must be the figure the sample yields — retyping any one of ' +
+    'them is exactly how the old text came to state a distribution under which the rule fires zero times');
+
+  const overlap = /overlap: ([\d,]+) of the sessions that delegated were below ([\d,]+) edits and ([\d,]+) that delegated/.exec(why);
+  ok(overlap, 'and the overlap, which is the finding that decided the constant');
+  eq(overlap.slice(1).map(n), [ev.fannedBelow, DEFAULT_PARALLELISM_EDITS, ev.soloAtOrAbove]);
+
+  for (const [label, value] of [['sessions', 29], ['fanned-out sessions', 12], ['solo sessions', 17],
+                                ['sessions it fires on', 2], ['fanned sessions below the line', 3],
+                                ['solo sessions above it', 2], ['sessions below the threshold', 18],
+                                ['sessions with no edit at all', 10], ['stores', 8], ['transcript files', 587]]) {
+    includes(why, String(value), `the justification must state the measured count of ${label}`);
+  }
+  includes(why, num(1650), 'the largest count must be grouped by num(), never by a bare toLocaleString()');
+  includes(why, num(1114), 'and so must the second largest');
+  includes(why, '53.25', 'both percentile answers are printed, because they disagree');
+
+  // The threshold is now declared arbitrary. That is the honest form of this claim, and the words matter: a
+  // stated arbitrary default can be argued with; a fabricated percentile cannot be argued with at all.
+  includes(why, 'ARBITRARY ROUND NUMBER');
+  includes(why, 'tokens.parallelismEdits', 'and it must say how to change it');
+  ok(!/is the 25th percentile of the edit counts of/.test(why),
+    'the fabricated derivation must be gone, not merely restated with new numbers');
+  ok(!why.includes('116'), 'the old sample listed an edit count of 116 that is in no measured population');
+  ok(!/20 of the 29/.test(why), 'and the figure that made the rule fire zero times must be gone');
+
+  // Still the three properties Q-4 exists for.
+  includes(why, 'MEASURES THE OPERATOR, NOT THE CORPUS');
+  includes(why, 'ADVISORY, AND NEVER BLOCKING');
+});
+
+test('H17 · the roadmap entry states the same arithmetic as the signal, not the impossible one', () => {
+  // Q-4's entry repeated the same two invented figures. A corrected signal beside an uncorrected plan is the
+  // drift this tool detects for a living, in the document that lists the work.
+  const q4 = docText('docs/ROADMAP.md');
+  const ev = parallelismEvidence();
+  ok(!/40 is the 25th percentile of the edit counts of the sessions that \*did\* fan out/.test(q4),
+    'the fabricated percentile must be gone from the plan too');
+  includes(q4, 'arithmetically impossible', 'and the entry must say what was wrong, not quietly restate it');
+  includes(q4, `${ev.p25.nearest} by nearest rank`, 'with the re-measured figure');
+  includes(q4, '53.25', 'and the interpolated one beside it');
+  includes(q4, `fires on ${ev.fires} of the ${ev.sessions} sessions`,
+    'and the honest calibration in place of the derivation');
+  includes(q4, 'never ran', 'the entry must also record that it was filed at 100% and had never evaluated');
+});
+
+/* ================================================================== what a fan-out will collide on (A-48) */
+
+/**
+ * `atlas contention` — the counter-weight to C-11, which argues for fan-out and never counted its cost.
+ *
+ * **Synchronous, like everything appended below the drain**, for the reason given above: `pendingAsync` is
+ * emptied thousands of lines earlier, so an `async` case here would pass by never running. Each case was
+ * checked by reverting the change and watching it fail.
+ */
+
+console.log('\nA-48 · contention before the fan-out');
+
+/** A repository with a plan, a base, and three branches that overlap the way this session's six did. */
+const contentionFixture = (() => {
+  const dir = fixture('contention', {
+    'project-atlas.config.json': JSON.stringify({ planning: { source: 'docs/ROADMAP.md' } }),
+    'docs/ROADMAP.md': '# Contention fixture roadmap\n\n## Track 1\n\n**A-1 · The first thing** — **P1 · High**\n\nDone.\n',
+    'tests/run.mjs': 'test("one", () => {});\n',
+    'scripts/lib/one.mjs': 'export const one = 1;\n',
+    'scripts/lib/two.mjs': 'export const two = 2;\n',
+  });
+  const git = (...args) => execFileSync('git', args, { cwd: dir, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+  const base = git('rev-parse', '--abbrev-ref', 'HEAD').trim();
+  const commit = (msg) => execFileSync('git',
+    ['-c', 'user.email=t@example.com', '-c', 'user.name=Test', 'commit', '-qam', msg], { cwd: dir, stdio: 'ignore' });
+  const append = (rel, text) => fs.appendFileSync(path.join(dir, rel), text, 'utf8');
+
+  // Two branches that both append to the plan and to the test file, and both file A-2 — exactly the pair of
+  // collisions this session paid for. The third touches neither.
+  for (const [name, own] of [['feat/alpha', 'scripts/lib/one.mjs'], ['feat/beta', 'scripts/lib/two.mjs']]) {
+    git('checkout', '-q', '-b', name, base);
+    append('docs/ROADMAP.md', `\n**A-2 · Filed independently by ${name}** — **P2 · Medium**\n\nWork.\n`);
+    append('tests/run.mjs', `test("${name}", () => {});\n`);
+    append(own, `export const extra = '${name}';\n`);
+    commit(`feat: ${name}`);
+  }
+  git('checkout', '-q', '-b', 'feat/gamma', base);
+  append('scripts/lib/two.mjs', 'export const gamma = true;\n');
+  commit('feat: gamma');
+  // A branch with nothing on it: it can contend with nothing and must not pad the count.
+  git('checkout', '-q', '-b', 'feat/empty', base);
+  git('checkout', '-q', base);
+  return { dir, base, cfg: resolveConfig(dir) };
+})();
+
+test('A-48 · reports the files more than one branch would touch, worst first', () => {
+  const c = readContention(contentionFixture.dir, contentionFixture.cfg, { base: contentionFixture.base });
+  ok(c.available, c.reason);
+  eq(c.branches.map((b) => b.name).sort(), ['feat/alpha', 'feat/beta', 'feat/gamma'],
+    'a branch with no commit the base lacks can contend with nothing and is excluded');
+  eq(c.settled, 1, 'and is counted rather than dropped silently');
+
+  const shared = Object.fromEntries(c.shared.map((s) => [s.file, [...s.branches].sort()]));
+  eq(Object.keys(shared).sort(), ['docs/ROADMAP.md', 'scripts/lib/two.mjs', 'tests/run.mjs'],
+    'every file two or more branches touch, and no file only one of them touches');
+  eq(shared['tests/run.mjs'], ['feat/alpha', 'feat/beta'],
+    'the append-only test file — the conflict this repository hits on every single fan-out');
+  eq(shared['scripts/lib/two.mjs'], ['feat/beta', 'feat/gamma']);
+  ok(!('scripts/lib/one.mjs' in shared), 'a file only one branch touches is not contention');
+  eq(c.shared[0].count, 2, 'sorted by how many branches touch it, worst first');
+
+  const report = formatContention(c, false);
+  includes(report, 'tests/run.mjs');
+  includes(report, 'feat/alpha, feat/beta', 'the report names who will collide, not just how many');
+});
+
+test('A-48 · a plan-item id introduced by two branches is the one thing it refuses', () => {
+  // A-34 was filed by two agents independently and A-38 and A-39 by three. Every one was renumbered by hand
+  // afterwards, which left merged commit subjects naming ids that had moved — and a commit subject cannot be
+  // corrected. This is the half that is pure win: two branches introducing one id has no legitimate cause.
+  const c = readContention(contentionFixture.dir, contentionFixture.cfg, { base: contentionFixture.base });
+  ok(c.ids.available, c.ids.reason);
+  eq(c.ids.duplicates.map((d) => d.id), ['A-2']);
+  eq([...c.ids.duplicates[0].branches].sort(), ['feat/alpha', 'feat/beta']);
+
+  // An id already on the base is carried by every branch and is not a collision — only what a branch
+  // *introduces* counts, and only an item heading is an introduction.
+  eq(c.ids.defined.map((d) => d.id), ['A-2'], 'A-1 is on the base, so no branch introduced it');
+
+  // That distinction is the whole check, so it is pinned on its own: two branches both *mentioning* A-34 is
+  // normal and correct, and a checker that could not tell a mention from a definition would report every
+  // cross-reference in the plan as a collision and be switched off within a day.
+  eq(definedIds('**A-9 · A real item** — **P1 · High**\n\nSupersedes A-8, and see A-7.\n', contentionFixture.cfg),
+    ['A-9'], 'the item heading defines; a reference in the prose beneath it does not');
+
+  // The allocator, as a read: the highest id in use anywhere plus one. Handing this out before the fan-out is
+  // what stops two agents each counting for themselves.
+  eq(c.ids.nextFree, [{ prefix: 'A', next: 'A-3', highest: 'A-2' }]);
+
+  const report = formatContention(c, false);
+  includes(report, 'defined on more than one branch');
+  includes(report, 'A-2');
+  includes(report, 'Next free plan-item id');
+});
+
+test('A-48 · the command exits 1 on a duplicate id and 0 on a merely shared file', () => {
+  // The line is the same one `blocking` draws in the health report: refuse only what has no legitimate cause.
+  // Two branches on one file is frequently correct, and a tool that refused it would be deciding how somebody
+  // splits their work — which is how a check gets switched off, taking the useful half with it.
+  const withDup = spawnSync(process.execPath, [CLI, 'contention', '--base', contentionFixture.base, '--no-color'],
+    { cwd: contentionFixture.dir, encoding: 'utf8' });
+  eq(withDup.status, 1, 'a duplicate plan-item id is a defect and must fail a CI step');
+  includes(withDup.stdout, 'A-2');
+
+  // Named branches, and a pair that shares a file but no id.
+  const noDup = spawnSync(process.execPath,
+    [CLI, 'contention', 'feat/beta', 'feat/gamma', '--base', contentionFixture.base, '--no-color'],
+    { cwd: contentionFixture.dir, encoding: 'utf8' });
+  eq(noDup.status, 0, 'a shared file is reported, never refused');
+  includes(noDup.stdout, 'scripts/lib/two.mjs', 'and it is still reported');
+  ok(!noDup.stdout.includes('feat/alpha'), 'naming branches must restrict the comparison to them');
+
+  const json = JSON.parse(spawnSync(process.execPath,
+    [CLI, 'contention', '--base', contentionFixture.base, '--json'],
+    { cwd: contentionFixture.dir, encoding: 'utf8' }).stdout);
+  eq(json.ids.duplicates.map((d) => d.id), ['A-2'], 'and the machine-readable form carries the same verdict');
+});
+
+test('A-48 · it degrades rather than crashing where there is nothing to compare', () => {
+  // Every surface in this tool has to survive a repository that is not the one it was written against.
+  const bare = fixture('contention-bare', { 'docs/A.md': '# Contention bare fixture\n' });
+  const c = readContention(bare, resolveConfig(bare), { base: 'no-such-branch' });
+  ok(!c.available);
+  includes(c.reason, 'does not resolve to a commit');
+  includes(formatContention(c, false), 'could not be reported');
+
+  // No planning source configured is a stated absence, not a silent clean bill — the same rule the health
+  // report's "Not checked" section exists for.
+  const noPlan = readContention(contentionFixture.dir, { ...contentionFixture.cfg, planning: { source: null } },
+    { base: contentionFixture.base });
+  ok(noPlan.available, 'the file half still works without a plan');
+  ok(!noPlan.ids.available);
+  includes(noPlan.ids.reason, 'planning.source is not configured');
+  includes(formatContention(noPlan, false), 'were not checked');
+});
+
+test('A-48 · the skill that argues for fan-out now states what the coordination cost', () => {
+  // C-11 read as advocacy: it priced the parallelism at "perhaps an hour" and never priced the merge. A
+  // reader who follows an instruction that states only its upside, and then pays the downside, stops
+  // believing the rest of the document.
+  for (const rel of ['skills/build/SKILL.md', 'plugins/atlas/skills/build/SKILL.md']) {
+    const skill = fs.readFileSync(path.join(REPO_ROOT, ...rel.split('/')), 'utf8');
+    includes(skill, 'eleven merge commits', `${rel}: the bill must be a measured number, not "some conflicts"`);
+    includes(skill, 'six agents, seven branches', `${rel}: with the shape of the fan-out that produced it`);
+    includes(skill, 'atlas contention', `${rel}: and the command that would have predicted it`);
+    includes(skill, 'A-34', `${rel}: the duplicate id, named`);
+    includes(skill, 'silently drops a case',
+      `${rel}: the mid-test conflict cut is the expensive half, because the resolution still parses`);
+    includes(skill, 'When not to fan out', `${rel}: the honest exceptions must survive the amendment`);
+  }
 });
 
 console.log(`\n${pass} passed, ${fail} failed${skipped ? `, ${skipped} skipped on ${process.platform}` : ''}\n`);

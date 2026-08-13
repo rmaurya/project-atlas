@@ -66,7 +66,7 @@ counts, sums and model names, never prompt text, never a file path that was read
 with `tokens.snapshot` set: no build writes the snapshot, and a test asserts it.
 
 **Plugin registrations**, to work out which build is answering you: `${CLAUDE_CONFIG_DIR:-~/.claude}`
-(`scripts/atlas.mjs:133`).
+(`scripts/atlas.mjs:135`).
 
 ## What it writes, and where
 
@@ -134,8 +134,8 @@ a `null` result is cached too, so an offline machine does not retry every sessio
 
 **Turn it off with `ATLAS_UPDATE_CHECK=0`.** The hook exits before doing anything
 (`hooks/on-session-start.sh:22`), and the per-command stale banner is suppressed too
-(`scripts/atlas.mjs:271`). That banner never makes a request in any case — it reads the cache and nothing else
-(`scripts/atlas.mjs:292`).
+(`scripts/atlas.mjs:300`). That banner never makes a request in any case — it reads the cache and nothing else
+(`scripts/atlas.mjs:321`).
 
 **Beyond those two, git subprocesses also reach the network — and only when you invoke the command that needs
 them.** This is worth stating precisely, because "two network requests" counts HTTP calls made by this code

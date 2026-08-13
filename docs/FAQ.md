@@ -17,8 +17,8 @@ unflattering answers are here for the same reason the tool ships a *Not checked*
 It writes **one config file** and **one output directory**, and touches nothing else you wrote.
 
 - `project-atlas.config.json` at the root. `atlas init` refuses to overwrite an existing one without
-  `--force` (`scripts/atlas.mjs:1435-1438`), and it writes that file and nothing else
-  (`scripts/atlas.mjs:1473`).
+  `--force` (`scripts/atlas.mjs:1484-1438`), and it writes that file and nothing else
+  (`scripts/atlas.mjs:1522`).
 - `docs/_wiki/` by default (`scripts/lib/config.mjs:236`), cleared and rewritten on every build.
 - `.atlas/` for operational state — a build lock, the server pidfile, the continuity journal. Most of it is
   git-ignored (`.gitignore:9-31`).

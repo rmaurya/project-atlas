@@ -218,6 +218,7 @@ at any time.
 | `atlas health` | Documentation rot report: dead links, forked documents, stale citations, orphans. Exit 1 if a blocking signal fires. |
 | `atlas plan` | The git route for work in progress: branch, type, version bump, way to main. Executes nothing without approval. |
 | `atlas branch [type slug]` | Branch state, or create `type/short-slug` carrying your changes. |
+| `atlas contention [branch…]` | What a fan-out will collide on: files more than one branch touches, plan-item ids more than one branch defines, and the next free id. Exit 1 on a duplicate id only. |
 | `atlas config` | The merged configuration — your overrides shown against the defaults. |
 | `atlas tasks [filter]` | Your planning document, with progress bars. |
 | `atlas caps` | Which host features are on — wiki, pages, issues, discussions. |
@@ -524,7 +525,7 @@ node tests/run.mjs               # integration tests against throwaway git repos
 node tests/run.mjs --filter H6   # or a subset
 ```
 
-**The suite holds 450 test cases.** That figure is not maintained by hand: a test reads it out of this
+**The suite holds 461 test cases.** That figure is not maintained by hand: a test reads it out of this
 sentence and compares it against the cases it can count in `tests/run.mjs`, so adding a test and forgetting
 this line fails the suite. A count stated in prose beside a list that grows is a defect waiting to happen,
 and this repository has proved that twice (A-29).

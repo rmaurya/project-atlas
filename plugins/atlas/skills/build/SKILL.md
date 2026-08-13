@@ -214,10 +214,36 @@ and reports on its own tree; you merge them one at a time, reading each diff. **
 owns and which files it must not touch**, and have it report anything it needed from a sibling's file rather
 than reaching across.
 
+### What the coordination actually cost, measured
+
+The section above prices the parallelism and never priced the coordination, which made it advocacy. Here is
+the bill from one session that followed it: **six agents, seven branches off one base, eleven merge commits,
+and hours of conflict resolution.** Four causes, all of them measured and all of them preventable:
+
+- **Every branch appended to `tests/run.mjs` and to `docs/ROADMAP.md`.** Guaranteed conflict on every merge
+  after the first, and the conflict region repeatedly cut *mid-test*, so the `});` below the marker closed
+  whichever side survived — a resolution that parses, runs, and silently drops a case.
+- **Duplicate plan-item ids.** `A-34` was filed by two agents independently; `A-38` and `A-39` by three. All
+  were renumbered by hand afterwards, which left merged commit subjects naming ids that had since moved. A
+  commit subject cannot be corrected.
+- **Two agents named a fixture `econFixture`** in the same file, and the collision only appeared at merge.
+- **`git ls-files` reports a conflicted path once per index stage**, which tripped the blocking duplicate-title
+  signal and deadlocked the commit guard against the very resolution that would have cleared it.
+
+**Run `atlas contention` before you fan out.** It reports, for a base and a set of branches, which files more
+than one of them would touch and which plan-item ids more than one of them defines — plus the next free id per
+prefix, so nobody has to count for themselves. Both facts are available before the first agent starts. It
+refuses nothing except a duplicate id, which has no legitimate cause.
+
+Then act on it: give each agent **disjoint files**; where two must share one, merge those branches first and
+rebase the rest onto the result; and **hand out the plan ids and the fixture names yourself** rather than
+letting six agents each pick what looks free. Contention over a shared file and contention over a shared name
+are the same problem, and neither is solved by care.
+
 ### When not to fan out
 
-Parallelism has a real cost — a brief to write, a contract to agree, worktrees to make and merge, and a
-reviewer who now has several diffs instead of one. Do the work in one thread when:
+Parallelism has a real cost — a brief to write, a contract to agree, worktrees to make and merge, several
+diffs for one reviewer, and the merge bill above. Do the work in one thread when:
 
 - **The steps genuinely depend on each other.** Scan, then act on the signals, then rebuild, then commit is a
   chain: agent two cannot start until agent one has finished, so splitting it only adds handovers. Look for a

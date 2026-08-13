@@ -5,6 +5,26 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- **`atlas contention` — what a fan-out will collide on, before it collides** (A-48). C-11 argues for
+  parallelism and prices only the saving; the session that added this paid six agents, seven branches off one
+  base, **eleven merge commits** and hours of conflict resolution. Most of that was knowable beforehand: the
+  command reports which files more than one branch would touch, which plan-item ids more than one branch
+  *introduces*, and the next free id per prefix. It refuses nothing except a duplicate id, which has no
+  legitimate cause. `skills/build/SKILL.md` now carries the bill with its four measured causes.
+
+### Fixed
+- **H17 was filed as shipped and had never evaluated once** (Q-4). `readParallelism` was correct and tested,
+  and not one of the eight `runHealth(` call sites passed a fourth argument — so every report on every machine
+  printed *"H17 — (not evaluated)"*. `healthOpts` now supplies the aggregate at the six call sites that show a
+  report, `scripts/lib/parallelism.mjs` derives it from the store, and the commit gate is excluded on purpose:
+  it reads `blockingCount` alone and H17 can never block.
+- **H17's printed justification was arithmetically impossible** (Q-4). It claimed 40 was the 25th percentile
+  of eleven listed edit counts whose 25th percentile is 58, and stated a distribution under which the rule
+  fires zero times while claiming it fired twice. Re-measured over 29 sessions in 587 transcript files: the
+  two populations overlap, so no threshold is derivable from the sample. 40 stays and is now stated as an
+  arbitrary round number, with every printed figure generated from `PARALLELISM_SAMPLE` rather than retyped.
+
 ### Planned
 - Selectable light/dark themes with a one-click toggle, defaulting to the system setting.
 - Role-scoped views (QC, product, delivery, architecture, developer, executive).

@@ -67,7 +67,94 @@ function gitAuthors(root) {
  * Keeping it in the report anyway is deliberate. The alternative — a number nobody sees — is how the
  * repository ran three subagents against one shared working tree and found out afterwards.
  */
+/**
+ * **An arbitrary round number, and it says so.** The value did not change; the justification printed beside it
+ * did, because the old one could not be true.
+ *
+ * It claimed 40 was *"the 25th percentile of the edit counts of the sessions that DID fan out"* over a listed
+ * sample of eleven — `12, 39, 58, 89, 116, 136, 164, 235, 694, 1114, 1650`. The 25th percentile of those
+ * eleven is 58 by nearest-rank and 73.5 interpolated. It is not 40 under any convention. The same paragraph
+ * then said *"20 of the 29 made fewer than 40 edits"* — which puts nine sessions at or above 40, and since
+ * nine of the eleven fanned-out sessions are already at or above 40, it leaves no solo session above the line
+ * at all. The rule was described as firing "twice" on a sample where the stated numbers make it fire zero
+ * times. Two fabricated figures, both printing on `health.html`, in the paragraph whose entire job was to
+ * justify the threshold to a sceptical reader.
+ *
+ * **Re-measured** on 2026-08-13 over the same machine's whole transcript store — 8 stores, 587 transcript
+ * files, 29 sessions. See `OPERATOR_SIGNALS.H17.why` below for the distributions; the finding that decided
+ * this constant is that **edit count does not separate the two populations**. Three of the twelve sessions
+ * that fanned out made fewer than 40 edits, and two of the seventeen that did not made more. There is no cut
+ * point with sessions of one kind on one side and the other kind on the other, so no percentile of this
+ * sample earns the word "because" — and the 25th percentile of the twelve is 39 by nearest-rank and 53.25
+ * interpolated, a 37% spread that depends only on which textbook you open.
+ *
+ * So the number is chosen, not derived, and the text says *chosen*. What the sample can honestly support is
+ * the calibration: at 40 the rule fires on 2 of the 29 sessions, which is a note rather than a nag. A stated
+ * arbitrary default a reader can argue with and `tokens.parallelismEdits` can change is defensible. A
+ * percentile that was never computed is not.
+ */
 export const DEFAULT_PARALLELISM_EDITS = 40;
+
+/**
+ * The sample the threshold was calibrated against, measured rather than remembered.
+ *
+ * Exported so the paragraph that prints on `health.html` is generated from the figures instead of restating
+ * them, and so a test can assert the arithmetic rather than the spelling. Restating a distribution in prose is
+ * exactly how the old text came to contain two numbers that contradicted each other.
+ */
+export const PARALLELISM_SAMPLE = {
+  measured: '2026-08-13',
+  stores: 8,
+  transcriptFiles: 587,
+  /** Main-thread edit counts of the sessions that DID delegate at least one turn. */
+  fannedOut: [0, 12, 39, 58, 89, 136, 152, 164, 235, 694, 1114, 1650],
+  /** Main-thread edit counts of the sessions that delegated nothing. */
+  solo: [0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 2, 6, 16, 26, 32, 51, 139],
+};
+
+/**
+ * Everything the justification paragraph states, computed from `PARALLELISM_SAMPLE` rather than remembered.
+ *
+ * **The old text was wrong precisely because it was written by hand.** Two figures in it disagreed with each
+ * other and with the list printed between them, and nothing could notice, because prose about a distribution
+ * is not the distribution. Deriving them means the paragraph cannot say the rule fires twice on a sample where
+ * it fires never — the count comes from the same array the reader is shown.
+ *
+ * Both percentile conventions are reported. They disagree by 37% on this sample, which is the argument for not
+ * resting a default on either of them.
+ */
+export function parallelismEvidence(threshold = DEFAULT_PARALLELISM_EDITS, sample = PARALLELISM_SAMPLE) {
+  const fanned = [...sample.fannedOut].sort((a, b) => a - b);
+  const solo = [...sample.solo].sort((a, b) => a - b);
+  const all = [...fanned, ...solo];
+  const p = (a, q) => {
+    // Nearest-rank and the interpolated (type-7) definition, the two a reader is likely to reach for.
+    const idx = (q / 100) * (a.length - 1);
+    const lo = Math.floor(idx);
+    const hi = Math.ceil(idx);
+    return {
+      nearest: a[Math.max(0, Math.ceil((q / 100) * a.length) - 1)],
+      interpolated: Math.round((a[lo] + (a[hi] - a[lo]) * (idx - lo)) * 100) / 100,
+    };
+  };
+  return {
+    sessions: all.length,
+    fanned: fanned.length,
+    solo: solo.length,
+    fannedOut: fanned,
+    soloCounts: solo,
+    /** Sessions the rule fires on: no subagent turn, and at or above the threshold. */
+    fires: solo.filter((e) => e >= threshold).length,
+    /** The overlap, in both directions. This pair is why no threshold is derivable from this sample. */
+    fannedBelow: fanned.filter((e) => e < threshold).length,
+    soloAtOrAbove: solo.filter((e) => e >= threshold).length,
+    below: all.filter((e) => e < threshold).length,
+    zeroEdits: all.filter((e) => e === 0).length,
+    p25: p(fanned, 25),
+  };
+}
+
+const EV = parallelismEvidence();
 
 /**
  * The signals that judge the operator. Held apart from `CORPUS_SIGNALS` so the distinction is enforceable
@@ -83,15 +170,27 @@ export const OPERATOR_SIGNALS = {
       'settled by reading the files. This one is a claim about how a session was run: it made ' +
       `${DEFAULT_PARALLELISM_EDITS} or more file edits in its main thread and never delegated a single turn to ` +
       'a subagent, so independent work that could have run at the same time ran one item after another. ' +
-      `The threshold is ${DEFAULT_PARALLELISM_EDITS} because that is the 25th percentile of the edit counts of ` +
-      'the sessions that DID fan out, measured over the 29 transcripts on the machine this was written on ' +
-      '(12, 39, 58, 89, 116, 136, 164, 235, 694, 1114 and 1650 edits): a session at 40 edits is already as ' +
-      'large as the smallest quarter of the sessions whose operator judged delegation worth its coordination ' +
-      'cost. Below it the sample is dominated by read-and-answer work — 20 of the 29 made fewer than 40 edits ' +
-      'and 9 made none at all — which is exactly the work that should not be fanned out. On that sample the ' +
-      'rule fires twice, so it is a note rather than a nag. Change it with tokens.parallelismEdits. ' +
-      'ADVISORY, AND NEVER BLOCKING — enforced in code, not by configuration: a dependency chain has to be ' +
-      'worked in order, and a task small enough ' +
+      `THE THRESHOLD OF ${DEFAULT_PARALLELISM_EDITS} IS AN ARBITRARY ROUND NUMBER, AND SAYING SO IS THE HONEST ` +
+      'OPTION. It was measured for, and the measurement refused to justify it. Over the whole transcript store ' +
+      `on the machine this was calibrated against on ${PARALLELISM_SAMPLE.measured} — ` +
+      `${num(PARALLELISM_SAMPLE.stores)} stores, ${num(PARALLELISM_SAMPLE.transcriptFiles)} transcript files, ` +
+      `${num(EV.sessions)} sessions — the ${num(EV.fanned)} sessions that DID fan out made ` +
+      `${EV.fannedOut.map(num).join(', ')} edits, and the ${num(EV.solo)} that did not made ` +
+      `${EV.soloCounts.map(num).join(', ')}. Those two lists overlap: ${num(EV.fannedBelow)} of the sessions ` +
+      `that delegated were below ${DEFAULT_PARALLELISM_EDITS} edits and ${num(EV.soloAtOrAbove)} that delegated ` +
+      'nothing were above it, so there is no cut point with one kind of session on each side. HOW BIG A ' +
+      'SESSION WAS DOES NOT PREDICT WHETHER ITS OPERATOR DELEGATED, on this sample. The previous text here ' +
+      `claimed ${DEFAULT_PARALLELISM_EDITS} was the 25th percentile of the fanned-out counts; it was not, and ` +
+      `it is not now — that percentile is ${num(EV.p25.nearest)} by nearest rank and ${EV.p25.interpolated} ` +
+      'interpolated, a spread of more than a third that turns on nothing but which definition is used. A ' +
+      'number invented and then dressed as a measurement is worse than an admitted guess, because a reader ' +
+      'who checks it stops trusting the sixteen signals that are exact. What the sample DOES support is the ' +
+      `calibration: at ${DEFAULT_PARALLELISM_EDITS} the rule fires on ${num(EV.fires)} of the ${num(EV.sessions)} ` +
+      `sessions, ${num(EV.below)} of which made fewer than ${DEFAULT_PARALLELISM_EDITS} edits and ` +
+      `${num(EV.zeroEdits)} of which made none at all — read-and-answer work, which is exactly what should not ` +
+      'be fanned out. So it is a note rather than a nag. Argue with it and change it with ' +
+      'tokens.parallelismEdits; that it is arguable is the point. ADVISORY, AND NEVER BLOCKING — enforced in ' +
+      'code, not by configuration: a dependency chain has to be worked in order, and a task small enough ' +
       'that coordination costs more than the parallelism is correctly done alone. This signal cannot tell ' +
       'those apart from a missed opportunity, which is precisely why it only ever advises.',
   },

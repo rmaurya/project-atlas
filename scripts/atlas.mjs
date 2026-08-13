@@ -34,6 +34,7 @@ import { resolveConfig, DEFAULT_CONFIG, DEFAULT_CLUSTERS, CONFIG_NAME , automati
 import { buildIndex, discover } from './lib/scan.mjs';
 import { readPlanning } from './lib/planning.mjs';
 import { runHealth, formatReport } from './lib/health.mjs';
+import { readSessionParallelism } from './lib/parallelism.mjs';
 import { renderSite, writeBuildStamp } from './lib/render.mjs';
 import { buildPrompt } from './lib/prompt.mjs';
 import { confine } from './lib/paths.mjs';
@@ -42,6 +43,7 @@ import { readContrib, formatContrib } from './lib/contrib.mjs';
 import { detectHost, probeCapabilities, gateTarget, formatCapabilities } from './lib/host.mjs';
 import { communityAssets, writeCommunity } from './lib/community.mjs';
 import { branchStatus, createBranch, formatBranch, TYPES } from './lib/branch.mjs';
+import { readContention, formatContention } from './lib/contention.mjs';
 import { readTokens, formatTokens, formatSessions, transcriptDir, assertNotPublishable,
          readTokenEconomics, formatEconomics, writeTokenSnapshot } from './lib/tokens.mjs';
 import { pauseSession, readParked, verifyParked, stopSession, WIP_PREFIX } from './lib/session.mjs';
@@ -75,7 +77,7 @@ const argv = process.argv.slice(2);
  * boolean, so a positional after a boolean flag stays positional — `atlas tasks --json safety` keeps `safety`
  * as the filter rather than swallowing it as `--json`'s value.
  */
-const VALUE_FLAGS = new Set(['target', 'page', 'out', 'root', 'config', 'interval', 'refs', 'agent', 'since', 'day', 'why', 'port', 'idle-ms', 'item', 'only', 'query']);
+const VALUE_FLAGS = new Set(['target', 'page', 'out', 'root', 'config', 'interval', 'refs', 'agent', 'since', 'day', 'why', 'port', 'idle-ms', 'item', 'only', 'query', 'base']);
 
 const { cmd, positionals, flags } = parseArgs(argv);
 
@@ -213,6 +215,33 @@ function gitLines(root, args) {
     return execFileSync('git', ['-C', root, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })
       .split('\n').filter(Boolean);
   } catch { return []; }
+}
+
+/**
+ * The fourth argument to `runHealth`, and the only thing that makes H17 evaluate.
+ *
+ * **Every call site that shows a health report to somebody passes this. The commit gate deliberately does
+ * not.** H17 was filed as shipped and never ran once: `readParallelism` worked, was tested, and no caller
+ * supplied `opts.sessions`, so every report on every machine printed *"H17 — (not evaluated)"*. A signal that
+ * cannot be reached from the command line is a signal that does not exist.
+ *
+ * It lives in one function rather than at eight call sites so the answer to "does this surface evaluate H17?"
+ * is a grep for one name, and so the reason below is written once.
+ *
+ * **Why the gate is excluded.** `atlas health --gate` runs inside the pre-commit hook and reads exactly one
+ * field, `blockingCount`. H17 can never block — `blockingFor` refuses it in code — so the gate would spend a
+ * streaming pass over the whole local transcript store to compute a number it then discards, on every commit.
+ * A guard that costs half a second per commit is a guard people turn off, and turning it off also turns off
+ * the five blocking corpus signals that are the point of it. The gate makes no claim about H17 either way: it
+ * prints only blocking findings, so nothing there reports it as clean.
+ *
+ * **It is free when there is nothing to read.** `readSessionParallelism` opens with `hasTranscripts()`, one
+ * `statSync`, and returns unavailable-with-a-reason before it lists a file — so a fresh clone, a CI runner or
+ * anyone who has never run a session pays a stat, and the reason they pay it with is what the report prints
+ * under "Not checked".
+ */
+function healthOpts(root, cfg) {
+  return { sessions: readSessionParallelism(root, cfg) };
 }
 
 /**
@@ -417,6 +446,23 @@ async function main() {
     return;
   }
 
+  // A-48 · the other side of C-11. Run it before the fan-out, not during the merge.
+  if (cmd === 'contention') {
+    const named = positionals.filter(Boolean);
+    const c = readContention(root, cfg, {
+      base: typeof flag('base') === 'string' ? flag('base') : null,
+      branches: named.length ? named : null,
+    });
+    if (flag('json')) { console.log(JSON.stringify(c, null, 2)); return; }
+    say(formatContention(c, color));
+    // Exit 1 on a duplicate plan-item id and on nothing else. A shared file is frequently correct and is
+    // reported, never refused; two branches introducing the same id is a defect with no legitimate cause,
+    // which is the same line `blocking` draws in the health report. That makes this usable in CI without
+    // making it a tool that decides how somebody splits their work.
+    if (c.available && c.ids.duplicates?.length) process.exitCode = 1;
+    return;
+  }
+
   if (cmd === 'capabilities' || cmd === 'caps') {
     const host = detectHost(root, cfg);
     const caps = await probeCapabilities(root, host, { offline: !!flag('offline'), fresh: !!flag('fresh') });
@@ -429,7 +475,7 @@ async function main() {
     const host = detectHost(root, cfg);
     const caps = await probeCapabilities(root, host, { offline: !!flag('offline') });
     const index = buildIndex(root, cfg, { withGit });
-    const health = runHealth(index, cfg, root);
+    const health = runHealth(index, cfg, root, healthOpts(root, cfg));
     const assets = communityAssets(index, health, readPlanning(root, cfg), host, caps, cfg);
 
     if (!flag('write')) {
@@ -769,7 +815,7 @@ async function main() {
     const identity = gitLines(root, ['config', 'user.name'])[0] || null;
     const entry = renderDay({
       day, identity, contrib,
-      health: runHealth(index, cfg, root),
+      health: runHealth(index, cfg, root, healthOpts(root, cfg)),
       plan: readPlanning(root, cfg),
       commits: commitsOn(contrib, day),
     });
@@ -877,7 +923,7 @@ async function main() {
 
   if (cmd === 'prompt') {
     const index = buildIndex(root, cfg, { withGit });
-    const health = runHealth(index, cfg, root);
+    const health = runHealth(index, cfg, root, healthOpts(root, cfg));
     const out = buildPrompt({
       cfg, index, health,
       plan: readPlanning(root, cfg),
@@ -985,6 +1031,9 @@ async function main() {
     // adopted the tool would be a plugin deciding someone else's policy for them.
     if (!cfg.__configPath || !automationAllows(cfg, 'healthOnCommit')) return;
     const index = buildIndex(root, cfg, { withGit });
+    // **No `healthOpts` here, and that is the one deliberate omission.** This path reads `blockingCount` and
+    // nothing else; H17 can never block, so supplying the aggregate would buy a streaming pass over the local
+    // transcript store on every commit in exchange for a number this block never prints. See `healthOpts`.
     const health = runHealth(index, cfg, root);
     if (!health.blockingCount) return;
     const blocking = health.findings.filter((f) => f.blocking);
@@ -999,7 +1048,7 @@ async function main() {
 
   if (cmd === 'health') {
     const index = buildIndex(root, cfg, { withGit });
-    const health = runHealth(index, cfg, root);
+    const health = runHealth(index, cfg, root, healthOpts(root, cfg));
     const verbose = flag('verbose');
     say(formatReport(health, index, { verbose: verbose === 'all' ? 'all' : !!verbose, color }));
     if (flag('json')) console.log(JSON.stringify({ counts: health.counts, blockingCount: health.blockingCount, findings: health.findings.map(({ ...f }) => f) }, null, 2));
@@ -1030,7 +1079,7 @@ async function main() {
     const target = String(flag('target', 'wiki'));
     const push = !!flag('push');
     const index = buildIndex(root, cfg, { withGit });
-    const health = runHealth(index, cfg, root);
+    const health = runHealth(index, cfg, root, healthOpts(root, cfg));
     const plan = readPlanning(root, cfg);
 
     const host = detectHost(root, cfg);
@@ -1580,7 +1629,7 @@ function doBuild(root, cfg, withGit, withReport, { stamp = false, autoDerived = 
   }
   try {
   const index = buildIndex(root, cfg, { withGit });
-  const health = runHealth(index, cfg, root);
+  const health = runHealth(index, cfg, root, healthOpts(root, cfg));
   if (withReport) say(formatReport(health, index, { verbose: !!flag('verbose'), color }), '\n');
 
   // The stamp is computed *before* the pages are rendered so each page can carry the value it was built
@@ -1762,6 +1811,8 @@ function usage() {
   atlas tasks [word]         the planning document with progress bars; a word filters it
   atlas plan [slug]          the route for the change in your tree — branch, item, version; --apply cuts the branch
   atlas branch [type slug]   branch state, or create type/short-slug carrying your changes
+  atlas contention [branch…]  what a fan-out will collide on: files more than one branch touches, plan ids
+                             defined twice, and the next free id. --base REF; exit 1 on a duplicate id only
   atlas caps                 which host features are on (wiki/pages/issues/discussions)
   atlas community [--write]  scaffolding for the features this host actually supports
   atlas changes [--json]     what changed, and which documents cite it

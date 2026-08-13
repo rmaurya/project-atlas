@@ -39,13 +39,13 @@ measured against the code — the same distinction the tool preserves everywhere
 | A-28 | 100 | M-4 | 100 | A-29 | 100 |
 | C-7 | 100 | C-8 | 100 | | |
 | C-9 | 100 | A-31 | 100 | A-30 | 100 |
-| C-10 | 45 | C-11 | 10 | Q-4 | 10 |
+| C-10 | 45 | C-11 | 30 | Q-4 | 90 |
 | Q-5 | 10 | A-32 | 100 | A-33 | 100 |
 | A-34 | 100 | A-35 | 100 | Q-6 | 100 |
 | A-36 | 0 | A-37 | 100 | A-38 | 100 |
 | A-39 | 100 | A-40 | 100 | A-41 | 100 |
 | A-42 | 100 | A-43 | 100 | A-44 | 100 |
-| A-45 | 100 | A-46 | 100 | | |
+| A-45 | 100 | A-46 | 100 | A-48 | 100 |
 
 ---
 
@@ -266,6 +266,12 @@ Stated with its exceptions, because a default that never says "not this time" ge
 genuine dependency chain and to two-file tasks where writing the briefs costs more than the parallelism saves.
 Designed in [`docs/references/autonomy.md`](references/autonomy.md).
 
+**It was still one-sided, and A-48 is the correction.** Everything above prices the parallelism — "saved about
+an hour" — and nothing priced the coordination, which makes the section advocacy rather than advice. A later
+session followed it and paid **six agents, seven branches off one base, eleven merge commits and hours of
+conflict resolution**. The skill now carries that bill with its four measured causes, and `atlas contention`
+reports the two that were knowable in advance.
+
 ## Track 2 — Product
 
 **P-1 · Core generation** — **P0 · Critical**
@@ -444,14 +450,49 @@ have parallelised" is advice about somebody's working method. Its own descriptio
 it in the same table without saying so would be smuggling. And it reports **unevaluated, never "ok"**, when
 there is no transcript to read, which is the rule A-29 was filed for.
 
-The threshold is a stated default with its evidence in the signal's own text rather than a constant somebody
-liked the look of: 40 is the 25th percentile of the edit counts of the sessions that *did* fan out, across
-the 29 transcripts available when it was written. On that sample it fires twice, which is a note rather than
-a nag.
+**It was filed at 100% and it had never run.** `readParallelism` was correct, tested and unreachable: not one
+of the eight `runHealth(` call sites passed a fourth argument, so `opts.sessions` was `undefined` everywhere
+and every report on every machine printed *"H17 — (not evaluated)"*. The design was right and nobody had
+plugged it in, which is the failure mode a percentage in the table above cannot see. `healthOpts`
+(`scripts/atlas.mjs:254`) now supplies the aggregate at the six call sites that show a report to somebody, and
+`scripts/lib/parallelism.mjs` derives it. **The commit gate is deliberately excluded**: it reads
+`blockingCount` alone, H17 can never block, and a streaming pass over the local transcript store on every
+commit is how a guard becomes something people switch off — taking the five blocking corpus signals with it.
 
-**It does not read transcripts itself.** `atlas tokens` is the only thing that opens them — rule 1 of
-`scripts/lib/tokens.mjs`, because those files hold every prompt that passed through a session — so the
-aggregate is passed in by the caller and H17 is unevaluated until it is.
+**And the threshold's stated evidence was arithmetically impossible.** The text printed on `health.html`
+claimed 40 was *the 25th percentile of the edit counts of the sessions that did fan out* over eleven listed
+values — `12, 39, 58, 89, 116, 136, 164, 235, 694, 1114, 1650` — whose 25th percentile is **58** by nearest
+rank and **73.5** interpolated. The same paragraph said *"20 of the 29 made fewer than 40 edits"*, which puts
+nine sessions at or above 40; nine of those eleven fanned-out sessions are already at or above 40, so the
+stated numbers leave no solo session above the line and the rule fires **zero** times on the sample it was
+said to fire twice on. Two invented figures in the one paragraph whose job was to persuade a sceptic.
+
+Re-measured on 2026-08-13 over that machine's whole store — 8 stores, 587 transcript files, 29 sessions. The
+12 sessions that fanned out made `0, 12, 39, 58, 89, 136, 152, 164, 235, 694, 1114, 1650` edits; the 17 that
+did not made `0×9, 1, 2, 6, 16, 26, 32, 51, 139`. **The two populations overlap** — three delegating sessions
+sit below 40 and two non-delegating ones sit above it — so no cut point separates them and no percentile of
+this sample earns the word *because*. The 25th percentile of the twelve is 39 by nearest rank and 53.25
+interpolated, a 37% spread that depends only on which definition is used.
+
+So **40 stays, and is now stated as an arbitrary round number.** What the sample honestly supports is the
+calibration, not the derivation: at 40 the rule fires on 2 of the 29 sessions, 18 of which made fewer than 40
+edits and 10 of which made none at all. A stated arbitrary default a reader can argue with and
+`tokens.parallelismEdits` can change is defensible; a percentile nobody computed is not. Every figure in that
+paragraph is now generated from `PARALLELISM_SAMPLE` by `parallelismEvidence()` rather than retyped, and a
+test asserts the arithmetic — prose about a distribution cannot contradict the distribution if it is printed
+from it.
+
+**It still does not read transcripts itself.** Rule 1 of `scripts/lib/tokens.mjs` keeps that read where it can
+be audited, because those files hold every prompt that passed through a session, so the aggregate is passed in
+by the caller and H17 is unevaluated — never "ok" — until it is. `parallelism.mjs` imports `hasTranscripts`,
+`transcriptDir` and `transcriptFiles` rather than re-deriving them, and its header names the exact export
+`tokens.mjs` would need for the module to be deleted outright.
+
+*Remaining, and the reason this is 90 rather than 100:* the MCP surface (`scripts/lib/mcp.mjs:72`) is the one
+report that still calls `runHealth` with three arguments, so a client reading health over MCP is told H17 was
+not evaluated. That is honest — the same "not evaluated, never ok" the rule demands — but it is not the
+answer. And the counting loop belongs in `tokens.mjs`, which owns the transcript read; while it lives in
+`parallelism.mjs` a build that also renders the Economics view walks the store twice.
 
 **Q-5 · A page can be rendered from the wrong repository, and a test passes because of it** — **P2 · Medium**
 
@@ -1556,3 +1597,57 @@ which would end the sentence the whole safety argument rests on, that you can de
 `undesigned` supplies the coverage inversion. The one thing computed here that nothing computed before is
 the **reverse citation index**: code file → the documents that cite it, which is the direction of the
 question an agent about to change a file actually has.*
+
+**A-48 · The skill argues for fan-out and nothing counts what it costs** — **P1 · High**
+*`atlas contention` — which files a set of branches would all touch, and which plan-item ids more than one of
+them defines.*
+
+*C-11 is one-sided.* It tells a session to fan independent work out by default, gives one worktree per agent
+as the constraint, and prices the parallelism at "perhaps an hour saved". It never priced the coordination,
+because when it was written nobody had measured it. The session that produced this item did: **six agents,
+seven branches off one base, eleven merge commits, and hours of conflict resolution.**
+
+**The expensive part is that most of that was knowable before the first agent started.** Not predictable in
+principle — *knowable*, from `git diff --name-only` and one read of the plan per branch:
+
+- **Every branch appended to `tests/run.mjs` and `docs/ROADMAP.md`.** Six branches over two shared files is
+  five guaranteed conflicts each, and the conflict region repeatedly cut *mid-test*, so the `});` below the
+  marker closed whichever side survived — a resolution that parses, runs, and silently drops a case.
+- **Duplicate plan-item ids.** `A-34` was filed by two agents independently; `A-38` and `A-39` by three. All
+  were renumbered by hand *after* the fact, leaving merged commit subjects naming ids that had moved. A commit
+  subject cannot be corrected.
+
+Both are contention over a shared namespace — one over the lines of a file, one over the integers in an id —
+so both are reported by one command rather than two, because the second command is the one nobody runs.
+`atlas contention [branch…] [--base REF]` lists every file more than one branch touches with the branches that
+touch it, every id more than one branch *introduces*, and the **next free id per prefix**, read as the highest
+in use anywhere plus one. Diffed from the merge base rather than the base tip, so a long-lived branch does not
+appear to touch half the repository.
+
+*Three things it deliberately does not do.* **It refuses nothing but a duplicate id** — two branches on one
+file is frequently correct, a gate there would be the tool deciding how somebody splits their work, and it
+would be wrong often enough to get switched off; two branches introducing one id has no legitimate cause,
+which is exactly the line `blocking` draws in the health report. **It allocates nothing** — `nextFree` is a
+read of the plan, not a lock file, because a lock file is a second source of truth for a fact the plan already
+holds. **It does not predict semantic conflict** — git cannot tell two edits to different functions from two
+edits to one line before a merge, and neither can this; the claim is "these will need reconciling", never
+"these will fail".
+
+*What it would not have caught, stated because the other half is the honest part.* The `econFixture` collision
+is caught only as far as "you will both edit `tests/run.mjs`" — a name is not a file and this reads files. And
+the `git ls-files` conflict-stage deadlock is neither predicted nor prevented here; A-37 fixed the dedupe, and
+what made it expensive was the guard blocking the resolution that would have cleared it, which is a property
+of the guard rather than of the fan-out.
+
+*The other side is written down too.* `skills/build/SKILL.md` now carries the bill and its four causes in the
+section that used to carry only the saving, and points at this command — an instruction that states only its
+upside is advocacy, and the reader who pays for the missing half stops believing the rest of the document.
+
+***This item was filed as A-47 and renumbered by the command it introduces, before it merged.*** Two agents
+working concurrently were each told to file the next item after A-46, and each of them did. The first run of
+`atlas contention` on this branch reported `A-47 — feat/h17-and-fanout-cost, fix/commit-guard-wrong-repo`,
+which is the A-34 collision happening for the fourth time and the first time anyone saw it before the merge.
+The later branch took A-48 — a deterministic tie-break, because two agents both moving to "the next free id"
+collide again — and the commit was amended rather than followed by a correction, since a merged commit subject
+naming an id that has since moved cannot be fixed. That is the entire argument for this item, and it did not
+have to be reconstructed from a transcript.
