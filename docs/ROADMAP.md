@@ -45,7 +45,7 @@ measured against the code — the same distinction the tool preserves everywhere
 | A-36 | 0 | A-37 | 100 | A-38 | 100 |
 | A-39 | 100 | A-40 | 100 | A-41 | 100 |
 | A-42 | 100 | A-43 | 100 | A-44 | 100 |
-| A-45 | 100 | A-46 | 100 | | |
+| A-45 | 100 | A-46 | 100 | M-5 | 100 |
 
 ---
 
@@ -1556,3 +1556,49 @@ which would end the sentence the whole safety argument rests on, that you can de
 `undesigned` supplies the coverage inversion. The one thing computed here that nothing computed before is
 the **reverse citation index**: code file → the documents that cite it, which is the direction of the
 question an agent about to change a file actually has.*
+
+**M-5 · The test suite, in the knowledge base** — **P1 · High**
+*Shipped.* *`kb/tests.md`: every case name with the line to open it at, grouped by the file's own markers,
+cross-referenced against the plan ids the cases name, and carrying the two rules a case has to hold to.
+Linked from the entry point's routing table, and inverted into `routes.md` as a **Tested by** column.*
+
+***The gap was the same shape as [M-4](#track-8--integration)'s, one layer in.*** *M-4 gave an agent with
+`Read` and `Grep` the taxonomy, the citations, the health findings and the plan. It did not give it the one
+fact it needs before changing anything: **is this behaviour tested, and where.** On this repository the
+answer lives in a single file of nine thousand lines and four hundred and fifty cases, so an agent either
+spends its whole context opening it or guesses. The Quality view already counted the cases —
+`testcases.mjs` has done that since Q-1 — but a count is not a route, and the count was on an HTML page the
+working case cannot open.*
+
+*Nothing about the page is hand-maintained, which is the only way a list of what is covered is worth having:
+a stale one is read as an assurance. `testInventory` stays the single authority for what a test file is and
+`casesInFile` for what a case is — a second definition would be the disagreement C-7 closed — and this adds
+only the three facts neither computes and a reader has to have. **Where** each case sits, by scanning
+forward for the exact occurrence that produced it, so two cases sharing a name still resolve. **Which
+group**, from the nearest marker above it, reading both conventions a suite uses: the rule comment and the
+banner the runner prints. **Which plan item it names**, matched against the ids `docs/ROADMAP.md` actually
+defines rather than against the shape of an id — a shape match reports `H17`, a health signal this suite
+names fifty-six times, as a plan item, and a cross-reference that invents half its edges is worse than none.*
+
+***The reversion convention is surfaced as what it is: a claim, not evidence.*** *This suite's rule is that a
+case fixing a defect names it, and 64 cases do. The page prints them and then says plainly that a named
+defect says a defect was *named*, not that the case was ever reverted and observed to fail — nothing in a
+source file can show that, and a case that names nothing may have been verified exactly that way. Stating
+the limit is the difference between a cross-reference and a coverage badge.*
+
+*Two rules are derived rather than described, because both are rules that live in a comment somebody has to
+have read.* **The drain**: this runner collects the promise an `async` case returns and awaits the collection
+partway down the file, so a case appended below that point is pushed onto a list nothing reads again — it
+never runs, never fails, and never reaches the pass count. The suite stays green for a case that did not
+execute. The page locates the drain by line and counts how many cases sit below it. **The selection flag**
+is read out of the runner's own `argv` handling, so a suite taking something other than `--filter` is
+documented correctly rather than plausibly.
+
+*The reverse route gained the other half of its question. `routes.md` answered "I am about to change this —
+what describes it?"; it now also answers "what will catch me", from the **imports** in each test file
+resolved against the tracked list. That edge is deliberately weak and labelled as one — an import proves the
+suite loads the module, not that a case exercises it, and `scripts/atlas.mjs` shows a dash because the tests
+spawn it as a process. The alternative, matching a case's wording against a filename, would invent edges,
+which is what the resolved-citations-only rule at the top of that page already refuses. It also produced a
+section nothing else could: **24 files the suite imports that no document describes** — the cheapest
+documentation gaps in the repository, because the behaviour is already written down somewhere executable.*
