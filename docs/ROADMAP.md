@@ -1440,6 +1440,44 @@ other.
 findings to read a flag from. **`dashboard.mjs:412` carries the identical expression and is not fixed here**
 — same defect, different owner, reported rather than touched.
 
+**A-48 · Fifteen links in a row is a list, not a menu** — **P2 · Medium**
+*Shipped.* `render.mjs::shell` emitted every nav entry as a peer in one flat `<nav>`. `navItems` generates
+one per page that exists — the right rule, and the reason a new view costs one config line — and it had
+reached fifteen: Home, twelve views, Wiki, Deck, Health. **Measured at 1280px the bar was two rows with the
+clock pushed onto the second; at 390px it was four, and the header owned a fifth of the screen before any
+content.** An earlier fix had let the row wrap rather than clip, which was right at ten entries and bought
+time rather than solving anything.
+
+*Grouped by the source a view reads, not by the audience it addresses.* Every view is already a role's first
+screen, so grouping by role would be a second copy of one axis under invented headings. What actually differs
+is what a reader is looking for: **Plan** (Backlog, Product, Executive — the three readings of
+`docs/ROADMAP.md`), **Work** (Delivery, Repository, Economics — when and by whom, where in the tree, at what
+cost, the distinction `views.mjs` argues at length and the menu now shows), **Design** (Architecture,
+Blueprint), **Documents** (Quality, Developer, Wiki, Health). Home, Overview and Deck stay one click away.
+Seven top-level entries, one row at 1600, 1280 and 1024 in both themes.
+
+*`<details>`/`<summary>`, no library, and no script in the critical path.* The browser's own disclosure widget
+brings keyboard activation, focus order and an announced expanded state; the CSP forbids fetching anything, so
+a library was never available. The burger is a `<details>` holding **nothing** — a closed one hides its
+children through a UA mechanism CSS on the child cannot override, so the list is its sibling and
+`.navburger[open] ~ .navlist` reads the open state. Verified with scripting disabled at 1024 and 390: groups
+open and close, the burger opens and closes, all fifteen links reachable. The 26 lines of script add Escape,
+click-outside and tab-out, and nothing else.
+
+*The active page is reachable, not merely marked.* `aria-current="page"` stays on the link; a group holding it
+carries a dot, the active colour, **and the words "(contains the current page)"** for a reader who sees
+neither. A collapsed group that gives no sign tells the reader their page is not in the menu.
+
+*Two things moved that were not the menu.* The clock and the theme toggle are siblings of `<nav>` now rather
+than children — neither is navigation, and `exportSingleFile` deletes the topbar nav, which is how the toggle
+came to be deleted from the standalone export once already. And the bar is **sticky at every width**: it went
+static below 1024px because it was two rows there, which is no longer true, and the open burger panel is
+positioned against it.
+
+*Also measured and fixed: at 1024 the bar wanted 946px of a 922px content box and put the toggle alone on a
+second row.* A 1200px step returns about 85px — a tighter gutter, tighter gaps, 15px on the menu — with
+nothing hidden and nothing moved out of the bar.
+
 ## Track 7 — Specification and consistency
 
 *Added 2026-08-10. The design record is **detected and reported, never enforced and never authored** — a
