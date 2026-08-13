@@ -50,7 +50,7 @@ import { readTokens, formatTokens, formatSessions, assertNotPublishable, transcr
          runAnchors, hasTranscripts, DEFAULT_SITTING_GAP_MINUTES } from '../scripts/lib/tokens.mjs';
 import { readChanges, fileDiff, formatChanges } from '../scripts/lib/changes.mjs';
 import { readInflight, inflightSentence } from '../scripts/lib/inflight.mjs';
-import { branchStatus, createBranch, TYPES } from '../scripts/lib/branch.mjs';
+import { branchStatus, createBranch, TYPES, inferAncestry, ANCESTRY_CAP } from '../scripts/lib/branch.mjs';
 import { detectHost, gateTarget, formatCapabilities } from '../scripts/lib/host.mjs';
 import { resolveViews, navItems, PANELS, DEFAULT_VIEWS } from '../scripts/lib/views.mjs';
 import { communityAssets } from '../scripts/lib/community.mjs';
@@ -77,7 +77,8 @@ import { handle as mcpHandle, TOOLS as MCP_TOOLS, PROTOCOL_VERSION as MCP_VERSIO
 import { runTask, TASKS } from '../scripts/lib/task.mjs';
 import { manifestUrl, checkForUpdate, fetchLatest, readCache, writeCache, isFresh } from '../scripts/lib/update.mjs';
 import { readGitInsight, formatGitInsight, hotspots, coupling, branchHealth, cadence, hygiene,
-         fillWeeks, DEFAULT_GITINSIGHT, GITINSIGHT_SECTIONS } from '../scripts/lib/gitinsight.mjs';
+         fillWeeks, DEFAULT_GITINSIGHT, GITINSIGHT_SECTIONS,
+         branchTree, formatBranchTree, ancestryPhrase } from '../scripts/lib/gitinsight.mjs';
 import { cheatsheet, renderAssets, parseUsage, usageSource, parseMap, slashCommands, fit, measure,
          pack, SVG_PATH, PDF_PATH } from '../scripts/lib/cheatsheet.mjs';
 
@@ -11054,6 +11055,299 @@ test('A-27 · no id literal reaches the shipped wire, because the bundler rewrit
   eq(/getElementById\(\s*['"]stamp['"]\s*\)|#stamp\b|['"]stamp['"]/.test(wire), false,
     'the footer wire must reach the build indicator by class — no id literal, in code or in prose');
   includes(wire, ".querySelector('.stamp[data-built]')", 'by class, and only where a value was actually baked');
+});
+
+/* ================================================================== where a branch came from, and the tree (A-55, A-56) */
+
+/**
+ * **Git records no parent for a branch**, so every case below is about the difference between an inference
+ * and a fact. The one failure mode that matters is a plausible answer with nothing behind it: a parent picked
+ * out of two equally good candidates reads exactly like a measured one, and it is the input to somebody's
+ * rebase.
+ *
+ * The fixtures are real repositories with real topology — `inferAncestry` is pure and could be tested on
+ * hand-written graphs, and three of these are, but the shapes that actually caused the bugs (a branch cut
+ * from a branch that then moved on; a merged branch whose merge base is its own tip) are easier to get wrong
+ * in the reading of git than in the arithmetic over it.
+ *
+ * **Every case here is synchronous.** `pendingAsync` is drained thousands of lines above this point, so an
+ * `async` case appended here would be constructed, never awaited, and counted as a pass it never earned.
+ * Each one was checked by reverting the change it guards and watching it fail.
+ */
+
+console.log('\nbranch ancestry and the tree');
+
+/** A hand-written graph, youngest first, in the topological order `inferAncestry` is documented to want. */
+const graph = (...rows) => rows.map(([sha, ...parents]) => ({ sha, parents }));
+
+test('A-55 · two branches off one fork point are siblings, and neither is named the other\'s parent', () => {
+  // The case the owner named: `docs/atlas-knowledgebase-adoption` and `development`, both 59 ahead of main.
+  // "Cut from main, same point as development" is the answer; picking one of them as the other's parent is a
+  // coin toss with a report's authority behind it.
+  const of = inferAncestry({
+    main: 'main',
+    tips: [{ name: 'main', sha: 'M' }, { name: 'a', sha: 'A' }, { name: 'b', sha: 'B' }],
+    commits: graph(['A', 'M'], ['B', 'M'], ['M', 'R'], ['R']),
+  });
+  eq(of.get('a').basis, 'trunk', 'a branch off the trunk is off the trunk');
+  eq(of.get('a').parent, 'main');
+  eq(of.get('a').sharedWith, ['b'], 'and the sibling is named, which is what stops this reading as "and nothing else"');
+  eq(of.get('b').sharedWith, ['a'], 'symmetrically — neither is the other\'s parent');
+  eq(of.get('main').basis, 'self', 'the trunk has nothing above it');
+
+  includes(ancestryPhrase(of.get('a'), 'main'), 'same point as b', 'and the sentence says so');
+  includes(ancestryPhrase(of.get('a'), 'main'), 'probably', 'hedged, because git records none of this');
+});
+
+test('A-55 · a branch whose parent has not moved is placed under it, not under the trunk', () => {
+  // `contained`: the candidate's tip is an ancestor of this branch. The strongest evidence available and
+  // still not proof, which is why the phrase says "probably" — if X was cut from B and has not moved, this
+  // reads the relation backwards and nothing in the graph can tell.
+  const of = inferAncestry({
+    main: 'main',
+    tips: [{ name: 'main', sha: 'M' }, { name: 'parent', sha: 'P' }, { name: 'child', sha: 'C' }],
+    commits: graph(['C', 'P'], ['P', 'M'], ['M', 'R'], ['R']),
+  });
+  eq(of.get('child').basis, 'contained');
+  eq(of.get('child').parent, 'parent', 'the nearer branch wins over the trunk');
+  eq(of.get('parent').parent, 'main', 'and the parent is still the trunk\'s child');
+  eq(of.get('parent').descendants, ['child'], 'the direction is recorded both ways round');
+});
+
+test('A-55 · a branch past the ancestry cap is unmeasured, and never "cut from main"', () => {
+  // The cap exists so the pass stays one `rev-list`. What it must never do is fill the gap: "cut from main"
+  // for a branch nobody looked at is the same class of invention as "0 ahead" for a branch nobody measured.
+  const tips = [{ name: 'main', sha: 'M' }, { name: 'a', sha: 'A' }, { name: 'b', sha: 'B' }];
+  const of = inferAncestry({ main: 'main', tips, commits: graph(['A', 'M'], ['B', 'M'], ['M']), cap: 2 });
+  eq(of.get('a').basis, 'trunk', 'the branch inside the cap is measured');
+  eq(of.get('b').basis, 'unknown', 'the one past it is not');
+  eq(of.get('b').parent, null, 'and gets no parent at all');
+  includes(of.get('b').reason, 'cap', 'with the cap named as the reason');
+  ok(ANCESTRY_CAP >= 2, 'sanity: the shipped cap is a real number');
+});
+
+test('A-55 · unrelated histories come back unknown, with the reason — never as the trunk', () => {
+  // `security/tamperproof-hardening` in the owner's own repository: `?` ahead, unreadable. Its parent is
+  // equally unknowable and the report has to say that rather than defaulting it to `main`.
+  const of = inferAncestry({
+    main: 'main',
+    tips: [{ name: 'main', sha: 'M' }, { name: 'orphan', sha: 'O' }],
+    commits: graph(['M', 'R'], ['R'], ['O']),
+  });
+  eq(of.get('orphan').basis, 'unknown');
+  eq(of.get('orphan').parent, null);
+  includes(of.get('orphan').reason, 'unrelated histories');
+  includes(ancestryPhrase(of.get('orphan'), 'main'), 'origin unknown');
+});
+
+test('A-55 · two branches that each look like the other\'s parent are reported as one undirected split', () => {
+  // The bug this caught in its own first draft: cut a branch, then commit once more on the branch you cut it
+  // from, and the graph is symmetric. The report printed "development was cut from feat/nested" and, four
+  // lines below, "feat/nested was cut from development" — one page contradicting itself. Asserted as a
+  // property of the pair rather than of one row, because a fix that collapsed only one side passed a
+  // single-row check and left the contradiction standing in one direction.
+  const of = inferAncestry({
+    main: 'main',
+    tips: [{ name: 'main', sha: 'M' }, { name: 'x', sha: 'X' }, { name: 'y', sha: 'Y' }],
+    commits: graph(['X', 'F'], ['Y', 'F'], ['F', 'M'], ['M']),
+  });
+  eq([of.get('x').basis, of.get('y').basis], ['unordered', 'unordered'], 'both halves, or the fix is half a fix');
+  eq([of.get('x').parent, of.get('y').parent], [null, null], 'and neither is named the parent');
+  eq(of.get('x').counterpart, 'y');
+  eq(of.get('x').forkCommit, 'F', 'the split commit is a fact and is still reported');
+
+  const said = [ancestryPhrase(of.get('x'), 'main'), ancestryPhrase(of.get('y'), 'main')];
+  eq(said.filter((s) => /cut from/.test(s)), [], 'neither sentence may claim a cut it cannot support');
+  for (const s of said) includes(s, 'nothing in the commit graph orders them');
+});
+
+test('A-55 · a merged branch reports no fork point, because its merge base is where it landed', () => {
+  // A branch entirely inside the trunk has merge-base == its own tip. The first draft printed that as
+  // "cut from main at d5b489b" — naming the commit where the work *landed* as the commit it was *cut from*.
+  const of = inferAncestry({
+    main: 'main',
+    tips: [{ name: 'main', sha: 'M' }, { name: 'landed', sha: 'L' }],
+    commits: graph(['M', 'L'], ['L', 'R'], ['R']),
+  });
+  eq(of.get('landed').basis, 'trunk');
+  eq(of.get('landed').forkCommit, null, 'the graph does not hold this branch\'s fork point');
+  eq(of.get('landed').trunkFork, 'L', 'the join with the trunk is still known, and is what the tree draws');
+  const said = ancestryPhrase(of.get('landed'), 'main');
+  eq(/at [0-9a-f]{7}/.test(said), false, `no commit may be offered as the fork point: ${said}`);
+  includes(said, 'cannot locate the fork');
+});
+
+/** A repository with a branch cut from a branch, two siblings off one point, and one merged branch. */
+function topologyFixture(name) {
+  const dir = fixture(name, { 'docs/A.md': '# A\n' });
+  const main = gitIn(dir, 'rev-parse', '--abbrev-ref', 'HEAD');
+  gitIn(dir, 'switch', '-q', '-c', 'development');
+  commitMsg(dir, 'docs/dev.md', '# dev\n', 'feat: dev one');
+  gitIn(dir, 'switch', '-q', '-c', 'feat/nested');
+  commitMsg(dir, 'docs/nested.md', '# nested\n', 'feat: nested');
+  gitIn(dir, 'switch', '-q', 'development');
+  commitMsg(dir, 'docs/dev.md', '# dev two\n', 'feat: dev two');
+  gitIn(dir, 'switch', '-q', main);
+  gitIn(dir, 'switch', '-q', '-c', 'docs/one');
+  commitMsg(dir, 'docs/one.md', '# one\n', 'docs: one');
+  gitIn(dir, 'switch', '-q', main);
+  gitIn(dir, 'switch', '-q', '-c', 'docs/two');
+  commitMsg(dir, 'docs/two.md', '# two\n', 'docs: two');
+  gitIn(dir, 'switch', '-q', main);
+  return { dir, main };
+}
+
+test('A-56 · the tree nests a branch under the branch it came from, and hangs siblings off the trunk', () => {
+  const { dir, main } = topologyFixture('tree-shape');
+  const k = branchTree(dir, { branching: { main } });
+  ok(k.available, 'the tree must draw on an ordinary repository');
+
+  const find = (nodes, want) => {
+    for (const n of nodes) {
+      if (n.name === want) return n;
+      const hit = find(n.children, want);
+      if (hit) return hit;
+    }
+    return null;
+  };
+  const root = k.roots.find((r) => r.name === main);
+  ok(root, `${main} must be the root of the drawing`);
+  eq(root.children.map((n) => n.name).sort(), ['development', 'docs/one', 'docs/two'],
+    'the three branches cut from the trunk hang off it, and the nested one does not');
+  const dev = find(k.roots, 'development');
+  eq(dev.children.map((n) => n.name), ['feat/nested'],
+    'the branch cut from `development` is drawn under it — this is the whole question the tree answers');
+  eq(k.unplaced, [], 'nothing here is unplaceable');
+});
+
+test('A-56 · every figure on the tree is the branch table\'s own, not a second derivation', () => {
+  // The stated reason this command reuses `branchHealth` instead of reading refs again. Two derivations of
+  // one fact are the defect the tool exists to detect, and shipping one inside it would be the loudest
+  // possible way to fail at that — so the equality is asserted rather than left to the docblock.
+  const { dir, main } = topologyFixture('tree-reuse');
+  const cfg = { branching: { main } };
+  const k = branchTree(dir, cfg);
+  const health = branchHealth(dir, cfg, DEFAULT_GITINSIGHT);
+  const byName = new Map(health.branches.map((b) => [b.name, b]));
+
+  const walk = (nodes) => nodes.flatMap((n) => [n, ...walk(n.children)]);
+  const drawn = walk(k.roots).filter((n) => n.branch);
+  ok(drawn.length >= 4, 'sanity: the tree actually drew some branches');
+  for (const n of drawn) {
+    const row = byName.get(n.name);
+    ok(row, `${n.name} is drawn and the branch survey has no row for it`);
+    eq([n.branch.ahead, n.branch.behind, n.branch.ageDays], [row.ahead, row.behind, row.ageDays],
+      `${n.name}: the tree and the table must not be able to disagree`);
+  }
+});
+
+test('A-56 · age is measured against the newest commit, so the report does not move with the clock', () => {
+  // `dashboard.mjs::branchInventory` made this call first: an age from `Date.now()` prints a different
+  // integer every morning with nothing having happened, which no test and no reader can hold to anything.
+  // The wall clock is decades past these commit dates, so a clock-derived age would be in the thousands.
+  const dir = fixture('tree-age', { 'docs/A.md': '# A\n' });
+  const main = gitIn(dir, 'rev-parse', '--abbrev-ref', 'HEAD');
+  const at = (iso, file, msg) => {
+    fs.writeFileSync(path.join(dir, file), `# ${msg}\n`, 'utf8');
+    execFileSync('git', ['add', '-A'], { cwd: dir, stdio: 'ignore' });
+    execFileSync('git', ['-c', 'user.email=t@example.com', '-c', 'user.name=Test',
+      '-c', `user.date=${iso}`, 'commit', '-qm', msg, '--date', iso],
+    { cwd: dir, stdio: 'ignore', env: { ...process.env, GIT_COMMITTER_DATE: iso } });
+  };
+  gitIn(dir, 'switch', '-q', '-c', 'feat/old');
+  at('2026-01-01T00:00:00Z', 'docs/old.md', 'old');
+  gitIn(dir, 'switch', '-q', main);
+  gitIn(dir, 'switch', '-q', '-c', 'feat/new');
+  at('2026-01-31T00:00:00Z', 'docs/new.md', 'new');
+  gitIn(dir, 'switch', '-q', main);
+  at('2026-02-10T00:00:00Z', 'docs/trunk.md', 'trunk');   // the newest commit in the repository
+
+  const k = branchHealth(dir, { branching: { main } });
+  const age = (n) => k.branches.find((b) => b.name === n).ageDays;
+  eq(age(main), 0, 'the newest ref is zero days behind the newest commit, by definition');
+  eq(age('feat/new'), 10, '10 days between 01-31 and the trunk tip, and nothing about today');
+  eq(age('feat/old'), 40, 'and 40 for the older one — both fixed by the fixture, not by the calendar');
+  ok(age('feat/old') < 400, 'a clock-derived age would be in the thousands by the time anyone reads this');
+});
+
+test('A-56 · a branch with no common ancestor keeps its place in the output, with its reason', () => {
+  // "If the topology cannot be established for a branch, it appears with its reason rather than being
+  // dropped." A tree that silently omits a branch is worse than one that admits it cannot place it: the
+  // reader counts the rows and concludes the branch is gone.
+  const dir = fixture('tree-orphan', { 'docs/A.md': '# A\n' });
+  const main = gitIn(dir, 'rev-parse', '--abbrev-ref', 'HEAD');
+  gitIn(dir, 'checkout', '-q', '--orphan', 'security/unrelated');
+  fs.rmSync(path.join(dir, 'docs', 'A.md'));
+  commitMsg(dir, 'docs/S.md', '# S\n', 'chore: unrelated root');
+  gitIn(dir, 'switch', '-q', main);
+
+  const k = branchTree(dir, { branching: { main } });
+  eq(k.unplaced.map((u) => u.node.name), ['security/unrelated'], 'it is listed, not dropped');
+  includes(k.unplaced[0].reason, 'unrelated histories', 'with the reason it could not be placed');
+
+  const out = formatBranchTree(k, false);
+  includes(out, 'security/unrelated', 'and it reaches the page');
+  includes(out, 'could not be established', 'under a heading that says what the section is');
+});
+
+test('A-56 · the tree offers no command that would change anything', () => {
+  // Same rule and same enforcement as the branch survey: these are the commands an agent runs without
+  // asking, so the boundary is asserted on the rendered output rather than on a comment in the source.
+  const { dir, main } = topologyFixture('tree-readonly');
+  const out = formatBranchTree(branchTree(dir, { branching: { main } }), false);
+  eq(/\bgit\s+(branch|push|checkout|switch|fetch|reset|rebase|clean|gc|prune|remote|config|merge)\b/.test(out), false,
+    `the tree offered a runnable git command:\n${out}`);
+  includes(out, 'Read-only.', 'and it says plainly that it is');
+});
+
+test('A-56 · --no-color is the coloured tree with the escapes removed, and nothing else', () => {
+  // Colour carries state here and must never be the only carrier — the same mechanical proof the rest of
+  // `gitinsight.mjs` is held to. A reader piping to a file is not a degraded reader.
+  const { dir, main } = topologyFixture('tree-color');
+  const k = branchTree(dir, { branching: { main } });
+  const painted = formatBranchTree(k, true);
+  const plain = formatBranchTree(k, false);
+  ok(/\x1b\[/.test(painted), 'the coloured render must actually emit ANSI, or this proves nothing');
+  eq(/\x1b\[/.test(plain), false, '--no-color must emit no escape at all');
+  eq(painted.replace(/\x1b\[[0-9;]*m/g, ''), plain, 'anything else is meaning carried by colour alone');
+  ok(/[├└│]/.test(plain), 'the drawing survives --no-color: the glyphs are structure, not decoration');
+});
+
+test('A-56 · one branch, a detached HEAD and a repository with no commits each produce a report', () => {
+  // Three shapes that a tree-drawing routine reaches for a root in and finds nothing. Run through the CLI
+  // rather than the function, because the exit code is half the contract: a repository with one branch is
+  // not failing a check.
+  const solo = fixture('tree-solo', { 'docs/A.md': '# A\n' });
+  const one = spawnSync(process.execPath, [CLI, 'git-tree', '--no-color', '--root', solo], { encoding: 'utf8' });
+  eq(one.status, 0, `one branch must not be an error:\n${one.stderr}`);
+  includes(one.stdout, 'Branch topology');
+
+  const det = fixture('tree-detached', { 'docs/A.md': '# A\n' });
+  commitMsg(det, 'docs/B.md', '# B\n', 'chore: second');
+  gitIn(det, 'checkout', '-q', 'HEAD~1');
+  const two = spawnSync(process.execPath, [CLI, 'git-tree', '--no-color', '--root', det], { encoding: 'utf8' });
+  eq(two.status, 0, `a detached HEAD must not throw:\n${two.stderr}`);
+  includes(two.stdout, 'HEAD is detached', 'and the absence of a `current` row is explained rather than left blank');
+
+  const bare = path.join(tmpRoot, 'tree-empty');
+  fs.mkdirSync(bare, { recursive: true });
+  execFileSync('git', ['init', '-q'], { cwd: bare, stdio: 'ignore' });
+  const three = spawnSync(process.execPath, [CLI, 'git-tree', '--no-color', '--root', bare], { encoding: 'utf8' });
+  eq(three.status, 0, `a repository with no commits must not throw:\n${three.stderr}`);
+  includes(three.stdout, 'No local branches', 'and says the namespace is empty rather than drawing nothing');
+  includes(three.stdout, 'ORIGINS NOT MEASURED', 'and that no origin was measured, which is not the same as "cut from main"');
+});
+
+test('A-56 · the branch table names each open branch\'s origin, and marks it as inference', () => {
+  // The column the owner asked for, on the surface they asked for it on. The word `probably` is load-bearing
+  // and so is the paragraph under the list: this project has shipped a fabricated statistic once already.
+  const { dir, main } = topologyFixture('tree-column');
+  const k = branchHealth(dir, { branching: { main } });
+  const out = formatGitInsight({ available: true, section: 'branches', sections: { branches: k } }, false);
+  includes(out, 'probably cut from', 'each open branch says where it probably came from');
+  includes(out, 'same point as', 'and a sibling fork is named rather than resolved into a parent');
+  includes(out, 'Origins are inferred from the commit graph', 'with the hedge stated once, in full, under the list');
+  includes(out, 'Git records no parent for a branch');
 });
 
 console.log(`\n${pass} passed, ${fail} failed${skipped ? `, ${skipped} skipped on ${process.platform}` : ''}\n`);

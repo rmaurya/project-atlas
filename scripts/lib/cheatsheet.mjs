@@ -400,11 +400,25 @@ export const SCREEN = {
   footSize: 10, footLead: 14.5, nameGap: 12, markerBox: 6,
 };
 
-/** A4 landscape at points. One page, and the generator refuses rather than overflowing onto a second. */
+/**
+ * A4 landscape at points. One page, and the generator refuses rather than overflowing onto a second.
+ *
+ * **The leading has been bought back twice now, and the second time is recorded here so the third is a
+ * decision rather than a reflex.** `artifact` cost 10 points and they came out of the print margin, 26 → 20.
+ * `git-tree` cost the same again and the margin has nothing left to give at A4, so it came out of the
+ * *leading*: rows 11.5 → 11.0 against an 8.2pt face (134%, inside normal body leading), group headings
+ * 17.6 → 16.8. Type size is untouched, deliberately — a card nobody can read at arm's length has failed
+ * differently from one that spills to two pages, and only the second failure is visible.
+ *
+ * That buys room for roughly four more commands, measured rather than estimated: the drift case in
+ * `tests/run.mjs` renders the card with synthetic commands appended and the layout throws when it no longer
+ * fits, so the headroom is a number anyone can re-derive. **When it runs out, drop something from the card.**
+ * The leading has no third reduction in it.
+ */
 export const PRINT = {
   width: 842, height: 595, margin: 20, radius: 0, cols: 2, gutter: 22,
   titleSize: 17, kickerSize: 10, taglineSize: 8, legendSize: 7.3,
-  groupSize: 8.8, groupLead: 17.6, rowSize: 8.2, rowLead: 11.5, subSize: 7.2, subLead: 10,
+  groupSize: 8.8, groupLead: 16.8, rowSize: 8.2, rowLead: 11, subSize: 7.2, subLead: 10,
   footSize: 7.2, footLead: 9.8, nameGap: 9, markerBox: 4.4,
 };
 

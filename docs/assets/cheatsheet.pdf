@@ -10,7 +10,7 @@ endobj
 << /Type /Page /Parent 2 0 R /MediaBox [0 0 842 595] /Resources << /Font << /F1 5 0 R /F2 6 0 R /F3 7 0 R >> >> /Contents 4 0 R >>
 endobj
 4 0 obj
-<< /Length 16458 >>
+<< /Length 16533 >>
 stream
 1.0000 1.0000 1.0000 rg 0 0 842 595 re f
 BT 0.0706 0.1608 0.1686 rg /F2 17 Tf 1 0 0 1 20 558 Tm (project-atlas) Tj ET
@@ -26,150 +26,152 @@ BT 0.4314 0.4824 0.4745 rg /F1 7.3 Tf 1 0 0 1 334.18 534.32 Tm (shell only) Tj E
 0.1098 0.2275 0.2431 RG 0.63 w 375.87 534.63 3.77 3.77 re S
 BT 0.4314 0.4824 0.4745 rg /F1 7.3 Tf 1 0 0 1 382.88 534.32 Tm (Claude Code only) Tj ET
 0.7373 0.7843 0.7765 rg 20 526.85 802 0.9 re f
-BT 0.1098 0.2275 0.2431 rg /F2 8.8 Tf 1 0 0 1 20 505.22 Tm (Starting out) Tj ET
-0.7373 0.7843 0.7765 rg 20 501.45 390 0.6 re f
-BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 28.4 490.03 Tm (build) Tj ET
-BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 130.88 490.03 Tm (adopt this repository and generate the site) Tj ET
-BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 28.4 478.53 Tm (help) Tj ET
-BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 130.88 478.53 Tm (this map) Tj ET
-BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 28.4 467.03 Tm (config [--json]) Tj ET
-BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 130.88 467.03 Tm (tune the taxonomy, the blocking signals, the stale window) Tj ET
-BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 28.4 455.53 Tm (version) Tj ET
-BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 130.88 455.53 Tm (which build is answering, and whether it is behind) Tj ET
-BT 0.1098 0.2275 0.2431 rg /F2 8.8 Tf 1 0 0 1 20 441.62 Tm (Seeing where things stand) Tj ET
-0.7373 0.7843 0.7765 rg 20 437.85 390 0.6 re f
-0.1098 0.2275 0.2431 RG 0.63 w 20.31 428.24 3.77 3.77 re S
-BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 28.4 426.43 Tm (status) Tj ET
-BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 130.88 426.43 Tm (the corpus, the rot and the one next action) Tj ET
-BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 28.4 414.93 Tm (health [--verbose]) Tj ET
-BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 130.88 414.93 Tm (the full rot report) Tj ET
-BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 28.4 403.43 Tm (tasks [word]) Tj ET
-BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 130.88 403.43 Tm (the plan as progress bars) Tj ET
-BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 28.4 391.93 Tm (design [--scaffold]) Tj ET
-BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 130.88 391.93 Tm (which design documents exist, and which are scaffolds still owing their substance) Tj ET
-0.1098 0.2275 0.2431 RG 0.63 w 20.31 382.24 3.77 3.77 re S
-BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 28.4 380.43 Tm (dashboard) Tj ET
-BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 130.88 380.43 Tm (build, serve and hand back a URL) Tj ET
-BT 0.1098 0.2275 0.2431 rg /F2 8.8 Tf 1 0 0 1 20 366.52 Tm (Working on a change) Tj ET
-0.7373 0.7843 0.7765 rg 20 362.75 390 0.6 re f
-BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 28.4 351.33 Tm (branch [type slug]) Tj ET
-BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 130.88 351.33 Tm (is it safe to commit here) Tj ET
-BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 28.4 339.83 Tm (plan [slug]) Tj ET
-BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 130.88 339.83 Tm (propose the route and run none of it) Tj ET
-BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 28.4 328.33 Tm (changes [--json]) Tj ET
-BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 130.88 328.33 Tm (what is uncommitted and which documents cite it) Tj ET
-BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 28.4 316.83 Tm (diff <file>) Tj ET
-BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 130.88 316.83 Tm (one file, explained) Tj ET
-0.1098 0.2275 0.2431 RG 0.63 w 20.31 307.14 3.77 3.77 re S
-BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 28.4 305.33 Tm (review) Tj ET
-BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 130.88 305.33 Tm (what this diff breaks or fixes, before the commit) Tj ET
-BT 0.1098 0.2275 0.2431 rg /F2 8.8 Tf 1 0 0 1 20 291.42 Tm (Picking up cold) Tj ET
-0.7373 0.7843 0.7765 rg 20 287.65 390 0.6 re f
-BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 28.4 276.23 Tm (state [--json]) Tj ET
-BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 130.88 276.23 Tm (what a resuming session reads first) Tj ET
-BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 28.4 264.73 Tm (handoff) Tj ET
-BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 130.88 264.73 Tm (the derived half of a handoff, for the half only a person can write) Tj ET
-BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 28.4 253.23 Tm (note <kind> "<text>") Tj ET
-BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 130.88 253.23 Tm (record one decision, trap or blocker) Tj ET
-BT 0.1098 0.2275 0.2431 rg /F2 8.8 Tf 1 0 0 1 20 239.32 Tm (Digging into history) Tj ET
-0.7373 0.7843 0.7765 rg 20 235.55 390 0.6 re f
-BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 28.4 224.13 Tm (contrib [--json]) Tj ET
-BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 130.88 224.13 Tm (commits over time) Tj ET
-BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 28.4 212.63 Tm (ownership [--json]) Tj ET
-BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 130.88 212.63 Tm (authors per area, and where the bus factor is one) Tj ET
-BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 28.4 201.13 Tm (surviving [--json]) Tj ET
-BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 130.88 201.13 Tm (lines still in the tree) Tj ET
-BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 28.4 189.63 Tm (worklog [--day D]) Tj ET
-BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 130.88 189.63 Tm (what landed today) Tj ET
-BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 28.4 178.13 Tm (sessions [--out F]) Tj ET
-BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 130.88 178.13 Tm (how sessions went \227 turns, interruptions, friction, rework) Tj ET
-BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 28.4 166.63 Tm (tokens [--out FILE]) Tj ET
-BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 130.88 166.63 Tm (token accounting from local session transcripts \227 opt-in, never published) Tj ET
-BT 0.4314 0.4824 0.4745 rg /F3 7.2 Tf 1 0 0 1 35.6 156.63 Tm (--snapshot) Tj ET
-BT 0.4314 0.4824 0.4745 rg /F1 7.2 Tf 1 0 0 1 130.88 156.63 Tm (append the counts-only day rollup to .atlas/tokens.jsonl \(needs tokens.snapshot\)) Tj ET
-BT 0.1098 0.2275 0.2431 rg /F2 8.8 Tf 1 0 0 1 432 505.22 Tm (What git history says, and nothing else here reads) Tj ET
-0.7373 0.7843 0.7765 rg 432 501.45 390 0.6 re f
-BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 440.4 490.03 Tm (git-insights [sect]) Tj ET
-BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 542.88 490.03 Tm (all of it at once) Tj ET
-0.1098 0.2275 0.2431 RG 0.63 w 432.31 480.34 3.77 3.77 re S
-BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 440.4 478.53 Tm (git-hotspots) Tj ET
-BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 542.88 478.53 Tm (the files change keeps returning to, what changes together) Tj ET
-0.1098 0.2275 0.2431 RG 0.63 w 432.31 468.84 3.77 3.77 re S
-BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 440.4 467.03 Tm (git-history) Tj ET
-BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 542.88 467.03 Tm (cadence and commit hygiene) Tj ET
-0.1098 0.2275 0.2431 RG 0.63 w 432.31 457.34 3.77 3.77 re S
-BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 440.4 455.53 Tm (git-branch) Tj ET
-BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 542.88 455.53 Tm (branch state and the branch inventory) Tj ET
-0.1098 0.2275 0.2431 RG 0.63 w 432.31 445.84 3.77 3.77 re S
-BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 440.4 444.03 Tm (git-status) Tj ET
-BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 542.88 444.03 Tm (where you are, what is uncommitted, and what this change touches) Tj ET
-0.1098 0.2275 0.2431 RG 0.63 w 432.31 434.34 3.77 3.77 re S
-BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 440.4 432.53 Tm (git-diff <path>) Tj ET
-BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 542.88 432.53 Tm (one file, with the history around it) Tj ET
-BT 0.1098 0.2275 0.2431 rg /F2 8.8 Tf 1 0 0 1 432 418.62 Tm (Stopping and picking back up) Tj ET
-0.7373 0.7843 0.7765 rg 432 414.85 390 0.6 re f
-BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 440.4 403.43 Tm (pause [--dry-run]) Tj ET
-BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 542.88 403.43 Tm (checkpoint every agent worktree to a wip/agent-* ref before the session ends) Tj ET
-BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 440.4 391.93 Tm (resume) Tj ET
-BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 542.88 391.93 Tm (the re-spawn plan for a paused session, and writes nothing) Tj ET
-BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 440.4 380.43 Tm (stop [--force]) Tj ET
-BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 542.88 380.43 Tm (clear session state and agent worktrees; every branch and checkpoint survives) Tj ET
-BT 0.1098 0.2275 0.2431 rg /F2 8.8 Tf 1 0 0 1 432 366.52 Tm (Publishing) Tj ET
-0.7373 0.7843 0.7765 rg 432 362.75 390 0.6 re f
-BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 440.4 351.33 Tm (caps) Tj ET
-BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 542.88 351.33 Tm (which features the host has on \227 makes one network request) Tj ET
-BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 440.4 339.83 Tm (community [--write]) Tj ET
-BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 542.88 339.83 Tm (issue and PR scaffolding for the features that came back on) Tj ET
-BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 440.4 328.33 Tm (publish) Tj ET
-BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 542.88 328.33 Tm (wiki, pages or a single file, and never without confirmation) Tj ET
-BT 0.4314 0.4824 0.4745 rg /F3 7.2 Tf 1 0 0 1 447.6 318.33 Tm (--target wiki) Tj ET
-BT 0.4314 0.4824 0.4745 rg /F1 7.2 Tf 1 0 0 1 542.88 318.33 Tm (GitHub Wiki \227 flattened markdown, links rewritten, drift-guarded) Tj ET
-BT 0.4314 0.4824 0.4745 rg /F3 7.2 Tf 1 0 0 1 447.6 308.33 Tm (--target pages) Tj ET
-BT 0.4314 0.4824 0.4745 rg /F1 7.2 Tf 1 0 0 1 542.88 308.33 Tm (the full site to a gh-pages branch \(dashboard + deck survive\)) Tj ET
-BT 0.4314 0.4824 0.4745 rg /F3 7.2 Tf 1 0 0 1 447.6 298.33 Tm (--target export) Tj ET
-BT 0.4314 0.4824 0.4745 rg /F1 7.2 Tf 1 0 0 1 542.88 298.33 Tm (one self-contained HTML file \(--page dashboard|index|health\)) Tj ET
-BT 0.4314 0.4824 0.4745 rg /F3 7.2 Tf 1 0 0 1 447.6 288.33 Tm (--ci) Tj ET
-BT 0.4314 0.4824 0.4745 rg /F1 7.2 Tf 1 0 0 1 542.88 288.33 Tm (\(GitLab, pages\) write the .gitlab-ci.yml job instead \227 Pages is an artifact there) Tj ET
-0.1098 0.2275 0.2431 RG 0.63 w 432.31 278.64 3.77 3.77 re S
-BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 440.4 276.83 Tm (artifact) Tj ET
-BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 542.88 276.83 Tm (the dashboard, health report or index to claude.ai as a shareable page) Tj ET
-BT 0.1098 0.2275 0.2431 rg /F2 8.8 Tf 1 0 0 1 432 262.92 Tm (Agent surfaces) Tj ET
-0.7373 0.7843 0.7765 rg 432 259.15 390 0.6 re f
-BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 440.4 247.73 Tm (mcp) Tj ET
-BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 542.88 247.73 Tm (connect a client to the read-only tool surface) Tj ET
-BT 0.4314 0.4824 0.4745 rg /F3 7.2 Tf 1 0 0 1 447.6 237.73 Tm (--status) Tj ET
-BT 0.4314 0.4824 0.4745 rg /F1 7.2 Tf 1 0 0 1 542.88 237.73 Tm (what a client would connect to, where it is registered, what is running) Tj ET
-BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 440.4 226.23 Tm (ask <task>) Tj ET
-BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 542.88 226.23 Tm (answer a question from the corpus) Tj ET
-BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 440.4 214.73 Tm (prompt [--out FILE]) Tj ET
-BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 542.88 214.73 Tm (a system prompt for an agent that cannot load this plugin) Tj ET
-BT 0.1098 0.2275 0.2431 rg /F2 8.8 Tf 1 0 0 1 432 200.82 Tm (Command line only) Tj ET
-0.7373 0.7843 0.7765 rg 432 197.05 390 0.6 re f
-0.1098 0.2275 0.2431 rg 432 187.13 4.4 4.4 re f
-BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 440.4 185.63 Tm (init) Tj ET
-BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 542.88 185.63 Tm (write project-atlas.config.json, detecting this repository's layout) Tj ET
-0.1098 0.2275 0.2431 rg 432 175.63 4.4 4.4 re f
-BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 440.4 174.13 Tm (scan [--json]) Tj ET
-BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 542.88 174.13 Tm (build and summarise the index) Tj ET
-0.1098 0.2275 0.2431 rg 432 164.13 4.4 4.4 re f
-BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 440.4 162.63 Tm (contention [branch\205]) Tj ET
-BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 542.88 162.63 Tm (what a fan-out will collide on: files more than one branch touches) Tj ET
-0.1098 0.2275 0.2431 rg 432 152.63 4.4 4.4 re f
-BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 440.4 151.13 Tm (spec --gate) Tj ET
-BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 542.88 151.13 Tm (the commit gate: refuse a staged change whose message names no plan item) Tj ET
-0.1098 0.2275 0.2431 rg 432 141.13 4.4 4.4 re f
-BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 440.4 139.63 Tm (serve) Tj ET
-BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 542.88 139.63 Tm (build, then run the live dashboard detached and open it) Tj ET
-BT 0.4314 0.4824 0.4745 rg /F3 7.2 Tf 1 0 0 1 447.6 129.63 Tm (--status | --stop) Tj ET
-BT 0.4314 0.4824 0.4745 rg /F1 7.2 Tf 1 0 0 1 542.88 129.63 Tm (what is running here | end it now) Tj ET
-BT 0.4314 0.4824 0.4745 rg /F3 7.2 Tf 1 0 0 1 447.6 119.63 Tm (--list | --launcher) Tj ET
-BT 0.4314 0.4824 0.4745 rg /F1 7.2 Tf 1 0 0 1 542.88 119.63 Tm (every atlas dashboard on this machine | write a page linking them all) Tj ET
-0.1098 0.2275 0.2431 rg 432 109.63 4.4 4.4 re f
-BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 440.4 108.13 Tm (watch [--serve]) Tj ET
-BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 542.88 108.13 Tm (rebuild on change; --serve hosts it live at http://127.0.0.1:4173) Tj ET
-0.1098 0.2275 0.2431 rg 432 98.13 4.4 4.4 re f
-BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 440.4 96.63 Tm (all) Tj ET
-BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 542.88 96.63 Tm (scan + health + build) Tj ET
+BT 0.1098 0.2275 0.2431 rg /F2 8.8 Tf 1 0 0 1 20 506.4 Tm (Starting out) Tj ET
+0.7373 0.7843 0.7765 rg 20 502.63 390 0.6 re f
+BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 28.4 491.7 Tm (build) Tj ET
+BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 130.88 491.7 Tm (adopt this repository and generate the site) Tj ET
+BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 28.4 480.7 Tm (help) Tj ET
+BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 130.88 480.7 Tm (this map) Tj ET
+BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 28.4 469.7 Tm (config [--json]) Tj ET
+BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 130.88 469.7 Tm (tune the taxonomy, the blocking signals, the stale window) Tj ET
+BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 28.4 458.7 Tm (version) Tj ET
+BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 130.88 458.7 Tm (which build is answering, and whether it is behind) Tj ET
+BT 0.1098 0.2275 0.2431 rg /F2 8.8 Tf 1 0 0 1 20 445.6 Tm (Seeing where things stand) Tj ET
+0.7373 0.7843 0.7765 rg 20 441.83 390 0.6 re f
+0.1098 0.2275 0.2431 RG 0.63 w 20.31 432.72 3.77 3.77 re S
+BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 28.4 430.9 Tm (status) Tj ET
+BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 130.88 430.9 Tm (the corpus, the rot and the one next action) Tj ET
+BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 28.4 419.9 Tm (health [--verbose]) Tj ET
+BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 130.88 419.9 Tm (the full rot report) Tj ET
+BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 28.4 408.9 Tm (tasks [word]) Tj ET
+BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 130.88 408.9 Tm (the plan as progress bars) Tj ET
+BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 28.4 397.9 Tm (design [--scaffold]) Tj ET
+BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 130.88 397.9 Tm (which design documents exist, and which are scaffolds still owing their substance) Tj ET
+0.1098 0.2275 0.2431 RG 0.63 w 20.31 388.72 3.77 3.77 re S
+BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 28.4 386.9 Tm (dashboard) Tj ET
+BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 130.88 386.9 Tm (build, serve and hand back a URL) Tj ET
+BT 0.1098 0.2275 0.2431 rg /F2 8.8 Tf 1 0 0 1 20 373.8 Tm (Working on a change) Tj ET
+0.7373 0.7843 0.7765 rg 20 370.03 390 0.6 re f
+BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 28.4 359.1 Tm (branch [type slug]) Tj ET
+BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 130.88 359.1 Tm (is it safe to commit here) Tj ET
+BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 28.4 348.1 Tm (plan [slug]) Tj ET
+BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 130.88 348.1 Tm (propose the route and run none of it) Tj ET
+BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 28.4 337.1 Tm (changes [--json]) Tj ET
+BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 130.88 337.1 Tm (what is uncommitted and which documents cite it) Tj ET
+BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 28.4 326.1 Tm (diff <file>) Tj ET
+BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 130.88 326.1 Tm (one file, explained) Tj ET
+0.1098 0.2275 0.2431 RG 0.63 w 20.31 316.92 3.77 3.77 re S
+BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 28.4 315.1 Tm (review) Tj ET
+BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 130.88 315.1 Tm (what this diff breaks or fixes, before the commit) Tj ET
+BT 0.1098 0.2275 0.2431 rg /F2 8.8 Tf 1 0 0 1 20 302 Tm (Picking up cold) Tj ET
+0.7373 0.7843 0.7765 rg 20 298.23 390 0.6 re f
+BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 28.4 287.3 Tm (state [--json]) Tj ET
+BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 130.88 287.3 Tm (what a resuming session reads first) Tj ET
+BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 28.4 276.3 Tm (handoff) Tj ET
+BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 130.88 276.3 Tm (the derived half of a handoff, for the half only a person can write) Tj ET
+BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 28.4 265.3 Tm (note <kind> "<text>") Tj ET
+BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 130.88 265.3 Tm (record one decision, trap or blocker) Tj ET
+BT 0.1098 0.2275 0.2431 rg /F2 8.8 Tf 1 0 0 1 20 252.2 Tm (Digging into history) Tj ET
+0.7373 0.7843 0.7765 rg 20 248.43 390 0.6 re f
+BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 28.4 237.5 Tm (contrib [--json]) Tj ET
+BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 130.88 237.5 Tm (commits over time) Tj ET
+BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 28.4 226.5 Tm (ownership [--json]) Tj ET
+BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 130.88 226.5 Tm (authors per area, and where the bus factor is one) Tj ET
+BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 28.4 215.5 Tm (surviving [--json]) Tj ET
+BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 130.88 215.5 Tm (lines still in the tree) Tj ET
+BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 28.4 204.5 Tm (worklog [--day D]) Tj ET
+BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 130.88 204.5 Tm (what landed today) Tj ET
+BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 28.4 193.5 Tm (sessions [--out F]) Tj ET
+BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 130.88 193.5 Tm (how sessions went \227 turns, interruptions, friction, rework) Tj ET
+BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 28.4 182.5 Tm (tokens [--out FILE]) Tj ET
+BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 130.88 182.5 Tm (token accounting from local session transcripts \227 opt-in, never published) Tj ET
+BT 0.4314 0.4824 0.4745 rg /F3 7.2 Tf 1 0 0 1 35.6 172.5 Tm (--snapshot) Tj ET
+BT 0.4314 0.4824 0.4745 rg /F1 7.2 Tf 1 0 0 1 130.88 172.5 Tm (append the counts-only day rollup to .atlas/tokens.jsonl \(needs tokens.snapshot\)) Tj ET
+BT 0.1098 0.2275 0.2431 rg /F2 8.8 Tf 1 0 0 1 432 506.4 Tm (What git history says, and nothing else here reads) Tj ET
+0.7373 0.7843 0.7765 rg 432 502.63 390 0.6 re f
+BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 440.4 491.7 Tm (git-insights [sect]) Tj ET
+BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 542.88 491.7 Tm (all of it at once) Tj ET
+0.1098 0.2275 0.2431 RG 0.63 w 432.31 482.52 3.77 3.77 re S
+BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 440.4 480.7 Tm (git-hotspots) Tj ET
+BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 542.88 480.7 Tm (the files change keeps returning to, what changes together) Tj ET
+0.1098 0.2275 0.2431 RG 0.63 w 432.31 471.52 3.77 3.77 re S
+BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 440.4 469.7 Tm (git-history) Tj ET
+BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 542.88 469.7 Tm (cadence and commit hygiene) Tj ET
+0.1098 0.2275 0.2431 RG 0.63 w 432.31 460.52 3.77 3.77 re S
+BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 440.4 458.7 Tm (git-branch) Tj ET
+BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 542.88 458.7 Tm (branch state and the branch inventory) Tj ET
+BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 440.4 447.7 Tm (git-tree) Tj ET
+BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 542.88 447.7 Tm (the branch topology \227 what was cut from what, drawn as a tree) Tj ET
+0.1098 0.2275 0.2431 RG 0.63 w 432.31 438.52 3.77 3.77 re S
+BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 440.4 436.7 Tm (git-status) Tj ET
+BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 542.88 436.7 Tm (where you are, what is uncommitted, and what this change touches) Tj ET
+0.1098 0.2275 0.2431 RG 0.63 w 432.31 427.52 3.77 3.77 re S
+BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 440.4 425.7 Tm (git-diff <path>) Tj ET
+BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 542.88 425.7 Tm (one file, with the history around it) Tj ET
+BT 0.1098 0.2275 0.2431 rg /F2 8.8 Tf 1 0 0 1 432 412.6 Tm (Stopping and picking back up) Tj ET
+0.7373 0.7843 0.7765 rg 432 408.83 390 0.6 re f
+BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 440.4 397.9 Tm (pause [--dry-run]) Tj ET
+BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 542.88 397.9 Tm (checkpoint every agent worktree to a wip/agent-* ref before the session ends) Tj ET
+BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 440.4 386.9 Tm (resume) Tj ET
+BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 542.88 386.9 Tm (the re-spawn plan for a paused session, and writes nothing) Tj ET
+BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 440.4 375.9 Tm (stop [--force]) Tj ET
+BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 542.88 375.9 Tm (clear session state and agent worktrees; every branch and checkpoint survives) Tj ET
+BT 0.1098 0.2275 0.2431 rg /F2 8.8 Tf 1 0 0 1 432 362.8 Tm (Publishing) Tj ET
+0.7373 0.7843 0.7765 rg 432 359.03 390 0.6 re f
+BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 440.4 348.1 Tm (caps) Tj ET
+BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 542.88 348.1 Tm (which features the host has on \227 makes one network request) Tj ET
+BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 440.4 337.1 Tm (community [--write]) Tj ET
+BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 542.88 337.1 Tm (issue and PR scaffolding for the features that came back on) Tj ET
+BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 440.4 326.1 Tm (publish) Tj ET
+BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 542.88 326.1 Tm (wiki, pages or a single file, and never without confirmation) Tj ET
+BT 0.4314 0.4824 0.4745 rg /F3 7.2 Tf 1 0 0 1 447.6 316.1 Tm (--target wiki) Tj ET
+BT 0.4314 0.4824 0.4745 rg /F1 7.2 Tf 1 0 0 1 542.88 316.1 Tm (GitHub Wiki \227 flattened markdown, links rewritten, drift-guarded) Tj ET
+BT 0.4314 0.4824 0.4745 rg /F3 7.2 Tf 1 0 0 1 447.6 306.1 Tm (--target pages) Tj ET
+BT 0.4314 0.4824 0.4745 rg /F1 7.2 Tf 1 0 0 1 542.88 306.1 Tm (the full site to a gh-pages branch \(dashboard + deck survive\)) Tj ET
+BT 0.4314 0.4824 0.4745 rg /F3 7.2 Tf 1 0 0 1 447.6 296.1 Tm (--target export) Tj ET
+BT 0.4314 0.4824 0.4745 rg /F1 7.2 Tf 1 0 0 1 542.88 296.1 Tm (one self-contained HTML file \(--page dashboard|index|health\)) Tj ET
+BT 0.4314 0.4824 0.4745 rg /F3 7.2 Tf 1 0 0 1 447.6 286.1 Tm (--ci) Tj ET
+BT 0.4314 0.4824 0.4745 rg /F1 7.2 Tf 1 0 0 1 542.88 286.1 Tm (\(GitLab, pages\) write the .gitlab-ci.yml job instead \227 Pages is an artifact there) Tj ET
+0.1098 0.2275 0.2431 RG 0.63 w 432.31 276.92 3.77 3.77 re S
+BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 440.4 275.1 Tm (artifact) Tj ET
+BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 542.88 275.1 Tm (the dashboard, health report or index to claude.ai as a shareable page) Tj ET
+BT 0.1098 0.2275 0.2431 rg /F2 8.8 Tf 1 0 0 1 432 262 Tm (Agent surfaces) Tj ET
+0.7373 0.7843 0.7765 rg 432 258.23 390 0.6 re f
+BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 440.4 247.3 Tm (mcp) Tj ET
+BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 542.88 247.3 Tm (connect a client to the read-only tool surface) Tj ET
+BT 0.4314 0.4824 0.4745 rg /F3 7.2 Tf 1 0 0 1 447.6 237.3 Tm (--status) Tj ET
+BT 0.4314 0.4824 0.4745 rg /F1 7.2 Tf 1 0 0 1 542.88 237.3 Tm (what a client would connect to, where it is registered, what is running) Tj ET
+BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 440.4 226.3 Tm (ask <task>) Tj ET
+BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 542.88 226.3 Tm (answer a question from the corpus) Tj ET
+BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 440.4 215.3 Tm (prompt [--out FILE]) Tj ET
+BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 542.88 215.3 Tm (a system prompt for an agent that cannot load this plugin) Tj ET
+BT 0.1098 0.2275 0.2431 rg /F2 8.8 Tf 1 0 0 1 432 202.2 Tm (Command line only) Tj ET
+0.7373 0.7843 0.7765 rg 432 198.43 390 0.6 re f
+0.1098 0.2275 0.2431 rg 432 189 4.4 4.4 re f
+BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 440.4 187.5 Tm (init) Tj ET
+BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 542.88 187.5 Tm (write project-atlas.config.json, detecting this repository's layout) Tj ET
+0.1098 0.2275 0.2431 rg 432 178 4.4 4.4 re f
+BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 440.4 176.5 Tm (scan [--json]) Tj ET
+BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 542.88 176.5 Tm (build and summarise the index) Tj ET
+0.1098 0.2275 0.2431 rg 432 167 4.4 4.4 re f
+BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 440.4 165.5 Tm (contention [branch\205]) Tj ET
+BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 542.88 165.5 Tm (what a fan-out will collide on: files more than one branch touches) Tj ET
+0.1098 0.2275 0.2431 rg 432 156 4.4 4.4 re f
+BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 440.4 154.5 Tm (spec --gate) Tj ET
+BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 542.88 154.5 Tm (the commit gate: refuse a staged change whose message names no plan item) Tj ET
+0.1098 0.2275 0.2431 rg 432 145 4.4 4.4 re f
+BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 440.4 143.5 Tm (serve) Tj ET
+BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 542.88 143.5 Tm (build, then run the live dashboard detached and open it) Tj ET
+BT 0.4314 0.4824 0.4745 rg /F3 7.2 Tf 1 0 0 1 447.6 133.5 Tm (--status | --stop) Tj ET
+BT 0.4314 0.4824 0.4745 rg /F1 7.2 Tf 1 0 0 1 542.88 133.5 Tm (what is running here | end it now) Tj ET
+BT 0.4314 0.4824 0.4745 rg /F3 7.2 Tf 1 0 0 1 447.6 123.5 Tm (--list | --launcher) Tj ET
+BT 0.4314 0.4824 0.4745 rg /F1 7.2 Tf 1 0 0 1 542.88 123.5 Tm (every atlas dashboard on this machine | write a page linking them all) Tj ET
+0.1098 0.2275 0.2431 rg 432 114 4.4 4.4 re f
+BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 440.4 112.5 Tm (watch [--serve]) Tj ET
+BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 542.88 112.5 Tm (rebuild on change; --serve hosts it live at http://127.0.0.1:4173) Tj ET
+0.1098 0.2275 0.2431 rg 432 103 4.4 4.4 re f
+BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 440.4 101.5 Tm (all) Tj ET
+BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 542.88 101.5 Tm (scan + health + build) Tj ET
 0.7373 0.7843 0.7765 rg 20 81.82 802 0.9 re f
 BT 0.1098 0.2275 0.2431 rg /F2 7.2 Tf 1 0 0 1 20 69 Tm (Aliases) Tj ET
 BT 0.4314 0.4824 0.4745 rg /F3 7.2 Tf 1 0 0 1 54.21 69 Tm (capabilities = caps \267 git-insight = git-insights) Tj ET
@@ -209,11 +211,11 @@ xref
 0000000064 00000 n 
 0000000121 00000 n 
 0000000267 00000 n 
-0000016778 00000 n 
-0000016875 00000 n 
-0000016977 00000 n 
+0000016853 00000 n 
+0000016950 00000 n 
+0000017052 00000 n 
 trailer
 << /Size 8 /Root 1 0 R >>
 startxref
-17072
+17147
 %%EOF

@@ -19,7 +19,7 @@ disable-model-invocation: true
 
 ---
 
-Thirty-nine slash commands is too many to list. **Give the user the group their question belongs to, then the
+Forty slash commands is too many to list. **Give the user the group their question belongs to, then the
 one or two commands in it** — the failure with a surface this size is never a missing command, it is a person
 choosing between three they cannot tell apart.
 
@@ -54,9 +54,10 @@ aggregate only, and never publish
 **What git history says, and nothing else here reads**
 `/atlas:git-insights` all of it at once · `/atlas:git-hotspots` the files change keeps returning to, what
 changes together, and who knows each area · `/atlas:git-history` cadence and commit hygiene ·
-`/atlas:git-branch` branch state and the branch inventory · `/atlas:git-status` where you are, what is
-uncommitted, and what this change touches · `/atlas:git-diff <path>` one file, with the history around it.
-All six are **strictly read-only**.
+`/atlas:git-branch` branch state and the branch inventory · `/atlas:git-tree` the branch topology — what was
+cut from what, drawn as a tree, with every origin marked as the inference it is · `/atlas:git-status` where
+you are, what is uncommitted, and what this change touches · `/atlas:git-diff <path>` one file, with the
+history around it. All seven are **strictly read-only**.
 
 **Stopping and picking back up**
 `/atlas:pause` checkpoint every agent worktree to a `wip/agent-*` ref before the session ends — **writes git

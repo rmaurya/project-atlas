@@ -48,7 +48,8 @@ measured against the code — the same distinction the tool preserves everywhere
 | A-45 | 100 | A-46 | 100 | A-48 | 100 |
 | M-5 | 100 | A-47 | 100 | A-49 | 100 |
 | A-50 | 100 | A-51 | 0 | A-52 | 100 |
-| A-53 | 100 | A-54 | 100 | | |
+| A-53 | 100 | A-54 | 100 | A-55 | 100 |
+| A-56 | 100 | | | | |
 
 ---
 
@@ -1911,6 +1912,51 @@ The later branch took A-48 — a deterministic tie-break, because two agents bot
 collide again — and the commit was amended rather than followed by a correction, since a merged commit subject
 naming an id that has since moved cannot be fixed. That is the entire argument for this item, and it did not
 have to be reconstructed from a transcript.
+
+**A-55 · The branch table says how far ahead, and never where a branch came from** — **P1 · High**
+*Shipped.* *`branch.mjs::inferAncestry` infers each branch's origin from the commit graph; the open-branch
+list in `atlas git-insights branches` names it, hedged, on a line of its own.*
+
+***Git does not record a parent for a branch, so the entire value of this item is in what it refuses to
+say.*** A branch is a moving pointer at a commit and nothing stores where the pointer started. So the answer
+is inference, and the interesting cases are the ones where a plausible answer is available and wrong:
+
+- **Two branches, one fork point.** `docs/atlas-knowledgebase-adoption` and `development`, both 59 ahead of
+  `main` off the same commit. "Cut from `main`, same point as `development`" is the answer; naming either as
+  the other's parent is a coin toss printed as a finding.
+- **Two branches that each look like the other's parent.** Cut a branch, commit once more on the branch you
+  cut it from, and the graph is *symmetric*. The first draft of this reported `development was cut from
+  feat/nested` and, four lines below, the reverse — one page contradicting itself. The pair is now reported
+  as one undirected split with neither named, and this clone's reflog may order it, labelled as a fact that
+  holds only on this machine.
+- **A branch with no common ancestor.** `security/tamperproof-hardening` could not be compared at all. Its
+  origin is `unknown`, with the reason, and never softened into `main`.
+- **A merged branch's merge base is its own tip** — the commit where the work *landed*, not where it was cut.
+  Reported as no fork point rather than as the wrong one.
+
+*One `git rev-list --topo-order --parents` for the whole answer, not one `merge-base` per pair: on thirty
+branches the obvious implementation is nine hundred subprocesses to fill a column. The inference over the
+graph is pure and tested without a repository. Age moved to the same anchor `dashboard.mjs` uses — days
+behind the repository's newest commit, not days on a calendar — so the report does not change on a morning
+when nothing happened.*
+
+**A-56 · `/atlas:git-tree` — how the branches relate, not how far ahead each one is** — **P1 · High**
+*Shipped.* *`atlas git-tree`: the branch topology in box-drawing characters — what descends from what, where
+each split off, what has gone back into the trunk. Read-only, like every other `git-*` surface, down to
+printing no `git branch -d` for anyone to paste.*
+
+*The table and the tree answer different questions off **the same facts**, which is the constraint that
+shaped the implementation: `branchTree` calls `branchHealth` and re-derives nothing, and a test asserts every
+ahead, behind and age on the drawing equals the survey row it came from. A second derivation of one fact is
+the defect this whole tool exists to detect, and shipping one inside it would be the loudest possible way to
+fail at that.*
+
+*A branch whose origin cannot be settled is listed with its reason rather than hung off the trunk to tidy the
+picture — an `unordered` or `ambiguous` origin is drawn under the trunk, which is the strongest statement
+that is actually true of it, with the rest on the row beneath. Spent siblings past six under one parent fold
+into one counted, named line: twenty-six finished branches drawn one per line is a page of noise around the
+three that matter.*
+
 **M-5 · The test suite, in the knowledge base** — **P1 · High**
 *Shipped.* *`kb/tests.md`: every case name with the line to open it at, grouped by the file's own markers,
 cross-referenced against the plan ids the cases name, and carrying the two rules a case has to hold to.

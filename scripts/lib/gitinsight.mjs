@@ -49,6 +49,7 @@ import { execFileSync } from 'node:child_process';
 import { readChanges, defaultBranch } from './changes.mjs';
 import { weeklyAxis } from './contrib.mjs';
 import { reverseCitations } from './design.mjs';
+import { inferAncestry, ANCESTRY_CAP } from './branch.mjs';
 import { num } from './format.mjs';
 
 // Record and field separators for the one `git log` this module runs of its own. Same names and the same
@@ -66,6 +67,7 @@ export const DEFAULT_GITINSIGHT = {
   couplingMinBasis: 20,       // below this many usable commits, pairs are reported as anecdote, not signal
   branchStaleDays: 30,
   branchDetailCap: 40,        // branches given an ahead/behind reading; the rest are listed without one
+  ancestryCap: ANCESTRY_CAP,  // branch tips taken into the parent inference; the rest are reported unmeasured
   largeCommitFiles: 20,       // "large" is this threshold, stated in the output rather than implied
 };
 
@@ -306,7 +308,8 @@ export function branchHealth(root, cfg = {}, opts = DEFAULT_GITINSIGHT) {
   // inflated the local count by one. The full ref answers both questions without guessing at the shape of a
   // name, and a remote called `main` or `feature` would have defeated any guess that did.
   const FMT = ['%(refname)', '%(refname:short)', '%(objectname:short)', '%(committerdate:iso8601-strict)',
-    '%(upstream:short)', '%(upstream:track)', '%(contents:subject)'].join(US);
+    '%(upstream:short)', '%(upstream:track)', '%(contents:subject)', '%(objectname)',
+    '%(committerdate:unix)'].join(US);
 
   const raw = git(root, ['for-each-ref', `--format=${FMT}`, 'refs/heads', 'refs/remotes']);
   if (raw === null) return { available: false, reason: 'git for-each-ref could not run — not a repository, or no refs' };
@@ -320,23 +323,42 @@ export function branchHealth(root, cfg = {}, opts = DEFAULT_GITINSIGHT) {
   const merged = mergedRaw === null ? null : new Set(mergedRaw.split('\n').filter(Boolean));
 
   const all = raw.split('\n').filter(Boolean).map((line) => {
-    const [ref, name, sha, date, upstream, track, subject] = line.split(US);
+    const [ref, name, sha, date, upstream, track, subject, full, unix] = line.split(US);
     const remote = ref.startsWith('refs/remotes/');
     return {
       ref, name, sha, date, subject: subject || '',
+      full,                              // the whole object name: what the commit graph is keyed on
+      unix: Number(unix) || 0,
       remote,
       upstream: upstream || null,
       track: (track || '').trim() || null,
       isCurrent: name === current,
       isProtected: protectedSet.has(name),
       merged: remote ? null : (merged ? merged.has(name) : null),
-      ageDays: Math.floor((Date.now() - Date.parse(date)) / 86400000),
+      ageDays: null,                     // filled below, against the newest commit rather than the clock
       ahead: null, behind: null,
+      ancestry: null,
     };
   }).sort((a, b) => b.date.localeCompare(a.date));
 
   // A remote's HEAD is a symref pointing at one of the branches already listed, not a branch of its own.
   const rows = all.filter((b) => !/\/HEAD$/.test(b.ref));
+
+  /*
+   * **Age is measured against the newest commit in the repository, not against the clock.**
+   *
+   * `dashboard.mjs::branchInventory` made this decision first and for the reason that matters here too: a
+   * figure derived from `Date.now()` changes on every run, so the same repository prints a different report
+   * every morning with nothing having happened, and nothing downstream can be compared or tested against it.
+   * "Eleven days behind the last thing that happened here" is also the more useful sentence on a repository
+   * that has been idle for a month, where "eleven days old" is mostly a fact about today.
+   *
+   * `unix` and not the ISO string, because `iso8601-strict` carries each committer's own offset and sorting
+   * those compares `+05:30` against `Z` — typography rather than time, the mismatch that cost `inflight.mjs`
+   * its journal window.
+   */
+  const newest = rows.length ? Math.max(...rows.map((b) => b.unix)) : 0;
+  for (const b of rows) b.ageDays = Math.max(0, Math.floor((newest - b.unix) / 86400));
 
   const detailed = rows.slice(0, opts.branchDetailCap);
   for (const b of detailed) {
@@ -348,6 +370,9 @@ export function branchHealth(root, cfg = {}, opts = DEFAULT_GITINSIGHT) {
   }
 
   const local = rows.filter((b) => !b.remote);
+  const ancestry = readAncestry(root, main, local, opts);
+  for (const b of local) b.ancestry = ancestry.of.get(b.name) || null;
+
   const stale = local.filter((b) => b.ageDays >= opts.branchStaleDays && !b.isCurrent && !b.isProtected);
   /*
    * **"Merged" and "never diverged" are not the same branch, and collapsing them was wrong in the direction
@@ -377,7 +402,261 @@ export function branchHealth(root, cfg = {}, opts = DEFAULT_GITINSIGHT) {
     undetailed: Math.max(0, rows.length - detailed.length),
     mergeCheckRan: merged !== null,
     staleDays: opts.branchStaleDays,
+    newestUnix: newest,
+    ancestry,
     stale, spent, atMain, unmerged,
+  };
+}
+
+/* ------------------------------------------------------------------ where each branch was cut from (A-55) */
+
+/**
+ * The git half of the parent inference: read the commit graph once, hand it to `branch.mjs::inferAncestry`,
+ * and then ask the reflog whether it still remembers the same fork.
+ *
+ * **One `rev-list` for the whole answer.** The obvious implementation is `git merge-base` per pair, which on
+ * thirty branches is nine hundred subprocesses to fill in one column. `--topo-order --parents` over the tips
+ * gives the same information in a single read, and the inference over it is pure and therefore testable
+ * without a repository — see the docblock on `inferAncestry` for what each verdict does and does not claim.
+ *
+ * **The reflog is corroboration, never the verdict.** `git merge-base --fork-point` finds where a branch
+ * diverged using the *other* branch's reflog, which knows things the graph cannot — a trunk that was rebased
+ * or amended leaves a fork point in the reflog that no longer exists as a common ancestor. It also expires,
+ * is per-clone, and is empty in a fresh clone, so it can only ever add a fact, never remove one: where it
+ * disagrees with the graph the report prints both and says the reflog is local to this machine.
+ */
+function readAncestry(root, main, local, opts = DEFAULT_GITINSIGHT) {
+  const cap = Math.max(1, Number(opts.ancestryCap) || ANCESTRY_CAP);
+  const mainSha = (git(root, ['rev-parse', '--verify', '--quiet', `${main}^{commit}`]) || '').trim();
+  if (!mainSha) {
+    return { available: false, cap, of: new Map(),
+      reason: `\`${main}\` does not resolve to a commit here, so there is no trunk to measure a fork point against` };
+  }
+
+  // `main` first so the cap can never drop it, then the rest newest-first — `local` arrives sorted that way.
+  const tips = [{ name: main, sha: mainSha }, ...local.filter((b) => b.name !== main).map((b) => ({ name: b.name, sha: b.full }))]
+    .filter((t) => t.sha);
+  const considered = tips.slice(0, Math.min(cap, 31));
+
+  const raw = git(root, ['rev-list', '--topo-order', '--parents', ...considered.map((t) => t.sha)]);
+  if (raw === null) {
+    return { available: false, cap, of: new Map(),
+      reason: 'the commit graph could not be read (git rev-list failed), so no fork point was measured' };
+  }
+  const commits = raw.split('\n').filter(Boolean).map((line) => {
+    const parts = line.split(' ');
+    return { sha: parts[0], parents: parts.slice(1) };
+  });
+
+  const of = inferAncestry({ main, tips, commits, cap });
+
+  /*
+   * **Where a branch was created, as the reflog remembers it.**
+   *
+   * `git merge-base --fork-point` was the obvious tool and it is the wrong one for the tie this has to break:
+   * asked both ways round about a branch and the branch it was cut from, it answers with the same commit both
+   * times, because each side's reflog contains that commit. It agrees, informatively, with the symmetry.
+   *
+   * The reflog's *oldest* entry is the discriminating fact — and only when its message says the entry is a
+   * creation, which is why the message is read rather than just the commit. A trimmed reflog leaves an oldest
+   * entry that is merely the oldest surviving state, and treating that as the branch point would invent a
+   * fork out of an expiry. No creation entry, no claim.
+   *
+   * `branch: Created from <ref>` also names the ref where the branch was cut from something other than
+   * `HEAD` — the only place in this whole feature where git records a parent outright rather than leaving it
+   * to be inferred. It is used when it is there, and it is still labelled: **a reflog is per-clone and
+   * expires, so anything it establishes is true on this machine and unverifiable anywhere else.**
+   */
+  const creationOf = (branch) => {
+    const raw = git(root, ['log', '-g', `--format=%H${US}%gs`, branch]);
+    if (raw === null) return null;
+    const lines = raw.split('\n').filter(Boolean);
+    if (!lines.length) return null;
+    const [sha, msg] = lines[lines.length - 1].split(US);
+    const m = /^branch: Created from (.+)$/.exec(msg || '');
+    return m ? { sha, from: m[1].trim() } : null;
+  };
+
+  let reflogRead = 0;
+  const creation = new Map();
+  const created = (name) => {
+    if (!creation.has(name)) { reflogRead += 1; creation.set(name, creationOf(name)); }
+    return creation.get(name);
+  };
+
+  const settled = new Set();
+  for (const rec of of.values()) {
+    if (rec.basis !== 'unordered' || !rec.counterpart || settled.has(rec.name)) continue;
+    const mate = of.get(rec.counterpart);
+    if (!mate) continue;
+    settled.add(rec.name); settled.add(mate.name);
+
+    const a = created(rec.name);
+    const b = created(mate.name);
+    // Named outright beats matched-by-commit, and a pair that names each other is no answer at all.
+    const namesMate = !!a && a.from === mate.name;
+    const namesRec = !!b && b.from === rec.name;
+    const atFork = (x) => !!x && !!rec.forkCommit && x.sha === rec.forkCommit;
+    let child = null;
+    if (namesMate !== namesRec) child = namesMate ? rec : mate;
+    else if (atFork(a) !== atFork(b)) child = atFork(a) ? rec : mate;
+    if (!child) continue;                                      // the tie stands, and stands as the answer
+
+    const parent = child === rec ? mate : rec;
+    child.basis = 'diverged';
+    child.parent = parent.name;
+    child.orderedBy = 'reflog';
+    child.reflogFork = created(child.name)?.sha || null;
+    child.reason = null;
+    // The other half falls back to the trunk rather than to whatever its next-nearest candidate was. That is
+    // deliberately the weaker claim: if a third branch also shares history with it past the trunk, this draws
+    // the branch one level too high rather than under a candidate the reflog said nothing about. The reason
+    // travels with the record so the under-claim is on the page and not only in this comment.
+    parent.basis = 'trunk';
+    parent.parent = main;
+    parent.forkCommit = parent.trunkFork;
+    parent.counterpart = null;
+    // No `orderedBy` and no reason on this half. The caveat belongs on the child, whose position rests on the
+    // reflog; repeating it here put the same warning on two consecutive lines and read as two findings.
+    parent.reason = null;
+  }
+
+  // And for every branch that ended with a named parent, where the reflog says it was created — reported only
+  // where it *disagrees* with the graph, which is what a rebase of the parent produces and the case in which a
+  // reader would otherwise be handed a fork point that no longer exists.
+  for (const rec of of.values()) {
+    if (!rec.parent || rec.basis === 'self' || rec.reflogFork) continue;
+    rec.reflogFork = created(rec.name)?.sha || null;
+  }
+
+  return {
+    available: true,
+    cap,
+    considered: considered.length,
+    unmeasured: Math.max(0, tips.length - considered.length),
+    commitsRead: commits.length,
+    reflogRead,
+    reason: null,
+    of,
+  };
+}
+
+/* ------------------------------------------------------------------ branch topology (A-56) */
+
+/**
+ * The shape of the branches, rather than a ranking of them.
+ *
+ * `branchHealth` answers *how far ahead* — a table, one row per branch, every row independent. This answers
+ * *how they relate*: what was cut from what, where each split off, and what has already gone back into the
+ * trunk. The two questions want different pictures and the same facts, so **this derives nothing of its own**
+ * — every number, state and origin on the tree comes off the `branchHealth` row it is drawn from. A second
+ * derivation of the same facts is the forked-answer defect this whole tool exists to detect, and shipping one
+ * inside the tool would be the loudest possible way to fail at it.
+ *
+ * Three things it will not do:
+ *
+ *   - **Guess.** A branch whose origin the graph cannot settle is not attached to the trunk "for tidiness". It
+ *     comes out in `unplaced`, with the reason, and the renderer prints it.
+ *   - **Invent an order for a cycle.** Two branches that each name the other — which is what two branches cut
+ *     from a since-deleted third look like — are both unplaced, together, with that stated. Breaking the tie
+ *     by iteration order would put a fabricated ancestry on screen and nothing downstream could tell.
+ *   - **Offer a command.** Read-only, like every other `git-*` surface here, down to not printing a
+ *     `git branch -d` for somebody to paste. See `branchHealth`.
+ */
+export function branchTree(root, cfg = {}, opts = null) {
+  const o = opts || { ...DEFAULT_GITINSIGHT, ...(cfg.gitInsight || {}) };
+  const health = branchHealth(root, cfg, o);
+  if (!health.available) return { available: false, reason: health.reason };
+
+  const main = health.main;
+  const local = health.branches.filter((b) => !b.remote);
+  const mk = (b, name) => ({ name: name || b.name, branch: b, state: b ? branchState(b) : 'trunk', children: [] });
+  const nodes = new Map(local.map((b) => [b.name, mk(b)]));
+
+  // A trunk that is not a local branch still has to be the root. `main` resolved to a commit — `readAncestry`
+  // would have refused otherwise — so the branches cut from it are placed under a node that says plainly it is
+  // not a local ref, rather than every one of them being reported as an orphan.
+  const trunkIsLocal = nodes.has(main);
+  if (!trunkIsLocal && health.ancestry?.available) nodes.set(main, mk(null, main));
+
+  const unplaced = [];
+  const parentOf = new Map();
+  const trunkFallback = new Set();
+  for (const b of local) {
+    const a = b.ancestry;
+    if (a?.basis === 'self') continue;                       // the trunk is a root, not a child
+    const p = a?.parent && a.parent !== b.name && nodes.has(a.parent) ? a.parent : null;
+    if (p) { parentOf.set(b.name, p); continue; }
+    /*
+     * No single parent, but still descended from the trunk — `unordered` and `ambiguous` both mean *we know
+     * where it joins the trunk and cannot say which branch it left*. Hanging it off the trunk is the
+     * strongest statement that is actually true, and it keeps a real branch in the picture; the note on the
+     * row carries the part the edge cannot. Only a branch with no common ancestor at all is unplaced.
+     */
+    if (a?.trunkFork && nodes.has(main)) {
+      parentOf.set(b.name, main);
+      trunkFallback.add(b.name);
+      continue;
+    }
+    unplaced.push({ node: nodes.get(b.name), reason: ancestryPhrase(a, main) });
+  }
+
+  /*
+   * Cycles, before any edge is drawn. Walking up from each node and recording where it lands means an A→B→A
+   * pair is caught as a pair — both members named in one finding — rather than one of them being silently
+   * reparented by whichever the loop reached first.
+   */
+  const cyclic = new Set();
+  for (const name of parentOf.keys()) {
+    const path = [];
+    let cur = name;
+    const onPath = new Set();
+    while (cur && parentOf.has(cur) && !onPath.has(cur)) { onPath.add(cur); path.push(cur); cur = parentOf.get(cur); }
+    if (cur && onPath.has(cur)) for (const n of path.slice(path.indexOf(cur))) cyclic.add(n);
+  }
+  for (const name of cyclic) {
+    parentOf.delete(name);
+    const others = [...cyclic].filter((n) => n !== name).sort();
+    unplaced.push({
+      node: nodes.get(name),
+      reason: `each of ${[name, ...others].join(', ')} names another as its origin — git records nothing that orders them`,
+    });
+  }
+
+  // The row's fork column has to describe the edge that was actually drawn, not the nearer one that was
+  // rejected: a branch hung off the trunk because its own split could not be ordered must print the trunk
+  // fork beside it, or the drawing and the number beside it are describing two different relations.
+  for (const n of trunkFallback) nodes.get(n).viaTrunk = true;
+  for (const [child, parent] of parentOf) nodes.get(parent).children.push(nodes.get(child));
+
+  // Newest first inside every level, name as the tie-break, so the drawing is one function of the refs and
+  // does not move between runs.
+  const sortKids = (n) => {
+    n.children.sort((a, b) => (b.branch?.unix || 0) - (a.branch?.unix || 0) || a.name.localeCompare(b.name));
+    n.children.forEach(sortKids);
+  };
+  const placed = new Set(parentOf.keys());
+  const roots = [...nodes.values()].filter((n) => !placed.has(n.name) && !unplaced.some((u) => u.node === n));
+  roots.sort((a, b) => (a.name === main ? -1 : b.name === main ? 1 : (b.branch?.unix || 0) - (a.branch?.unix || 0) || a.name.localeCompare(b.name)));
+  roots.forEach(sortKids);
+  unplaced.sort((a, b) => a.node.name.localeCompare(b.node.name));
+
+  return {
+    available: true,
+    empty: !local.length,
+    main, trunkIsLocal,
+    current: health.current,
+    roots, unplaced,
+    localCount: local.length,
+    remoteCount: health.remoteCount,
+    newestUnix: health.newestUnix,
+    ancestry: health.ancestry,
+    mergeCheckRan: health.mergeCheckRan,
+    // Carried so the renderer can repeat the caps beside the drawing rather than in a footnote: a branch drawn
+    // without an ahead count and a branch measured at zero must never look the same.
+    detailCap: health.detailCap,
+    undetailed: health.undetailed,
+    staleDays: health.staleDays,
   };
 }
 
@@ -797,6 +1076,57 @@ function branchState(b) {
   return b.behind === 0 ? 'at-main' : 'spent';
 }
 
+/**
+ * One branch's inferred origin, as a sentence a person can argue with.
+ *
+ * **Every phrase carries the evidence and the hedge, and neither is optional.** Git records no parent, so
+ * "cut from `feat/x`" printed flat is a claim this tool cannot support — and a report that fabricates an
+ * ancestry is worse than one that omits the column, because the wrong parent is the input to somebody's
+ * rebase. `unknown` and `ambiguous` therefore print at the same size as an answer: they *are* the answer.
+ *
+ * Returned uncoloured. The caller paints it, and the sentence still says everything when it does not.
+ */
+export function ancestryPhrase(rec, main) {
+  if (!rec) return 'origin not measured';
+  const extra = [];
+  if (rec.orderedBy === 'reflog') extra.push('ordered from this clone\'s reflog, which the graph could not do');
+  if (rec.atForkPoint?.length) extra.push(`${rec.atForkPoint.join(', ')} sits on that commit too`);
+  if (rec.sameCommit?.length) extra.push(`${rec.sameCommit.join(', ')} points at the same commit`);
+  if (rec.reflogFork && rec.forkCommit && rec.reflogFork !== rec.forkCommit) {
+    extra.push(`this clone's reflog has it created at ${rec.reflogFork.slice(0, 7)} instead`);
+  }
+  const tail = extra.length ? ` (${extra.join('; ')})` : '';
+  const at = rec.forkCommit ? rec.forkCommit.slice(0, 7) : '?';
+  const sibs = rec.sharedWith?.length ? `, same point as ${rec.sharedWith.slice(0, 4).join(', ')}` +
+    (rec.sharedWith.length > 4 ? ` and ${rec.sharedWith.length - 4} more` : '') : '';
+
+  switch (rec.basis) {
+    case 'self':
+      return `the default branch — nothing above it to be cut from${tail}`;
+    case 'trunk':
+      return (rec.forkCommit
+        ? `probably cut from ${main} at ${at}${sibs}`
+        : `cut from ${main} — everything on it is already in the trunk, so the graph cannot locate the fork`) +
+        (rec.reason ? ` — ${rec.reason}` : '') + tail;
+    case 'contained':
+      return `probably cut from ${rec.parent} — its tip is an ancestor of this branch${tail}`;
+    case 'diverged':
+      return `probably cut from ${rec.parent} — they split at ${at} and ${rec.parent} has moved on since${tail}`;
+    case 'unordered':
+      return `split from ${rec.counterpart} at ${at}; ${rec.reason}, so neither is named the parent${tail}`;
+    case 'ambiguous':
+      return `cut from one of ${rec.candidates.join(', ')} at ${at} — ${rec.reason}${tail}`;
+    default:
+      return `origin unknown — ${rec.reason || 'not measured'}`;
+  }
+}
+
+/** Green for the trunk, blue for a named parent, yellow for anything the graph could not settle. */
+const ancestryPaint = (rec, c) => (!rec ? c.yellow
+  : rec.basis === 'self' || rec.basis === 'trunk' ? c.dim
+  : rec.basis === 'contained' || rec.basis === 'diverged' ? c.blue
+  : c.yellow);
+
 function renderBranches(k, c) {
   const L = [];
   L.push(c.bold('Branches') + c.dim('  every branch, not the one you are on — `atlas branch` answers that'));
@@ -805,6 +1135,12 @@ function renderBranches(k, c) {
   L.push(c.dim(`  ${k.localCount} local, ${k.remoteCount} remote-tracking. Default branch: ${k.main}.` +
     (k.undetailed ? `  Ahead/behind read for the ${k.detailed} most recent; ${k.undetailed} left unread.` : '')));
   if (!k.mergeCheckRan) L.push(c.yellow(`  MERGE CHECK DID NOT RUN — \`${k.main}\` is not resolvable here, so "merged" is unread for every branch.`));
+  if (!k.ancestry?.available) {
+    L.push(c.yellow(`  ORIGINS NOT MEASURED — ${k.ancestry?.reason || 'the commit graph was not read'}.`));
+  } else if (k.ancestry.unmeasured) {
+    L.push(c.dim(`  Origin inferred for the ${k.ancestry.considered} most recent branch(es); ` +
+      `${k.ancestry.unmeasured} past the cap of ${k.ancestry.cap} were not measured.`));
+  }
   L.push('');
 
   const show = k.branches.filter((b) => !b.remote).slice(0, 20);
@@ -845,14 +1181,22 @@ function renderBranches(k, c) {
     L.push('');
     L.push(`  ${c.blue('open')}   ${k.unmerged.length} branch(es) hold commits ${k.main} does not:`);
     for (const b of k.unmerged.slice(0, 10)) {
-      L.push(`      ${b.ahead === null ? '?' : b.ahead} ahead, ${b.ageDays}d old  ${b.name}`);
+      L.push(`      ${b.ahead === null ? '?' : num(b.ahead)} ahead, ${num(b.ageDays)}d old  ${b.name}`);
+      // The origin gets its own line rather than a column, because the honest answers are sentences: "cut from
+      // one of two branches at the same commit" does not fit a heading and must not be truncated into one.
+      L.push(ancestryPaint(b.ancestry, c)(`         ${ancestryPhrase(b.ancestry, k.main)}`));
     }
     if (k.unmerged.length > 10) L.push(c.dim(`      … and ${k.unmerged.length - 10} more`));
+    L.push('');
+    L.push(c.dim('  Origins are inferred from the commit graph. Git records no parent for a branch, so an unknown'));
+    L.push(c.dim('  or an ambiguous origin above is the measurement, not a gap — atlas git-tree draws the whole shape.'));
   }
   if (k.stale.length) {
     L.push('');
-    L.push(c.dim(`  ${k.stale.length} branch(es) have had no commit for ${k.staleDays}+ days. Age alone is not a verdict —`));
-    L.push(c.dim('  a long-lived release branch looks identical to one somebody forgot.'));
+    L.push(c.dim(`  ${k.stale.length} branch(es) have had no commit in the ${k.staleDays} days before this repository's newest`));
+    L.push(c.dim('  commit. Age alone is not a verdict — a long-lived release branch looks identical to one somebody'));
+    L.push(c.dim('  forgot. Measured against the newest commit rather than the clock, so the figure does not move on'));
+    L.push(c.dim('  a day when nothing happened.'));
   }
   return L;
 }
@@ -959,6 +1303,144 @@ function renderChange(k, c) {
   L.push(c.dim(`  These are questions, not defects. The pairs rest on ${k.couplingBasis} usable commit(s)` +
     (k.couplingAnecdotal ? ' — below the floor this measure needs, so treat each as a coincidence until shown otherwise.' : '.')));
   return L;
+}
+
+/* ------------------------------------------------------------------ drawing the topology (A-56) */
+
+/** Spent siblings past this many under one parent are folded into a single counted line, names and all. */
+const SPENT_FOLD = 6;
+
+/**
+ * The tree, in box-drawing characters, with every figure read off the row it belongs to.
+ *
+ * **Colour is never the only carrier, and neither is the drawing.** Every row states its ahead count, its age
+ * and its state as words and numbers; the glyphs say who descends from whom and the indentation repeats it.
+ * `--no-color` removes the escapes and nothing else, which is asserted the same way the rest of this module
+ * asserts it: strip the escapes from the painted render and it must equal the plain one byte for byte.
+ */
+export function formatBranchTree(k, useColor) {
+  const c = palette(useColor);
+  if (!k.available) {
+    return `No branch topology: ${k.reason}\n`
+      + '  This reads refs and the commit graph. Without either there is nothing to draw, and an empty tree\n'
+      + '  would be a repository with no branches, which is a different claim.';
+  }
+
+  const L = [];
+  L.push(c.bold('Branch topology') + c.dim('  what descends from what, where each split off, what has gone back'));
+  L.push(c.dim(`  ${k.localCount} local, ${k.remoteCount} remote-tracking. Default branch: ${k.main}` +
+    (k.trunkIsLocal || !k.localCount ? '.' : ' — not a local branch here, drawn as the root anyway.') +
+    (k.undetailed ? `  Ahead/behind read for the ${k.detailCap} most recent; ${k.undetailed} left unread.` : '')));
+  // A detached HEAD has no row to mark `current`, and a reader who does not know that reads the absence as a
+  // report that lost track of where they are.
+  if (k.current === 'HEAD') L.push(c.dim('  HEAD is detached — no branch is current here, which is why no row is marked one.'));
+  if (!k.mergeCheckRan) L.push(c.yellow(`  MERGE CHECK DID NOT RUN — \`${k.main}\` is not resolvable here.`));
+  if (!k.ancestry?.available) L.push(c.yellow(`  ORIGINS NOT MEASURED — ${k.ancestry?.reason || 'the commit graph was not read'}.`));
+  else if (k.ancestry.unmeasured) {
+    L.push(c.dim(`  ${k.ancestry.considered} branch(es) taken into the inference; ${k.ancestry.unmeasured} past the cap of ${k.ancestry.cap} were not.`));
+  }
+  L.push('');
+
+  if (!k.localCount) {
+    L.push(c.dim('  No local branches. Nothing to draw — this is a measurement of an empty ref namespace, not a failure.'));
+    return L.join('\n');
+  }
+
+  /* ------------------------------------------------ collect rows before drawing, so the columns can line up */
+
+  const rows = [];
+  const push = (kind, label, node, notes = []) => rows.push({ kind, label, node, notes: notes.filter(Boolean) });
+
+  const notesFor = (b) => {
+    const a = b?.ancestry;
+    if (!a || a.basis === 'self') return [];
+    // The edge already says "cut from the node above". A note is added only where the phrase carries something
+    // the edge cannot: a sibling at the same fork, a parent that has moved on, a reflog that disagrees, a name
+    // sharing the commit. Restating the parent on every row would bury those in noise.
+    const extra = a.sharedWith?.length || a.atForkPoint?.length || a.sameCommit?.length || a.reason
+      || a.basis === 'diverged' || a.basis === 'unordered' || a.basis === 'ambiguous'
+      || (a.reflogFork && a.forkCommit && !a.forkCommit.startsWith(a.reflogFork));
+    return extra ? [ancestryPhrase(a, k.main)] : [];
+  };
+
+  const walk = (node, prefix, isLast, depth) => {
+    const glyph = depth === 0 ? '' : isLast ? '└─ ' : '├─ ';
+    push('node', prefix + glyph + node.name, node, notesFor(node.branch));
+    const kidPrefix = depth === 0 ? '' : prefix + (isLast ? '   ' : '│  ');
+
+    const kids = node.children;
+    const spent = kids.filter((n) => n.state === 'spent');
+    const keep = spent.length > SPENT_FOLD ? kids.filter((n) => n.state !== 'spent') : kids;
+    const folded = spent.length > SPENT_FOLD ? spent : [];
+
+    keep.forEach((kid, i) => walk(kid, kidPrefix, i === keep.length - 1 && !folded.length, depth + 1));
+    if (folded.length) {
+      // Twenty-six finished branches drawn one per line is a page of noise around the three that matter. They
+      // are counted and named rather than hidden, which is the same trade `branchHealth` makes in its lists.
+      const names = folded.map((n) => n.name).sort();
+      push('fold', `${kidPrefix}└─ ${folded.length} spent branch(es)`, null,
+        [`merged into ${node.name} with nothing unique on them: ${names.slice(0, 8).join(', ')}` +
+          (names.length > 8 ? `, and ${names.length - 8} more` : '')]);
+    }
+  };
+
+  k.roots.forEach((r, i) => walk(r, '', i === k.roots.length - 1, 0));
+
+  if (k.unplaced.length) {
+    push('blank', '');
+    push('heading', `  ${k.unplaced.length} branch(es) whose topology could not be established`);
+    for (const u of k.unplaced) push('orphan', `    ${u.node.name}`, u.node, [u.reason]);
+  }
+
+  /* ------------------------------------------------ draw */
+
+  const width = Math.min(52, Math.max(...rows.map((r) => (r.kind === 'node' || r.kind === 'orphan' ? r.label.length : 0))) + 2);
+  // Notes sit under the names they belong to, not under the number columns: a continuation indented past the
+  // metrics reads as a caption for the figures rather than as a second sentence about the branch.
+  const noteIndent = '        ';
+  for (const r of rows) {
+    const b = r.node?.branch;
+    if (r.kind === 'blank') L.push('');
+    else if (r.kind === 'heading') L.push(c.yellow(r.label));
+    else if (r.kind === 'fold') L.push(c.dim(`  ${r.label}`));
+    else if (!b) {
+      // The synthetic trunk: a label with no row behind it. No measurement columns rather than a line of
+      // zeros, because a zero here is four figures nobody took.
+      L.push(`  ${r.label.padEnd(width)}${c.dim(k.trunkIsLocal ? '' : 'not a local branch')}`);
+    } else {
+      const state = r.node.state;
+      const paint = state === 'current' ? c.green
+        : state === 'open' ? c.blue
+        : state === 'unread' ? c.yellow
+        : state === 'spent' ? c.dim
+        : (s) => s;
+      const ahead = b.ahead === null ? '?' : num(b.ahead);
+      const a = b.ancestry;
+      const drawnFork = r.node.viaTrunk ? a?.trunkFork : a?.forkCommit;
+      const at = a?.basis === 'self' ? 'the trunk itself'
+        : drawnFork ? `forked at ${drawnFork.slice(0, 7)}`
+        : a?.reflogFork ? `reflog: created at ${a.reflogFork.slice(0, 7)}`
+        : a?.basis === 'trunk' ? 'fork point not in the graph'
+        : 'fork point unread';
+      L.push(`  ${paint(r.label.padEnd(width))}${pad(ahead, 5)} ahead  ${pad(`${num(b.ageDays)}d`, 5)}  ` +
+        `${state.padEnd(9)}` + c.dim(`  ${at}`));
+    }
+    for (const note of r.notes) L.push(c.dim(`${noteIndent}${note}`));
+  }
+
+  L.push('');
+  L.push(c.dim('  Every edge is inferred. Git records no parent for a branch, so the shape above is read out of the'));
+  L.push(c.dim('  commit graph: `forked at` is a merge base, which is a fact — which side of it is the parent is'));
+  L.push(c.dim('  not, and a branch whose origin could not be settled is listed with its reason rather than hung'));
+  L.push(c.dim(`  off ${k.main} to tidy the picture.`));
+  L.push(c.dim('  Age is days behind this repository\'s newest commit, not days on a calendar, so the drawing does'));
+  L.push(c.dim('  not change on a day when nothing happened.'));
+  L.push(c.dim('  current · protected · open (holds commits the trunk does not) · spent (merged, 0 ahead)'));
+  L.push(c.dim('  at-main (never diverged — new, not finished) · unread (? = never measured, not zero)'));
+  L.push('');
+  L.push(c.dim('  Read-only. Nothing here fetched, checked out, deleted, rebased or configured anything, and it'));
+  L.push(c.dim('  prints no command that would. atlas git-insights branches is the same refs as a table.'));
+  return L.join('\n');
 }
 
 const RENDER = {
