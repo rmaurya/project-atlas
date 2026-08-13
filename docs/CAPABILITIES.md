@@ -119,7 +119,7 @@ The failure mode this addresses is that keeping documentation current has always
 - **Rebuild when a session writes markdown** — a `PostToolUse` hook, non-blocking
   (`hooks/hooks.json:24-33`, `hooks/on-write.sh:42`).
 - **Rebuild while you work** — `atlas watch` polls a fingerprint of every input and rebuilds on change
-  (`scripts/atlas.mjs:1621`, the fingerprint poll in the `watch` block).
+  (`scripts/atlas.mjs:1649`, the fingerprint poll in the `watch` block).
 - **A live dashboard that patches itself** — `atlas serve` builds, starts a loopback server on a port derived
   from the repository path so several projects coexist, and adopts an existing server rather than starting a
   rival (`scripts/atlas.mjs:1340`, `scripts/lib/serve.mjs:55`, the adopt-an-existing-server path in the `serve` block).
@@ -344,7 +344,7 @@ to delete (`AGENTS.md:13-16`).
 
 **It cannot be driven from outside.** See above; the external control plane is **designed and not built** —
 `docs/references/agent-control.md:7` says so in its own status line, and `docs/ROADMAP.md` carries M-3 at 40%.
-It is **not** the only item below 100%: the plan holds 115 items at a mean of 96.8%, seven of them short of
+It is **not** the only item below 100%: the plan holds 117 items at a mean of 96.9%, seven of them short of
 100%. This page claimed M-3 was the only one, which was a smaller and more flattering number than the truth;
 §7 of [`FEATURES.md`](FEATURES.md) now carries those figures and a test that re-derives them.
 

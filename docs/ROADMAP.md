@@ -52,6 +52,7 @@ measured against the code — the same distinction the tool preserves everywhere
 | A-56 | 100 | P-9 | 100 | A-57 | 100 |
 | I-4 | 100 | S-8 | 100 | A-58 | 100 |
 | A-59 | 100 | A-60 | 100 | A-61 | 100 |
+| A-62 | 100 | A-63 | 100 |
 
 ---
 
@@ -2451,3 +2452,23 @@ the last one, which collide whenever the count does not divide evenly. At fourte
 dates were printed seventeen pixels apart, over each other, on every chart with that many points. The
 neighbour is dropped now, measured against the last label's own left edge rather than by an index rule — a
 wide chart with short labels has room for both.*
+
+**A-62 · An orphaned dashboard made itself unreapable by rebuilding its own root** — **P1 · High**
+
+The reap shipped in 0.1.70 and its only test for "orphan" was `existsSync(root)`. A detached server is a
+`watch --serve` loop, so an orphan whose checkout is deleted under it recreates `.atlas/`, `docs/_wiki/` and
+`worklog/` within seconds — the subject of the test falsifies the test. It passed its own suite for three
+releases while nine servers leaked on one machine, four serving deleted worktrees and five started by the
+suite itself. `rootIsGone` now asks whether the *project* is there: a root that has lost both
+`project-atlas.config.json` and `.git` is gone whatever generated output is sitting in it, and either mark
+present means hands off.
+
+**A-63 · `atlas serve` adopted a dashboard running an older build and called it current** — **P1 · High**
+
+`serve` is idempotent, so a server started before an update kept serving the old code for as long as it
+lived, and every `/atlas:dashboard` after it reported success while showing a page written by code that had
+never heard of the change being looked for. Three separate features were concluded "not shipped" on that
+evidence. A running process cannot be upgraded, so a stale one is now replaced rather than adopted — compared
+by executing script path, not version string, because a checkout and an installed plugin of equal version are
+different builds. A process whose argv cannot be read is left alone: "cannot tell" reported as "stale" would
+restart a healthy server on every invocation.

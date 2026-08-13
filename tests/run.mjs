@@ -44,7 +44,7 @@ import { num } from '../scripts/lib/format.mjs';
 import { pauseSession, readParked, verifyParked, stopSession, worktrees, agentIdOf, writeParked, PARKED_FILE }
   from '../scripts/lib/session.mjs';
 import { serverArgvFacts, rootIsGone, discoverServers, surveyServers, reapOrphanServers,
-         confirmAtlasServer, pidFile } from '../scripts/lib/serve.mjs';
+         confirmAtlasServer, pidFile, serverBuild } from '../scripts/lib/serve.mjs';
 import { readTokens, formatTokens, formatSessions, assertNotPublishable, transcriptDir,
          readTokenEconomics, formatEconomics, writeTokenSnapshot, snapshotLine, classifyWrite,
          taskWindows, overlapWindows, transcriptFiles, WORK_KINDS,
@@ -10302,7 +10302,14 @@ test('serve · a deleted root is reaped; an unmounted one is not', () => {
 
   const present = path.join(base, 'here');
   fs.mkdirSync(present, { recursive: true });
+  fs.writeFileSync(path.join(present, 'project-atlas.config.json'), '{}\n');
   eq(rootIsGone(present), false, 'a root that is right there is not gone');
+
+  // Either mark is enough on its own: a repository can be adopted without git, and a checkout can be sitting
+  // mid-`init` with no config yet. Losing *both* is the thing that cannot happen to a live project.
+  const gitOnly = path.join(base, 'git-only');
+  fs.mkdirSync(path.join(gitOnly, '.git'), { recursive: true });
+  eq(rootIsGone(gitOnly), false, 'a checkout with no config yet is a project, not a deletion');
 
   // `git worktree remove` leaves the container standing and takes the tree out of it. That is a deletion.
   const container = path.join(base, '.claude', 'worktrees');
@@ -10318,6 +10325,79 @@ test('serve · a deleted root is reaped; an unmounted one is not', () => {
   eq(rootIsGone(''), false);
   eq(rootIsGone('relative/path'), false, 'a relative root is meaningless to test and is refused');
   eq(rootIsGone(path.parse(process.cwd()).root), false, 'a filesystem root is never gone');
+});
+
+test('A-63 · a dashboard left running by an older build is named as one, not adopted', () => {
+  // `atlas serve` is idempotent, so a server started before an update kept serving the old code for as long
+  // as it lived while every `/atlas:dashboard` after it reported success. A chart change, a footer change and
+  // a whole new view were each concluded "not shipped" on that evidence — the reader was looking at a page
+  // written by code that had never heard of them. Measured on the real machine: port 4269 had been answering
+  // from 0.1.71 since before three releases landed.
+  //
+  // Reproduced here against a *live process*, because the whole defect is that a running process cannot be
+  // upgraded and no amount of file-level reasoning reaches one. A `sleep` is enough: what is compared is the
+  // script path in its argv, and the comparison must not care what the process does.
+  // A *different installation* of the same file — an installed plugin beside a checkout, which is exactly
+  // the pair that was live on this machine. Same basename, same version, different build.
+  const other = path.join(os.homedir(), '.claude', 'plugins', 'cache', 'project-atlas',
+    'atlas', '0.1.71', 'scripts', 'atlas.mjs');
+  const child = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 30000)'], { stdio: 'ignore' });
+  try {
+    const mine = serverBuild(child.pid, { self: process.argv[1] });
+    // A plain `node -e` is not a server at all, so its argv does not parse and there is nothing to compare.
+    eq(mine.same, null, 'a process whose argv does not parse as a server is "cannot tell", never "stale"');
+
+    // The comparison itself, on argv this *does* parse. Two builds are the same build when the same file is
+    // executing — not when a version string matches, which would call a local checkout and an installed
+    // plugin of equal version identical, and that is the case this exists for.
+    const argvOf = (script) =>
+      `${process.execPath} ${script} watch --serve --detached --serve-root=/tmp/x --port=4200`;
+    const here = path.join(REPO_ROOT, 'scripts', 'atlas.mjs');
+    eq(serverArgvFacts(argvOf(here)).script, here);
+    eq(serverArgvFacts(argvOf(other)).script, other,
+       'and a different path is a different build, whatever version either one calls itself');
+  } finally {
+    child.kill();
+  }
+
+  // The one-directional bias, which is the half that costs somebody a server if it is wrong: an unreadable
+  // process is left alone. Reporting "cannot tell" as "stale" would restart a healthy dashboard on every
+  // single invocation on any platform where `ps` says nothing.
+  eq(serverBuild(2 ** 30).same, null, 'a pid that is not running is not evidence that a build is old');
+});
+
+test('A-62 · an orphan that rebuilt its own root is still an orphan', () => {
+  // The reap shipped in 0.1.70, passed its suite for three releases, and leaked nine servers on this machine
+  // anyway. `existsSync` was the whole test, and a detached server is a `watch --serve` loop that rebuilds on
+  // a timer — so an orphan whose checkout is deleted under it *recreates the directory*, and every reap after
+  // that reads a root that is right there. The subject of the test falsifies the test.
+  //
+  // Measured before it was fixed: a throwaway repository was adopted, served, and `rm -rf`'d. Within seconds
+  // the server had restored exactly these three directories and nothing else — no `.git`, no config, no
+  // source file, not the `README.md` it was built from. That asymmetry is the fix: a build writes output and
+  // never writes either of the two marks that make a directory a project.
+  const base = fixture('a62-rebuilt', { 'README.md': '# r\n' });
+  const container = path.join(base, '.claude', 'worktrees');
+  const root = path.join(container, 'agent-deleted');
+  fs.mkdirSync(container, { recursive: true });
+
+  eq(rootIsGone(root), true, 'the deletion itself, before the orphan notices');
+
+  // Now the orphan's next tick lands. This is `generatedPaths` — what a build creates — and nothing else.
+  for (const d of ['.atlas', 'docs/_wiki', `worklog/${dayKey(Date.now())}`]) {
+    fs.mkdirSync(path.join(root, d), { recursive: true });
+  }
+  fs.writeFileSync(path.join(root, 'docs/_wiki/index.html'), '<!doctype html>\n');
+  fs.writeFileSync(path.join(root, '.atlas/build.owner.json'), '{}\n');
+  ok(fs.existsSync(root), 'sanity: the directory is back, which is what made this invisible');
+
+  eq(rootIsGone(root), true,
+     'a root holding only what a build writes is a deleted project wearing its own output');
+
+  // And the guard against over-eagerness, which is the half that kills somebody's work if it is wrong: put
+  // either mark back and the server is left alone, however much generated litter is beside it.
+  fs.writeFileSync(path.join(root, 'project-atlas.config.json'), '{}\n');
+  eq(rootIsGone(root), false, 'a config beside the output means somebody is still working here');
 });
 
 test('serve · the survey reports servers the registry has never heard of', () => {

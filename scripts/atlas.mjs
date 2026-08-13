@@ -70,7 +70,7 @@ import { productRootFor, readProduct, renderProduct, productPagePath, writeProdu
 import { num } from './lib/format.mjs';
 import { startServer, spawnDetached, serverStatus, stopServer, writePid, clearPid, openInBrowser, portInUse, unmanagedServer,
          adoptableServer, portForRoot, readRegistry, registerServer, deregisterServer, DEFAULT_PORT, DEFAULT_IDLE_MS,
-         surveyServers, discoverServers, reapOrphanServers } from './lib/serve.mjs';
+         surveyServers, discoverServers, reapOrphanServers, serverBuild } from './lib/serve.mjs';
 
 const argv = process.argv.slice(2);
 
@@ -1458,6 +1458,34 @@ async function main() {
      */
     const swept = formatReap(reapOrphanServers(), c);
     if (swept) say(swept);
+
+    if (st.running) {
+      /*
+       * **A running process cannot be upgraded, and this branch is the one that pretended otherwise (A-63).**
+       *
+       * Everything below this point is the idempotent path: something is listening, so open it and return.
+       * That is right when the server is *this* build. It is wrong — and was silently wrong for three
+       * releases — when the server predates an update. `/atlas:dashboard` reported the URL, the page loaded,
+       * and it was served by code that had never heard of the change the reader was looking for. A chart
+       * change, a footer change and an entire new view were each concluded "not shipped" on that evidence.
+       *
+       * So a stale build is replaced rather than adopted. Not reloaded: there is no mechanism to swap the
+       * code under a live process, and a `serve` that claims to be current while it is not is precisely the
+       * defect. `same === null` means the process could not be read, and an unreadable process is left alone
+       * — restarting on "cannot tell" would kill and respawn a healthy server on every single invocation.
+       */
+      const build = serverBuild(st.pid);
+      if (build.same === false) {
+        say(`The server on ${st.url} (pid ${st.pid}) is running a different build:`);
+        say(`  it is    ${build.script}`);
+        say(`  this is  ${build.mine}`);
+        say('A running process cannot be upgraded, so it is being replaced. Restarting…');
+        stopServer(root);
+        deregisterServer(root);
+        await new Promise((r) => setTimeout(r, 300));
+        st.running = false;
+      }
+    }
 
     if (st.running) {
       say(`Already running on ${st.url} (pid ${st.pid}).`);

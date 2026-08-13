@@ -265,14 +265,38 @@ export function discoverServers({ table = readProcessTable, cwd = cwdOfPid } = {
  *
  * The bias is deliberate and one-directional: this returns false whenever it is unsure. Being too cautious
  * leaves a process running, which is the bug being fixed. Being too eager kills somebody's work.
+ *
+ * **`existsSync` alone was not enough, and the orphan is what proved it (A-62).** A detached server is a
+ * `watch --serve` loop: it rebuilds on a timer and a rebuild *creates its own output directories*. So an
+ * orphan whose repository is deleted out from under it puts `.atlas/`, `docs/_wiki/` and `worklog/` straight
+ * back, and the directory exists again within seconds — recreated by the very process this function is
+ * deciding the fate of. Measured, not reasoned: nine leaked servers survived a reap, and a tenth was started
+ * deliberately, its checkout `rm -rf`'d, and found to have restored three directories and nothing else.
+ * `.git`, the config and every source file stayed gone. A test the subject can falsify is not a test, and
+ * this one had been passing its own suite for a whole release while leaking processes on this machine.
+ *
+ * So the question is no longer "does a directory of that name exist" but "is the *project* still there".
+ * `project-atlas.config.json` and `.git` are the two things that made it one, neither is ever written by a
+ * build, and a root that has lost both is not a repository any more whatever else is sitting in it. Both are
+ * checked, because a repository can be adopted without git and a git checkout can be mid-`init`; losing
+ * *both* is what cannot happen to a project somebody is still working in.
  */
 export function rootIsGone(root) {
   if (!root || typeof root !== 'string' || !path.isAbsolute(root)) return false;
-  try { if (fs.existsSync(root)) return false; } catch { return false; }
   const parent = path.dirname(root);
   if (!parent || parent === root) return false;            // a filesystem root; never reachable, never trusted
   try { if (!fs.statSync(parent).isDirectory()) return false; } catch { return false; }
   try { fs.readdirSync(parent); } catch { return false; }  // an unreadable parent is "cannot tell"
+
+  let here;
+  try { here = fs.existsSync(root); } catch { return false; }
+  if (!here) return true;
+
+  // The directory is back. Whether the *project* is back is a different question, and the only one that
+  // matters — see the note above on what a rebuilding orphan restores and what it cannot.
+  for (const mark of ['project-atlas.config.json', '.git']) {
+    try { if (fs.existsSync(path.join(root, mark))) return false; } catch { return false; }
+  }
   return true;
 }
 
@@ -533,6 +557,36 @@ export function serverStatus(root) {
     try { fs.unlinkSync(file); } catch {}
     return { running: false, stale: raw.pid };
   }
+}
+
+/**
+ * Which build is answering on this pid, and is it the one asking? (A-63)
+ *
+ * A running process cannot be upgraded. `atlas serve` is idempotent — it opens the page and returns when
+ * something is already listening — so a dashboard started before an update keeps serving the *old* code for
+ * as long as it lives, and every `/atlas:dashboard` after that reports success while showing a page the new
+ * build would never have written. That happened here across three releases: a chart change, a footer change
+ * and a whole new view were all invisible on a port whose server predated them, and the conclusion drawn
+ * each time was that the feature had not shipped.
+ *
+ * The comparison is the **script path**, not a version string. Two builds are the same build when the same
+ * file is executing; a version number would call a local checkout and an installed plugin of equal version
+ * identical, which is the case this is most often needed for. Returns `null` for `same` when the running
+ * process cannot be read, because "cannot tell" must not be reported as "stale" — that would restart a
+ * healthy server on every invocation on any platform where `ps` says nothing.
+ */
+export function serverBuild(pid, { self = null } = {}) {
+  const mine = path.resolve(self || process.argv[1] || '');
+  let line = null;
+  try {
+    const out = execFileSync('ps', ['-p', String(pid), '-o', 'args='],
+      { encoding: 'utf8', maxBuffer: 1 << 20, stdio: ['ignore', 'pipe', 'ignore'] });
+    line = out.split('\n').map((s) => s.trim()).filter(Boolean).pop() || null;
+  } catch { /* no evidence — handled below */ }
+  const facts = line ? serverArgvFacts(line) : null;
+  if (!facts?.script) return { script: null, mine, same: null };
+  const script = path.resolve(facts.script);
+  return { script, mine, same: script === mine };
 }
 
 export function writePid(root, { pid, port }) {
