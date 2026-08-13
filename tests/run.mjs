@@ -6112,7 +6112,7 @@ test('kb · the entry point declares the tree derived and routes by intent', () 
   const entry = fs.readFileSync(path.join(outDir, 'kb', 'README.md'), 'utf8');
   includes(entry, 'Derived');
   includes(entry, 'source of truth');
-  for (const page of ['architecture.md', 'rules.md', 'routes.md', 'vocabulary.md', 'health.md', 'plan.md', 'resume.md']) {
+  for (const page of ['architecture.md', 'rules.md', 'routes.md', 'tests.md', 'vocabulary.md', 'health.md', 'plan.md', 'resume.md']) {
     includes(entry, page, `the entry point must route to ${page}`);
     ok(fs.existsSync(path.join(outDir, 'kb', page)), `${page} must exist`);
   }
@@ -7576,8 +7576,12 @@ test('C-7 · the routing table and the hotspot report agree on which files are d
 
   // And the same documents behind that file, not merely the same count.
   const titleOf = new Map(index.documents.map((d) => [d.path, d.title || d.path]));
-  const row = /^\| `src\/one\.js` \| (.+?) \| (\d+) \|$/m.exec(byFile);
+  // Four columns since the suite was wired into this table: the fourth is "tested by", and it is a dash on
+  // this fixture because nothing here is a test file. Pinned rather than made optional — a row that grew a
+  // column silently is exactly the drift the rest of this case is about.
+  const row = /^\| `src\/one\.js` \| (.+?) \| (\d+) \| (.+?) \|$/m.exec(byFile);
   ok(row, 'the routing table must carry a row for the cited file');
+  eq(row[3], '—', 'no test file imports this fixture, and the column must say so rather than be absent');
   const cited = spots.byCommits.find((r) => r.path === 'src/one.js').citedBy;
   eq(cited, ['docs/A.md', 'docs/B.md'], 'both documents cite it');
   for (const p of cited) includes(row[1], titleOf.get(p), `${p} must be routed to from the file it describes`);
@@ -9311,6 +9315,162 @@ test('A-48 · the skill that argues for fan-out now states what the coordination
       `${rel}: the mid-test conflict cut is the expensive half, because the resolution still parses`);
     includes(skill, 'When not to fan out', `${rel}: the honest exceptions must survive the amendment`);
   }
+});
+
+/* ================================================================== the suite, in the knowledge base (M-5) */
+
+/*
+ * `kb/tests.md` — "is this behaviour tested, and where?", answerable without opening a nine-thousand-line
+ * file. Everything on that page is derived from the test sources, so everything asserted here is asserted
+ * against a fixture whose test file this block owns and can change.
+ *
+ * **Synchronous, like everything appended below the drain.** `pendingAsync` is emptied thousands of lines
+ * above this point, so an `async` case here would be constructed, pushed onto a list nothing reads again,
+ * and never run — reaching neither the pass count nor the failure list.
+ */
+
+console.log('\nthe suite, in the knowledge base');
+
+/**
+ * A repository with a test file this block can reason about line by line.
+ *
+ * The test file carries both grouping conventions (a rule comment and a printed banner), a drain partway
+ * down with one case below it, a defect id the plan defines, and one that it does not. `src/thing.mjs` is
+ * cited by a document *and* imported by the suite; `src/other.mjs` is imported and cited by nothing.
+ */
+const KB_TESTS_FIXTURE = {
+  'docs/README.md': '# Index\n\n[Plan](PLAN.md)\n\nThe loop is at `src/thing.mjs:1`.\n',
+  'docs/PLAN.md': '# Plan\n\n| Item | % |\n|---|---|\n| Z-1 | 100 |\n\n## Track 1 — Things\n\n'
+    + '**Z-1 · The kestrel index was written twice** — **P1 · High**\n\n*Shipped.*\n',
+  'src/thing.mjs': 'export const thing = 1;\n',
+  'src/other.mjs': 'export const other = 2;\n',
+  'tests/suite.mjs': [
+    "import { thing } from '../src/thing.mjs';",                                    // 1
+    "import { other } from '../src/other.mjs';",                                    // 2
+    '',                                                                             // 3
+    'const pendingAsync = [];',                                                     // 4
+    'function test(name, fn) { const r = fn(); if (r && r.then) pendingAsync.push({ name, p: r }); }', // 5
+    '',                                                                             // 6
+    '/* ================================================================== alpha */', // 7
+    "console.log('\\nalpha');",                                                     // 8
+    '',                                                                             // 9
+    "test('alpha · the kestrel is counted', () => {});",                            // 10
+    '',                                                                             // 11
+    '// Z-1: the kestrel index was written twice. Q-99 is not an id this plan defines.', // 12
+    "test('alpha · a second kestrel index is refused', () => {});",                 // 13
+    '',                                                                             // 14
+    'for (const { name, p } of pendingAsync) { await p; }',                         // 15
+    '',                                                                             // 16
+    '/* ================================================================== beta */',  // 17
+    "console.log('\\nbeta');",                                                      // 18
+    '',                                                                             // 19
+    "test('beta · a case below the drain never runs', () => {});",                  // 20
+    '',                                                                             // 21
+  ].join('\n'),
+};
+
+/** The fixture built, rendered, and its `kb/tests.md` read back. */
+function kbTests(name, files = KB_TESTS_FIXTURE) {
+  const dir = fixture(name, files);
+  const { cfg, index, health } = analyse(dir, { planning: { source: 'docs/PLAN.md' } });
+  const { outDir } = renderSite(index, health, cfg, dir);
+  return { dir, cfg, index, health, outDir, page: fs.readFileSync(path.join(outDir, 'kb', 'tests.md'), 'utf8') };
+}
+
+test('kb · every case reaches the tree with its own line, grouped as the file groups itself', () => {
+  // The question this page exists for is "is this tested, and where". A name with no line is half an
+  // answer — it still costs an agent the whole file to act on.
+  const { page } = kbTests('kb-tests-cases');
+
+  includes(page, '| Cases | 3 |', 'the count is the file\'s, not an estimate');
+  for (const [name, line] of [
+    ['alpha · the kestrel is counted', 10],
+    ['alpha · a second kestrel index is refused', 13],
+    ['beta · a case below the drain never runs', 20],
+  ]) includes(page, `- ${name} — [tests/suite.mjs:${line}]`, `${name} must be listed at its own line`);
+
+  // Grouped by the marker nearest above each case, which is the printed banner where a file has both. The
+  // slice is the assertion: a page that listed every case under every heading would pass a bare `includes`.
+  const alpha = page.slice(page.indexOf('#### alpha'), page.indexOf('#### beta'));
+  const beta = page.slice(page.indexOf('#### beta'));
+  eq(alpha.includes('the kestrel is counted') && alpha.includes('a second kestrel index'), true,
+    'both alpha cases belong to the alpha banner');
+  eq(alpha.includes('below the drain'), false, 'and the beta case does not');
+  eq(beta.includes('below the drain'), true, 'the beta case belongs to the beta banner');
+
+  includes(page, '| alpha | [tests/suite.mjs:8]', 'the group index gives the banner its own line');
+  includes(page, '| beta | [tests/suite.mjs:18]');
+
+  // Names and locations, never bodies. The fixture's only body text is the arrow function.
+  eq(page.includes('() => {}'), false, 'a case body must not be copied onto the page');
+});
+
+test('kb · a case naming a plan item is cross-referenced, and an id the plan never defined is not', () => {
+  // The suite's convention for a reversion-verified case is a comment naming the defect. Matching the
+  // *shape* of an id instead of the plan's own ids would report `H17` — a health signal this file names
+  // dozens of times — as a plan item, and a cross-reference that invents half its edges is worse than none.
+  const { page } = kbTests('kb-tests-plan');
+
+  includes(page, '| Cases naming a plan item | 1 |');
+  includes(page, '| Z-1 | 1 | [tests/suite.mjs:13]',
+    'the id is in the comment above the case, and that comment belongs to the case below it');
+  eq(page.includes('Q-99'), false, 'an id-shaped string the plan does not define is not a plan item');
+  includes(page, '1 of 1 plan item(s) are named by at least one case.');
+
+  // The boundary, stated the other way round: the id sits above case two, and case one must not inherit it.
+  const first = page.slice(page.indexOf('- alpha · the kestrel is counted'), page.indexOf('- alpha · a second'));
+  eq(first.includes('Z-1'), false, 'a defect comment belongs to the case below it, never the case above');
+
+  // And the honest limit is stated, because "names a defect" is a claim the case makes about itself.
+  includes(page, 'not evidence', 'the page must not present a named defect as a verified reversion');
+});
+
+test('kb · the page states the synchronous rule with the drain\'s own line number', () => {
+  // The trap that produces no error message: a case registered below the drain is pushed onto a list nothing
+  // reads again, so it never runs and never reaches the count. A rule that lives only in a comment is a rule
+  // enforced by whoever happened to read that comment.
+  const { page } = kbTests('kb-tests-drain');
+  includes(page, 'must be synchronous');
+  includes(page, 'drained at `tests/suite.mjs:15`', 'the drain is located, not described');
+  includes(page, '1 of 3 case(s) are registered below it');
+
+  // The runner's own selection flag, read out of the runner rather than assumed — this fixture has none, so
+  // the page must not invent one.
+  eq(page.includes('--filter'), false, 'a flag this runner does not read must not be offered');
+  includes(page, 'node tests/suite.mjs', 'and the command that runs it is still given');
+});
+
+test('kb · the reverse route names the test files that import a code file', () => {
+  // routes.md answers "I am about to change this — what describes it?". A file's tests are the other half of
+  // that answer, and the more actionable half: a document is an opinion, a test is a claim that fails.
+  const { outDir } = kbTests('kb-tests-routes');
+  const routes = fs.readFileSync(path.join(outDir, 'kb', 'routes.md'), 'utf8');
+
+  includes(routes, '| Code file | Documented by | Citations | Tested by |');
+  ok(/^\| `src\/thing\.mjs` \|.*\| `tests\/suite\.mjs` \|$/m.test(routes),
+    'a cited file that the suite imports must carry its test file on the same row');
+
+  // The file nothing documents. It is imported and never cited, so it is invisible to every other section of
+  // this page — which is exactly the gap worth naming, because the tests are then its only written account.
+  const bare = routes.slice(routes.indexOf('## Files a test imports that no document describes'));
+  includes(bare, '| `src/other.mjs` | `tests/suite.mjs` |');
+  eq(bare.includes('src/thing.mjs'), false, 'a file a document does describe does not belong in that list');
+});
+
+test('kb · the tests page is derived, so appending a case changes it without anything being edited', () => {
+  // The rule the whole tree is built on. A hand-maintained list of test names is a list that goes stale, and
+  // a stale list of what is covered is worse than none — it is read as an assurance.
+  const { dir, cfg, index, health } = kbTests('kb-tests-derived');
+  fs.appendFileSync(path.join(dir, 'tests', 'suite.mjs'),
+    "\ntest('beta · a kestrel appended later', () => {});\n", 'utf8');
+
+  // No re-index and no re-commit: the file is already tracked, and the page is read off the working tree the
+  // same way every other derived figure is.
+  const { outDir } = renderSite(index, health, cfg, dir);
+  const page = fs.readFileSync(path.join(outDir, 'kb', 'tests.md'), 'utf8');
+  includes(page, '| Cases | 4 |', 'the count follows the file');
+  includes(page, '- beta · a kestrel appended later — [tests/suite.mjs:22]',
+    'and so does the new case, at the line it was actually written on');
 });
 
 console.log(`\n${pass} passed, ${fail} failed${skipped ? `, ${skipped} skipped on ${process.platform}` : ''}\n`);

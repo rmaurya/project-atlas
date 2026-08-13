@@ -98,6 +98,7 @@ import { buildPrompt } from './prompt.mjs';
 import { read as readJournal, KINDS } from './journal.mjs';
 import { handoffsIn, handoffAge, sharedPath, DEFAULT_STALE_AFTER } from './handoff.mjs';
 import { readObligations, DEFAULT_SOP_MATCH } from './sop.mjs';
+import { testInventory, casesInFile } from './testcases.mjs';
 import { matchesAny } from './config.mjs';
 import { detectHost } from './host.mjs';
 import { num } from './format.mjs';
@@ -340,7 +341,13 @@ export function writeKnowledgeGraph({ outDir, root, index, health, cfg, plan, co
 
   const covById = new Map((coverage?.rows || []).map((r) => [r.id, r]));
   const clusterOf = clusterFiles(index.clusters);
-  const ctx = { root, cfg, index, health, plan, byPath, findingsFor, planFor, citedBy, covById, clusterOf, nameFor, codeFiles };
+
+  // The suite, read once. `tests.md` lists it and `routes.md` inverts one part of it — the code each test
+  // file imports — and two reads of a nine-thousand-line file for one answer is the cost this whole function
+  // already avoids for `git ls-files` and the plan.
+  const tests = testSuite(root, codeFiles, plan);
+
+  const ctx = { root, cfg, index, health, plan, byPath, findingsFor, planFor, citedBy, covById, clusterOf, nameFor, codeFiles, tests };
 
   for (const d of index.documents) {
     const rel = nodeFile(nameFor, d.path);
@@ -357,6 +364,7 @@ export function writeKnowledgeGraph({ outDir, root, index, health, cfg, plan, co
   page('architecture.md', architecturePage);
   page('rules.md', rulesPage);
   page('routes.md', routesPage);
+  page('tests.md', testsPage);
   page('vocabulary.md', vocabularyPage);
   page('resume.md', resumePage);
   page('README.md', entryPage);
@@ -417,6 +425,7 @@ function entryPage(c) {
   L.push(`| Understand how it is built | ${cell(link('architecture.md', at.kb('architecture.md')))} — the design record in dependency order, and what it does not cover |`);
   L.push(`| Know the rules you must follow | ${cell(link('rules.md', at.kb('rules.md')))} — what blocks a commit, the branch convention, and the documents that govern style and procedure |`);
   L.push(`| Find what documents a piece of code | ${cell(link('routes.md', at.kb('routes.md')))} — the reverse citation index, by area and by file |`);
+  L.push(`| Know whether a behaviour is tested, and where | ${cell(link('tests.md', at.kb('tests.md')))} — every case name and its line, grouped as the suite groups itself |`);
   L.push(`| Find what this repository calls something | ${cell(link('vocabulary.md', at.kb('vocabulary.md')))} — every document title and section heading, alphabetised |`);
   L.push(`| Know what is broken | ${cell(link('health.md', at.kb('health.md')))} — every finding, grouped by signal |`);
   L.push(`| Know what is planned, and what is claimed done | ${cell(link('plan.md', at.kb('plan.md')))} |`);
@@ -493,7 +502,7 @@ function entryPage(c) {
 
   L.push('## Layout', '');
   L.push(`- \`${KB_DIR}/README.md\` — this file.`,
-    `- \`${KB_DIR}/architecture.md\`, \`rules.md\`, \`routes.md\`, \`vocabulary.md\`, \`health.md\`, \`plan.md\`, \`resume.md\` — the orientation layer.`,
+    `- \`${KB_DIR}/architecture.md\`, \`rules.md\`, \`routes.md\`, \`tests.md\`, \`vocabulary.md\`, \`health.md\`, \`plan.md\`, \`resume.md\` — the orientation layer.`,
     `- \`${KB_DIR}/clusters/<id>.md\` — one per cluster.`,
     `- \`${KB_DIR}/nodes/<flattened-path>.md\` — one per indexed document. The filename is the document's path`,
     "  with `/` replaced by `__`, so it is the HTML page's name with a different extension.", '');
@@ -717,7 +726,24 @@ function hostSlug(root, cfg) {
  * not exist.
  */
 function routesPage(c) {
-  const { index, at, citedBy, nameFor, byPath, codeFiles } = c;
+  const { index, at, citedBy, nameFor, byPath, codeFiles, tests } = c;
+  /**
+   * The other half of the same question. An agent about to change a file wants two things back: what
+   * describes it, and what will catch it if it gets this wrong — and the second is usually the more useful,
+   * because a document is an opinion about the file and a test is a claim that fails.
+   *
+   * Derived from the **imports** in each test file, resolved against the tracked file list. That is a
+   * deliberately weak edge and it is labelled as one below: an import proves the test file loads the module,
+   * not that any case exercises it, and a file reached only indirectly does not appear at all. It is
+   * evidence, not coverage. The alternative — matching a case's wording against a filename — would invent
+   * edges, which is the failure the resolved-citations rule at the top of this page already refuses.
+   */
+  const testedBy = tests ? tests.imports : null;
+  const testCell = (file) => {
+    if (!testedBy) return '—';
+    const t = testedBy.get(file);
+    return t ? [...t].sort().map((p) => code(p)).join(', ') : '—';
+  };
   const L = [];
   L.push('# Where to read about a part of this code', '', STAMP, '');
   L.push('Built by inverting the code citations in the corpus: a document that writes `path/to/file.ts:42` is',
@@ -750,13 +776,37 @@ function routesPage(c) {
   if (!citedBy.size) {
     L.push('Nothing to list.', '');
   } else {
-    L.push('| Code file | Documented by | Citations |', '|---|---|---|');
+    if (testedBy) {
+      L.push('**Tested by** is a different kind of edge from the other two columns and a weaker one: it is the',
+        'test files that *import* this file, resolved against the tracked list. An import proves the suite',
+        'loads the module, not that a case exercises it, and a file reached only indirectly shows a dash here',
+        `while being covered in fact. Case names and lines are in ${link('tests.md', at.kb('tests.md'))}.`, '');
+    }
+    L.push('| Code file | Documented by | Citations | Tested by |', '|---|---|---|---|');
     for (const file of [...citedBy.keys()].sort()) {
       const docs = [...citedBy.get(file)].sort();
       const n = index.documents.reduce((sum, d) => sum + (d.citations || []).filter((x) => x.resolved === file).length, 0);
-      L.push(`| ${cell(code(file))} | ${cell(docs.map((p) => link(byPath.get(p)?.title || p, at.kb(nodeFile(nameFor, p)))).join(', '))} | ${n} |`);
+      L.push(`| ${cell(code(file))} | ${cell(docs.map((p) => link(byPath.get(p)?.title || p, at.kb(nodeFile(nameFor, p)))).join(', '))} | ${n} | ${cell(testCell(file))} |`);
     }
     L.push('');
+  }
+
+  // The files the suite reaches that no document describes. Both halves of the routing question have now
+  // been asked of every tracked file, and this is the set where one answer is "nothing" — a file with a test
+  // and no documentation is the cheapest documentation gap to close, because the behaviour is already
+  // written down somewhere executable.
+  if (testedBy) {
+    const bare = [...testedBy.keys()].filter((f) => !citedBy.has(f)).sort();
+    L.push('## Files a test imports that no document describes', '');
+    if (!bare.length) {
+      L.push('None. Every file the suite imports is also cited by at least one document.', '');
+    } else {
+      L.push(`${num(bare.length)} file(s). The suite reaches these and the corpus does not mention them, so the`,
+        'only written account of what they do is the tests themselves.', '');
+      L.push('| Code file | Tested by |', '|---|---|');
+      for (const f of bare) L.push(`| ${cell(code(f))} | ${cell(testCell(f))} |`);
+      L.push('');
+    }
   }
 
   L.push('## Code areas nothing documents', '');
@@ -776,7 +826,363 @@ function routesPage(c) {
   }
 
   L.push(...footer(at, [`Design record: ${link('architecture.md', at.kb('architecture.md'))}`,
+    `What is tested: ${link('tests.md', at.kb('tests.md'))}`,
     `Vocabulary: ${link('vocabulary.md', at.kb('vocabulary.md'))}`]));
+  return L.join('\n') + '\n';
+}
+
+/* ------------------------------------------------------------------ the test suite */
+
+/**
+ * "Is this behaviour tested, and where?" — the one question about a repository this tree could not answer.
+ *
+ * The suite is a fact about the code that an agent has to be able to read *before* it changes anything, and
+ * on this repository it is a single 9,000-line file. An agent with `Read` and `Grep` either burns its whole
+ * context opening it or guesses. Both are worse than a list of names and line numbers.
+ *
+ * **Nothing here runs a test.** `testcases.mjs` already made that argument for the Quality panel and it is
+ * the same argument: parsing a reporter would make a documentation tool depend on a passing suite, an
+ * installed runner and a stable JSON format — three ways to break for reasons that have nothing to do with
+ * documentation. The names are in the file. So is everything else on this page.
+ *
+ * **`testcases.mjs` stays the single authority for what a test file is and what a case is.** `testInventory`
+ * finds the files, `casesInFile` finds the cases, and this adds only the three facts that neither computes
+ * and that a reader needs to act: *where* each case sits, *which group* of the file it belongs to, and
+ * *which plan item it names*. A second implementation of "what counts as a test" would be two answers
+ * waiting to disagree, which is the failure C-7 closed elsewhere in this file.
+ */
+
+/**
+ * A group heading inside a test file — the suite's own divider comment, or the banner its runner prints.
+ *
+ * Both conventions are read because a suite that has one usually has the other and they interleave: on this
+ * repository a rule comment reading `=== glob` is followed immediately by `console.log('\nglob')`, and the
+ * nearest marker above a case wins. Only `'` and `"` are accepted as the banner's quotes. A template literal is
+ * excluded deliberately — the summary line this suite ends with is a `console.log` of an interpolated
+ * string, and admitting it would invent a group named after a format string.
+ */
+const TEST_MARKER = /^(?:\/\*\s*=+\s*(.+?)\s*\*\/|console\.log\(\s*(['"])\\n(.+?)\2\s*\)\s*;?)\s*$/gm;
+
+/** A line that is commentary attached to whatever follows it rather than code of its own. */
+const ATTACHED_COMMENT = /^\s*(?:\/\/|\/\*|\*)/;
+
+/**
+ * The loop that awaits deferred cases.
+ *
+ * A runner that collects promises and drains them *partway through the file* has a trap with no error
+ * message: a case registered below the drain is pushed onto a list nothing looks at again, so it never runs,
+ * never fails, and never reaches the count — the suite stays green for a case that did not execute. The
+ * position is derivable, so it is reported rather than left to a comment somebody has to have read.
+ */
+const ASYNC_DRAIN = /^[ \t]*for\s*\([^)]*\bof\s+([\w$]*[Pp]ending[\w$]*)\s*\)/gm;
+
+/** The flag the runner reads to select cases by name. */
+const FILTER_FLAG = /process\.argv\.indexOf\(\s*(['"])(--[A-Za-z0-9][\w-]*)\1\s*\)/;
+
+/**
+ * Relative import specifiers, in the three forms that carry one. Bounded alternatives rather than one
+ * pattern with a lazy `[\s\S]*?` in it: this runs over a nine-thousand-line file, and a backtracking scan
+ * across it is a build that hangs. A bare specifier is a package, never a file in this repository.
+ */
+const IMPORT_SPEC = /\bfrom\s*(['"])(\.[^'"\n]*)\1|\bimport\s*\(\s*(['"])(\.[^'"\n]*)\3|\bimport\s+(['"])(\.[^'"\n]*)\5/g;
+
+/** Extensions tried when a specifier omits one, and the index files a directory specifier resolves to. */
+const IMPORT_EXTS = ['', '.js', '.mjs', '.cjs', '.jsx', '.ts', '.tsx',
+  '/index.js', '/index.mjs', '/index.ts', '/index.tsx'];
+
+/** Offset → 1-based line, by binary search. Called once per case; a scan per case is quadratic on this file. */
+function lineIndex(text) {
+  const nl = [];
+  for (let i = 0; i < text.length; i++) if (text[i] === '\n') nl.push(i);
+  return (at) => {
+    let lo = 0, hi = nl.length;
+    while (lo < hi) { const m = (lo + hi) >> 1; if (nl[m] < at) lo = m + 1; else hi = m; }
+    return lo + 1;
+  };
+}
+
+/**
+ * The suite, as a structure. `null` when the tracked file list could not be read — the same distinction the
+ * rest of this file holds to, where "not evaluated" and "nothing found" are different claims.
+ */
+function testSuite(root, codeFiles, plan) {
+  if (!codeFiles) return null;
+  const inv = testInventory(root, codeFiles);
+
+  // The ids the plan actually defines, not a pattern for what an id might look like. Matching a shape would
+  // report `H17` — a health signal this suite names 56 times — as a plan item, and a cross-reference that
+  // invents half its edges is worse than none.
+  const planIds = (plan && !plan.missing ? plan.items || [] : []).map((it) => String(it.id));
+  const idRe = planIds.length
+    ? new RegExp('\\b(' + planIds.map((s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|') + ')\\b', 'g')
+    : null;
+
+  const tracked = new Set(codeFiles);
+  const files = [];
+  const byPlanId = new Map();
+  const imports = new Map();
+  let located = 0, named = 0, unlocated = 0;
+
+  for (const rel of inv.files) {
+    let text;
+    try { text = fs.readFileSync(path.join(root, rel), 'utf8'); } catch { continue; }
+    const lines = text.split('\n');
+    const lineAt = lineIndex(text);
+    const cases = casesInFile(rel, text);
+
+    // Where each case sits. `casesInFile` returns them in source order and the name it captured is the raw
+    // source substring between the quotes, so a forward scan from the end of the previous match lands on
+    // exactly the occurrence that produced it — including two cases that happen to share a name.
+    let cursor = 0;
+    const found = [];
+    for (const cs of cases) {
+      const i = text.indexOf(cs.name, cursor);
+      if (i === -1) { unlocated++; continue; }
+      cursor = i + cs.name.length;
+      found.push({ name: cs.name, at: i, line: lineAt(i), regression: cs.regression, plan: [] });
+    }
+    located += found.length;
+
+    const marks = [...text.matchAll(TEST_MARKER)]
+      .map((m) => ({ at: m.index, title: (m[1] || m[3] || '').trim(), line: lineAt(m.index) }))
+      .filter((m) => m.title);
+
+    /**
+     * The commentary a case owns — the span a defect id has to appear in to count as *this* case's.
+     *
+     * Two boundaries, and both were wrong before they were drawn. The comment block directly above `test(`
+     * is where this suite explains what broke, so it belongs to the case **below** it and not to the case
+     * above; a span running from one `test(` line to the next hands every id in a case's leading comment to
+     * whatever was written before it. And a **group marker ends the span**, at both ends: a marker naming a
+     * defect describes the block it opens, not the last case of the block above, and anything between two
+     * cases that is neither — a fixture, a helper — would otherwise be read as the earlier case's own.
+     *
+     * The consequence is deliberate: an id that appears *only* in a group marker is attributed to no case.
+     * Spreading it over every case in the group would be the other guess, and it would report fifteen
+     * regression tests where the evidence is one comment.
+     */
+    const blockStart = found.map((it) => {
+      let s = it.line;
+      while (s > 1 && (lines[s - 2].trim() === '' || ATTACHED_COMMENT.test(lines[s - 2]))) s--;
+      return s;
+    });
+    for (let k = 0; k < found.length && idRe; k++) {
+      const before = marks.filter((m) => m.line < found[k].line).pop();
+      const after = marks.find((m) => m.line > found[k].line);
+      const from = Math.max(blockStart[k] - 1, before ? before.line : 0);
+      let to = k + 1 < found.length ? blockStart[k + 1] - 1 : lines.length;
+      if (after) to = Math.min(to, after.line - 1);
+      const span = lines.slice(from, Math.max(to, from + 1)).join('\n');
+      found[k].plan = [...new Set([...span.matchAll(idRe)].map((m) => m[1]))]
+        .sort((a, b) => a.localeCompare(b, 'en', { numeric: true }));
+      if (found[k].plan.length) named++;
+      for (const id of found[k].plan) {
+        if (!byPlanId.has(id)) byPlanId.set(id, []);
+        byPlanId.get(id).push({ file: rel, name: found[k].name, line: found[k].line });
+      }
+    }
+
+    // Groups, in source order and only where they hold something. A marker with no case under it is a
+    // divider for code that is not a test, and an empty heading on the page would read as a gap in coverage.
+    const groups = [];
+    let mi = 0, cur = null;
+    for (const it of found) {
+      while (mi < marks.length && marks[mi].at <= it.at) cur = marks[mi++];
+      const last = groups[groups.length - 1];
+      if (last && last.mark === cur) last.cases.push(it);
+      else groups.push({ mark: cur, title: cur ? cur.title : null, line: cur ? cur.line : null, cases: [it] });
+    }
+
+    const drains = [...text.matchAll(ASYNC_DRAIN)].map((m) => lineAt(m.index));
+    const drain = drains.length ? drains[drains.length - 1] : null;
+    const flag = FILTER_FLAG.exec(text);
+
+    for (const m of text.matchAll(IMPORT_SPEC)) {
+      const spec = m[2] || m[4] || m[6];
+      const base = path.posix.normalize(path.posix.join(path.posix.dirname(rel), spec));
+      const hit = IMPORT_EXTS.map((e) => base + e).find((p) => tracked.has(p));
+      if (!hit || hit === rel) continue;
+      if (!imports.has(hit)) imports.set(hit, new Set());
+      imports.get(hit).add(rel);
+    }
+
+    files.push({
+      rel,
+      cases: found,
+      groups,
+      drain,
+      afterDrain: drain === null ? 0 : found.filter((it) => it.line > drain).length,
+      filter: flag ? { flag: flag[2], line: lineAt(flag.index) } : null,
+    });
+  }
+
+  return {
+    files,
+    total: inv.cases.length,
+    located,
+    unlocated,
+    named,
+    regressions: inv.regressions,
+    candidates: inv.candidates,
+    notChecked: inv.notChecked,
+    planIds,
+    byPlanId,
+    imports,
+  };
+}
+
+/**
+ * The page. Names and locations, never a body: a test's assertions are the thing you read the test for, and
+ * a copy of them here would be the fork this tree refuses to hold, with the added cruelty of going stale
+ * against a file that changes every day.
+ */
+function testsPage(c) {
+  const { tests, plan, at } = c;
+  const L = [];
+  L.push('# What is tested, and where', '', STAMP, '');
+
+  if (!tests) {
+    L.push('**Not evaluated.** The tracked file list could not be read (no git repository, or `--no-git`), so',
+      'no test file was looked for. This is not a clean result, and it is not "this repository has no tests".', '');
+    L.push(...footer(at));
+    return L.join('\n') + '\n';
+  }
+
+  L.push('Every case in this repository\'s test files, with the line to open it at. Read **out of the sources,',
+    'never out of a run** — no runner is executed and no reporter output is parsed, because a documentation',
+    'tool that depended on a passing suite, an installed runner and a stable report format would break for',
+    'three reasons that have nothing to do with documentation. So this is what is *written*. Whether it',
+    'passes is a different claim, and this page does not make it.', '');
+
+  if (!tests.files.length) {
+    L.push('## No test file yielded a case', '');
+    L.push(`${num(tests.candidates)} tracked path(s) look like tests by name, and no known case pattern matched`,
+      'inside any of them. That is either a suite this tool cannot read or a repository without one, and the',
+      'two are worth telling apart before trusting the answer.', '');
+    L.push(...footer(at));
+    return L.join('\n') + '\n';
+  }
+
+  const groups = tests.files.reduce((n, f) => n + f.groups.length, 0);
+  L.push('## Counts', '');
+  L.push('| Measure | Value |', '|---|---|');
+  L.push(`| Test files holding cases | ${num(tests.files.length)} |`);
+  L.push(`| Cases | ${num(tests.total)} |`);
+  L.push(`| Groups, by the files' own markers | ${num(groups)} |`);
+  L.push(`| Cases naming a plan item | ${num(tests.named)} |`);
+  L.push(`| Cases worded as a defect, not a capability | ${num(tests.regressions)} |`);
+  if (tests.unlocated) L.push(`| Cases whose position could not be resolved | ${num(tests.unlocated)} |`);
+  L.push('');
+  L.push('The last row is a **heuristic over wording** owned by `scripts/lib/testcases.mjs` — a case named for',
+    'something that must *not* happen is usually a case that exists because it once did. It is not the same',
+    'measure as the row above it, and neither is proof of anything; see the last section.', '');
+
+  // How to run one. The flag is read out of the runner rather than assumed: a suite that takes `--only` or
+  // `-t` would be documented wrongly by a hardcoded sentence, and wrongly in the one place a reader copies.
+  L.push('## Running them', '');
+  for (const f of tests.files) {
+    L.push(`- ${code(f.rel)} — ${num(f.cases.length)} case(s). Run all of them with \`node ${f.rel}\`.`);
+    if (f.filter) {
+      L.push(`  Its runner reads \`${f.filter.flag}\` at ${code(`${f.rel}:${f.filter.line}`)} and keeps only the`,
+        `  cases whose name matches what follows it: \`node ${f.rel} ${f.filter.flag} <substring>\`.`);
+    }
+  }
+  L.push('');
+
+  // The trap. Derived, because a rule that lives only in a comment is a rule enforced by whoever happened to
+  // read that comment — and this one fails silently, which is the kind no reviewer catches.
+  const drained = tests.files.filter((f) => f.drain !== null);
+  if (drained.length) {
+    L.push('## A case added here must be synchronous', '');
+    L.push('**This is the rule to know before appending a case, and breaking it produces no error.** The',
+      'runner collects the promise an `async` case returns and awaits the collection *partway through the',
+      'file*. A case registered after that point is pushed onto a list nothing reads again: it never runs,',
+      'never fails, and never reaches the pass count — the suite stays green for a case that did not',
+      'execute. Write the case synchronously, or move the drain.', '');
+    for (const f of drained) {
+      L.push(`- ${code(f.rel)} — drained at ${code(`${f.rel}:${f.drain}`)}. `
+        + `${num(f.afterDrain)} of ${num(f.cases.length)} case(s) are registered below it.`);
+    }
+    L.push('');
+  }
+
+  L.push('## The groups', '');
+  L.push('Each file\'s own dividers — a rule comment, or the banner the runner prints — in source order. Only',
+    'markers with a case under them are listed.', '');
+  L.push('| Group | Where | Cases | Naming a plan item |', '|---|---|---|---|');
+  for (const f of tests.files) {
+    for (const g of f.groups) {
+      const n = g.cases.filter((it) => it.plan.length).length;
+      L.push(`| ${cell(label(g.title || 'before the first marker'))} | `
+        + `${cell(link(g.line ? `${f.rel}:${g.line}` : f.rel, at.repo(f.rel)))} | ${num(g.cases.length)} | ${num(n)} |`);
+    }
+  }
+  L.push('');
+
+  L.push('## The cases', '');
+  L.push(`${num(tests.located)} case(s), in the order they are written. The name is the file's own; a plan id`,
+    'after it is one this repository\'s plan defines and the case names. **Grep this section, do not read',
+    'it** — then open the line.', '');
+  for (const f of tests.files) {
+    L.push(`### ${cell(code(f.rel))}`, '');
+    for (const g of f.groups) {
+      L.push(`#### ${label(g.title || 'before the first marker')}`, '');
+      for (const it of g.cases) {
+        L.push(`- ${label(it.name)} — ${link(`${f.rel}:${it.line}`, at.repo(f.rel))}`
+          + (it.plan.length ? ` · ${it.plan.join(', ')}` : ''));
+      }
+      L.push('');
+    }
+  }
+
+  L.push('## Cases that name a plan item', '');
+  if (!tests.planIds.length) {
+    L.push('No plan was read, so nothing could be cross-referenced. A case that names a defect names it',
+      `against ${link('plan.md', at.kb('plan.md'))}, and that page has no items.`, '');
+  } else if (!tests.byPlanId.size) {
+    L.push(`No case names any of the ${num(tests.planIds.length)} id(s) the plan defines, in its name or in the`,
+      'comment above it. That is not evidence the suite has no regression tests — it is evidence the',
+      'convention of naming the defect is not in use here.', '');
+  } else {
+    L.push('The convention this suite follows is that a case which exists because something broke **names the',
+      'defect** — in the case name, or in the comment block directly above it. Cross-referenced against the',
+      `ids ${plan && !plan.missing ? link(plan.source, at.repo(plan.source)) : 'the plan'} actually defines, so`,
+      'an id-shaped string that is not a plan item is not reported.', '');
+    L.push(`${num(tests.byPlanId.size)} of ${num(tests.planIds.length)} plan item(s) are named by at least one case.`,
+      'An id that appears only in a **group marker** is counted here for no case, because it describes the',
+      'block rather than any one case in it — look for it in the group index above, where the marker\'s own',
+      'text is the group\'s name.', '');
+    L.push('| Plan item | Cases | Where |', '|---|---|---|');
+    for (const id of [...tests.byPlanId.keys()].sort((a, b) => a.localeCompare(b, 'en', { numeric: true }))) {
+      const hits = tests.byPlanId.get(id);
+      const where = hits.map((h) => link(`${h.file}:${h.line}`, at.repo(h.file))).join(', ');
+      L.push(`| ${cell(id)} | ${num(hits.length)} | ${cell(where)} |`);
+    }
+    L.push('');
+  }
+
+  L.push('## What this page cannot tell you', '');
+  L.push('- **Whether any of it passes.** Read from source, never from a run. Run the suite.',
+    '- **Whether a case was ever seen to fail.** A named defect is a *claim the case makes*, not evidence.',
+    '  Nothing in a source file can show that the case was reverted and observed to fail, and a case that',
+    '  names nothing may have been verified exactly that way and simply not said so.',
+    '- **What a case asserts.** Names and locations only. The assertions are why you open the test, and a',
+    '  copy of them here would be a second copy of the suite, stale against a file that changes daily.',
+    '- **What is *not* covered.** This inverts the test files; it does not know what behaviour exists. A',
+    `  code file no test imports is visible in ${link('routes.md', at.kb('routes.md'))}, which is the closest`,
+    '  this tool gets, and it is a weaker statement than "untested".');
+  // `testInventory` reports the same gap in its own `notChecked`, and it is restated here as a count rather
+  // than passed through: the other two notes it carries are already the first two bullets above, and a page
+  // that says the same thing twice reads as two different caveats.
+  if (tests.candidates > tests.files.length) {
+    L.push(`- **${num(tests.candidates - tests.files.length)} tracked path(s) that look like tests contributed`,
+      '  nothing.** No known case pattern matched inside them, so whatever they hold is not on this page and',
+      '  is not in any count on it.');
+  }
+  L.push('');
+
+  L.push(...footer(at, [`Where to read about a file: ${link('routes.md', at.kb('routes.md'))}`,
+    `The plan: ${link('plan.md', at.kb('plan.md'))}`]));
   return L.join('\n') + '\n';
 }
 

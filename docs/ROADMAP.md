@@ -46,6 +46,7 @@ measured against the code — the same distinction the tool preserves everywhere
 | A-39 | 100 | A-40 | 100 | A-41 | 100 |
 | A-42 | 100 | A-43 | 100 | A-44 | 100 |
 | A-45 | 100 | A-46 | 100 | A-48 | 100 |
+| M-5 | 100 | | | | |
 
 ---
 
@@ -1010,7 +1011,6 @@ thirty-two call sites across eleven modules route through it, five of them in `r
 because this defect returns silently and on one machine only, so the guard has to be structural rather than
 remembered.
 
-<<<<<<< HEAD
 **A-38 · A directory named `agent-something` is not this tool's to touch** — **P0 · Critical**
 *Shipped.* `agentIdOf` matched any directory whose **basename** began `agent-`. That is a name a person is
 entitled to use, and an adversarial audit demonstrated both halves of the consequence on real directories:
@@ -1035,7 +1035,6 @@ precisely the place it was already true. The state ignores itself now, scoped to
 `.atlas/journal/` is tracked and a blanket rule would silently stop it being committed ever again.
 
 *Each test is the audit's exploit rather than a paraphrase of it,* and all three fail against the old code.
-=======
 **A-39 · A hook was making a network request while two documents promised none did** — **P1 · High**
 *Shipped.* `README.md` said `caps` is "**the only command that touches the network**… Everything else is
 entirely offline", and `host.mjs` opened with the same claim about itself as a module.
@@ -1055,7 +1054,6 @@ Corrected to what is true: **two** files reach the network, `host.mjs` behind an
 structural, because a trust claim decays silently: each `fetch` call site is classified by whether its
 argument is plainly relative, so the browser-side live-reload polling in `dashboard.mjs` is correctly not
 counted — while an absolute URL appearing there later would be.
->>>>>>> fix/a-39-network-claim
 
 **A-37 · A conflicted file is one document, not one per merge stage** — **P1 · High**
 *Shipped.* `git ls-files` prints an unmerged path once for **each index stage** — 1 base, 2 ours, 3 theirs.
@@ -1651,3 +1649,48 @@ The later branch took A-48 — a deterministic tie-break, because two agents bot
 collide again — and the commit was amended rather than followed by a correction, since a merged commit subject
 naming an id that has since moved cannot be fixed. That is the entire argument for this item, and it did not
 have to be reconstructed from a transcript.
+**M-5 · The test suite, in the knowledge base** — **P1 · High**
+*Shipped.* *`kb/tests.md`: every case name with the line to open it at, grouped by the file's own markers,
+cross-referenced against the plan ids the cases name, and carrying the two rules a case has to hold to.
+Linked from the entry point's routing table, and inverted into `routes.md` as a **Tested by** column.*
+
+***The gap was the same shape as [M-4](#track-8--integration)'s, one layer in.*** *M-4 gave an agent with
+`Read` and `Grep` the taxonomy, the citations, the health findings and the plan. It did not give it the one
+fact it needs before changing anything: **is this behaviour tested, and where.** On this repository the
+answer lives in a single file of nine thousand lines and four hundred and fifty cases, so an agent either
+spends its whole context opening it or guesses. The Quality view already counted the cases —
+`testcases.mjs` has done that since Q-1 — but a count is not a route, and the count was on an HTML page the
+working case cannot open.*
+
+*Nothing about the page is hand-maintained, which is the only way a list of what is covered is worth having:
+a stale one is read as an assurance. `testInventory` stays the single authority for what a test file is and
+`casesInFile` for what a case is — a second definition would be the disagreement C-7 closed — and this adds
+only the three facts neither computes and a reader has to have. **Where** each case sits, by scanning
+forward for the exact occurrence that produced it, so two cases sharing a name still resolve. **Which
+group**, from the nearest marker above it, reading both conventions a suite uses: the rule comment and the
+banner the runner prints. **Which plan item it names**, matched against the ids `docs/ROADMAP.md` actually
+defines rather than against the shape of an id — a shape match reports `H17`, a health signal this suite
+names fifty-six times, as a plan item, and a cross-reference that invents half its edges is worse than none.*
+
+***The reversion convention is surfaced as what it is: a claim, not evidence.*** *This suite's rule is that a
+case fixing a defect names it, and 64 cases do. The page prints them and then says plainly that a named
+defect says a defect was *named*, not that the case was ever reverted and observed to fail — nothing in a
+source file can show that, and a case that names nothing may have been verified exactly that way. Stating
+the limit is the difference between a cross-reference and a coverage badge.*
+
+*Two rules are derived rather than described, because both are rules that live in a comment somebody has to
+have read.* **The drain**: this runner collects the promise an `async` case returns and awaits the collection
+partway down the file, so a case appended below that point is pushed onto a list nothing reads again — it
+never runs, never fails, and never reaches the pass count. The suite stays green for a case that did not
+execute. The page locates the drain by line and counts how many cases sit below it. **The selection flag**
+is read out of the runner's own `argv` handling, so a suite taking something other than `--filter` is
+documented correctly rather than plausibly.
+
+*The reverse route gained the other half of its question. `routes.md` answered "I am about to change this —
+what describes it?"; it now also answers "what will catch me", from the **imports** in each test file
+resolved against the tracked list. That edge is deliberately weak and labelled as one — an import proves the
+suite loads the module, not that a case exercises it, and `scripts/atlas.mjs` shows a dash because the tests
+spawn it as a process. The alternative, matching a case's wording against a filename, would invent edges,
+which is what the resolved-citations-only rule at the top of that page already refuses. It also produced a
+section nothing else could: **24 files the suite imports that no document describes** — the cheapest
+documentation gaps in the repository, because the behaviour is already written down somewhere executable.*
