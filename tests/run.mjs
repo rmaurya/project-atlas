@@ -11338,6 +11338,29 @@ test('A-56 · one branch, a detached HEAD and a repository with no commits each 
   includes(three.stdout, 'ORIGINS NOT MEASURED', 'and that no origin was measured, which is not the same as "cut from main"');
 });
 
+test('A-56 · a crowd of branches on one commit folds into a counted line, and the real work stays visible', () => {
+  // Run against this repository the tree drew six agent worktree branches, each with a note naming the other
+  // five — thirty names to say one thing, with the one line that mattered buried inside it. A tree that is
+  // correct and unreadable has failed, so the fold is behaviour and is asserted as such: the count and the
+  // names survive, the six rows do not, and the branch that actually holds work keeps its own row.
+  const dir = fixture('tree-fold', { 'docs/A.md': '# A\n' });
+  const main = gitIn(dir, 'rev-parse', '--abbrev-ref', 'HEAD');
+  for (const n of ['w/one', 'w/two', 'w/three', 'w/four', 'w/five']) {
+    gitIn(dir, 'switch', '-q', '-c', n);
+    gitIn(dir, 'switch', '-q', main);
+  }
+  gitIn(dir, 'switch', '-q', '-c', 'feat/real');
+  commitMsg(dir, 'docs/B.md', '# B\n', 'feat: actual work');
+  gitIn(dir, 'switch', '-q', main);
+
+  const out = formatBranchTree(branchTree(dir, { branching: { main } }), false);
+  includes(out, '5 at-main branch(es)', 'the crowd is counted');
+  includes(out, 'w/five, w/four, w/one', 'and named on the line beside the count — folded, not hidden');
+  includes(out, 'feat/real', 'the branch holding work keeps its own row');
+  eq(out.split('\n').filter((l) => /w\/(one|two|three|four|five)/.test(l)).length, 1,
+    'five rows collapsed to one, or the fold bought nothing');
+});
+
 test('A-56 · the branch table names each open branch\'s origin, and marks it as inference', () => {
   // The column the owner asked for, on the surface they asked for it on. The word `probably` is load-bearing
   // and so is the paragraph under the list: this project has shipped a fabricated statistic once already.

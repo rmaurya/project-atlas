@@ -1086,19 +1086,35 @@ function branchState(b) {
  *
  * Returned uncoloured. The caller paints it, and the sentence still says everything when it does not.
  */
+/**
+ * A list of branch names, three of them, then a count.
+ *
+ * Not decoration. Six sibling worktree branches sitting on one commit put five names on every one of six
+ * consecutive rows, each row naming the other five — thirty names to say one thing, and the line that
+ * mattered (`same point as feat/charts-interactive-2`) was invisible inside it. The count keeps the claim
+ * complete; the truncation is what makes it readable, which is the only reason anyone would read it.
+ */
+const names = (list, keep = 3) => list.slice(0, keep).join(', ') +
+  (list.length > keep ? ` and ${list.length - keep} more` : '');
+
 export function ancestryPhrase(rec, main) {
   if (!rec) return 'origin not measured';
   const extra = [];
   if (rec.orderedBy === 'reflog') extra.push('ordered from this clone\'s reflog, which the graph could not do');
-  if (rec.atForkPoint?.length) extra.push(`${rec.atForkPoint.join(', ')} sits on that commit too`);
-  if (rec.sameCommit?.length) extra.push(`${rec.sameCommit.join(', ')} points at the same commit`);
+  // Both of these are real caveats and both are counted before they are named: a branch label sitting on the
+  // fork commit cannot be ruled out as what this was cut from, and with six of them on screen the count is
+  // the part that carries.
+  // Named while there are few enough to be worth naming, counted once there are not. Six agent worktrees on
+  // one commit is a fact about the session, not six candidates anybody will read.
+  const few = (list) => (list.length <= 3 ? names(list) : `${list.length} branch labels`);
+  if (rec.atForkPoint?.length) extra.push(`${few(rec.atForkPoint)} sit on that commit and cannot be ruled out`);
+  if (rec.sameCommit?.length) extra.push(`${few(rec.sameCommit)} point at this branch's own tip`);
   if (rec.reflogFork && rec.forkCommit && rec.reflogFork !== rec.forkCommit) {
     extra.push(`this clone's reflog has it created at ${rec.reflogFork.slice(0, 7)} instead`);
   }
   const tail = extra.length ? ` (${extra.join('; ')})` : '';
   const at = rec.forkCommit ? rec.forkCommit.slice(0, 7) : '?';
-  const sibs = rec.sharedWith?.length ? `, same point as ${rec.sharedWith.slice(0, 4).join(', ')}` +
-    (rec.sharedWith.length > 4 ? ` and ${rec.sharedWith.length - 4} more` : '') : '';
+  const sibs = rec.sharedWith?.length ? `, same point as ${names(rec.sharedWith)}` : '';
 
   switch (rec.basis) {
     case 'self':
@@ -1307,8 +1323,16 @@ function renderChange(k, c) {
 
 /* ------------------------------------------------------------------ drawing the topology (A-56) */
 
-/** Spent siblings past this many under one parent are folded into a single counted line, names and all. */
-const SPENT_FOLD = 6;
+/**
+ * Childless siblings in one state, past this many under one parent, fold into a single counted line.
+ *
+ * Both folded states hold nothing to draw underneath them and say nothing individually. Twenty-six finished
+ * branches, or six agent worktrees all sitting on the trunk's own commit, are a page of noise around the two
+ * or three branches the drawing exists to show — and this repository produces the second case every session.
+ * Folded, not hidden: the count is the finding and the names are on the line beside it.
+ */
+const FOLD_AT = 4;
+const FOLDABLE = { spent: 'merged into', 'at-main': 'sitting on the same commit as' };
 
 /**
  * The tree, in box-drawing characters, with every figure read off the row it belongs to.
@@ -1368,20 +1392,21 @@ export function formatBranchTree(k, useColor) {
     push('node', prefix + glyph + node.name, node, notesFor(node.branch));
     const kidPrefix = depth === 0 ? '' : prefix + (isLast ? '   ' : '│  ');
 
+    // Only a childless branch may be folded: one with descendants is a junction in the drawing, whatever its
+    // own state, and collapsing it would take its children off the page with it.
     const kids = node.children;
-    const spent = kids.filter((n) => n.state === 'spent');
-    const keep = spent.length > SPENT_FOLD ? kids.filter((n) => n.state !== 'spent') : kids;
-    const folded = spent.length > SPENT_FOLD ? spent : [];
+    const groups = Object.keys(FOLDABLE)
+      .map((state) => ({ state, of: kids.filter((n) => n.state === state && !n.children.length) }))
+      .filter((g) => g.of.length >= FOLD_AT);
+    const foldedSet = new Set(groups.flatMap((g) => g.of));
+    const keep = kids.filter((n) => !foldedSet.has(n));
 
-    keep.forEach((kid, i) => walk(kid, kidPrefix, i === keep.length - 1 && !folded.length, depth + 1));
-    if (folded.length) {
-      // Twenty-six finished branches drawn one per line is a page of noise around the three that matter. They
-      // are counted and named rather than hidden, which is the same trade `branchHealth` makes in its lists.
-      const names = folded.map((n) => n.name).sort();
-      push('fold', `${kidPrefix}└─ ${folded.length} spent branch(es)`, null,
-        [`merged into ${node.name} with nothing unique on them: ${names.slice(0, 8).join(', ')}` +
-          (names.length > 8 ? `, and ${names.length - 8} more` : '')]);
-    }
+    keep.forEach((kid, i) => walk(kid, kidPrefix, i === keep.length - 1 && !groups.length, depth + 1));
+    groups.forEach((g, gi) => {
+      const list = g.of.map((n) => n.name).sort();
+      push('fold', `${kidPrefix}${gi === groups.length - 1 ? '└─' : '├─'} ${g.of.length} ${g.state} branch(es)`, null,
+        [`${FOLDABLE[g.state]} ${node.name}: ${names(list, 8)}`]);
+    });
   };
 
   k.roots.forEach((r, i) => walk(r, '', i === k.roots.length - 1, 0));
