@@ -48,7 +48,7 @@ measured against the code — the same distinction the tool preserves everywhere
 | A-45 | 100 | A-46 | 100 | A-48 | 100 |
 | M-5 | 100 | A-47 | 100 | A-49 | 100 |
 | A-50 | 100 | A-51 | 0 | A-52 | 100 |
-| A-53 | 100 | A-54 | 100 | | |
+| A-53 | 100 | A-54 | 100 | P-9 | 100 |
 
 ---
 
@@ -1956,3 +1956,57 @@ spawn it as a process. The alternative, matching a case's wording against a file
 which is what the resolved-citations-only rule at the top of that page already refuses. It also produced a
 section nothing else could: **24 files the suite imports that no document describes** — the cheapest
 documentation gaps in the repository, because the behaviour is already written down somewhere executable.*
+
+**P-9 · Charts you can read a value off, and an area chart that stopped hiding its own axis** — **P2 · Medium**
+*Asked for twice: "make the charts readable and interactive", and then "I asked you to keep all graphs /
+charts interactive, don't create dumb charts". Both were right, and an earlier attempt produced no source at
+all. This is the follow-on to P-8, which built the charts and left them mute.*
+
+***The stacked chart was genuinely stacked, and that changed what the fix was.*** *The report described
+"added over removed" as two overlaid shapes with the rear one painted out. It is not: the bands are
+cumulative, the top of the last one is the total, and nothing is drawn behind anything. So transparency was
+never going to reveal a hidden series — what the near-solid `fill-opacity:.82` was hiding was the **y-axis**.
+Read through the fill, a gridline kept 29% of its contrast on light and 16% on dark, so a reader could see
+the shape of the change and had nothing to measure it against. Two of the three faults were in the same
+attribute pair: the band's 2px "separator" was stroked in `var(--surface)`, the page white, while a chart
+sits on a `--panel` card — and a boundary painted in the background colour is a boundary erased, on the one
+line a stacked chart most needs.*
+
+*Now the fill states extent at an alpha per theme and a second path states the top edge at full strength and
+fully opaque. **Two alphas, because one would be a guess:** the same value over `#faf8f5` and over `#101018`
+does not produce the same fill. Both were chosen against a floor every slot has to clear — 1.6:1 as a fill
+against its own card, so a band reads as a region and not only as its edge — which lands at .40 on light and
+.34 on dark. Identity never rode on the fill and does not now: the opaque edge clears 3.5:1 on light and
+5.1:1 on dark for all six slots, and the direct label the palette validator made a condition of shipping is
+still there.*
+
+***Every chart type answers "what is the value here", by pointer and by keyboard, with no script.*** *A hit
+band per x position, a crosshair, a dot on each series and a readout plate stating every series at that
+position — drawn by the build, revealed by `:hover` and `:focus-within`. A donut's slices are focusable and
+put their own figure in the hub the total normally occupies; a sparkline's bars name themselves under a
+pointer and its svg takes one tab stop for the whole series, because five tiles of a dozen bars would
+otherwise put sixty tab stops ahead of the page's first control.*
+
+***No JavaScript, and not for the sake of it.*** *A script was allowed — the pages already ship inline
+blocks. Three things made it the wrong answer. Live reload replaces the page body with `innerHTML`, which
+never executes markup's own scripts, so a chart that needed one would go dead on the first rebuild, on the
+one surface where rebuilds happen every few seconds. `verifyPage` fails a duplicate id and the bundler
+renames colliding ones, so id-keyed behaviour owes both of them a per-chart key. And a strict CSP is one
+fewer thing to be right about. What is deliberately left out: **legend toggling**, because hiding a band on a
+stacked chart moves every band above it and hiding a line leaves the y-axis scaled to a series that is no
+longer on the page — both restate the remaining data without saying so. Legend hover highlights instead.*
+
+*Three things the browser had to say rather than the source. `:focus` does not match a focusable SVG group in
+Chrome even while it is `document.activeElement` — `:focus-within` does, so every focus rule states both, and
+written the other way round the keyboard reader would have moved a ring around a chart that never changed.
+`role="img"` on an interactive chart discards every focusable child inside it, so the charts had to stop
+claiming to be pictures. And this stylesheet is read downstream by regular expressions, not a parser: a main
+tag or an id attribute written in one of its **comments** is a main tag and an id attribute in the page —
+the first draft put both there, and the bundle came out with every page's topbar nested inside another
+page's section and the clock declared twelve times.*
+
+*One readability defect fell out of looking: the x-axis drew a label every `step` positions **and** always
+the last one, which collide whenever the count does not divide evenly. At fourteen buckets two five-character
+dates were printed seventeen pixels apart, over each other, on every chart with that many points. The
+neighbour is dropped now, measured against the last label's own left edge rather than by an index rule — a
+wide chart with short labels has room for both.*
