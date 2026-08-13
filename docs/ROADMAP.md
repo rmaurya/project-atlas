@@ -47,6 +47,7 @@ measured against the code — the same distinction the tool preserves everywhere
 | A-42 | 100 | A-43 | 100 | A-44 | 100 |
 | A-45 | 100 | A-46 | 100 | A-48 | 100 |
 | M-5 | 100 | A-47 | 100 | A-49 | 100 |
+| A-50 | 100 | A-51 | 0 | | |
 
 ---
 
@@ -733,6 +734,12 @@ silently is not.*
 *Shipped in 0.1.56.*
 *Generate the self-contained page automatically. Sharing it stays manual, because a shared artifact is
 outward-facing.*
+
+*`/atlas:artifact` closes the second half without reopening the first.* The skill runs the `--target export`
+this item already shipped and then publishes the result, which is the step a CLI cannot take — only a session
+can reach claude.ai. **Sharing is still manual in the sense that mattered here:** it happens because somebody
+typed the command, and the artifact stays private to them until they choose to share it. There is deliberately
+no `atlas artifact` command; a second name over the same export would be the duplication this tool detects.
 
 **A-8 · The dashboard tracks work as it happens** — **P1 · High**
 *Shipped in 0.1.54 — by the escape hatch this item named, not by the mechanism it proposed.*
@@ -1550,6 +1557,61 @@ they came for. It names orphans instead, and a test asserts the branch cannot re
 when `ps` cannot be run — "could not ask" and "nothing is running" are opposite answers, and collapsing them
 is the precise mistake being fixed. `--list` says which one it is, marks every row with whether it was
 confirmed against the machine, and never again prints a confident empty.
+
+**A-50 · The three public pages drifted again, and the stamps that were supposed to prevent it caused it** — **P1 · High**
+*Shipped.* `README.md`, `docs/CAPABILITIES.md`, `docs/FEATURES.md` and `docs/FAQ.md` are the pages a reader
+meets first, and three of them carried a hand-written verification stamp. **Every stamp was false.**
+`FEATURES.md` said *"Last verified: 2026-08-13, against `HEAD = 714d202`"*; at `714d202` the `atlas help`
+dispatch is on line 309 and the page said 338. `CAPABILITIES.md` said 2026-08-11, and its line numbers match
+**no committed tree at all** — measured against the three candidate trees from that date the offsets came out
+at +29, +21 and +24 on different citations. `FAQ.md` claimed 0.1.66 at 0.1.70. This is the third recurrence of
+the defect A-29 was filed for, and the mechanism was the stamp itself: a date is the one line on a stale page
+that makes the rest look checked, and only the author can write it — which is the person already convinced the
+page is right.
+
+*What was actually wrong.* **0 of 41 command citations and 0 of 17 signal citations in `FEATURES.md` landed on
+the right line**: `scripts/atlas.mjs` had shifted by one and `scripts/lib/health.mjs` by ninety-nine, so every
+citation pointed at plausible, adjacent, wrong code. H2 passed throughout, and correctly — H2 asks only whether
+the file is long enough. `CAPABILITIES.md` had never heard of `pause`, `resume`, `stop`, `contention`, the six
+`git-*` commands or the Economics view; it said *nine* role views while eleven shipped; it carried the retired
+*"only commands that read session transcripts"* privacy rule that had already been corrected in three other
+files; and it told readers `atlas ask <question>` **does not work**, two days after it was fixed. `FAQ.md` said
+the same thing about `/atlas:ask` and linked to a `FEATURES.md` anchor renamed in the fix, so the link had been
+dead ever since — invisible to H1, which resolves the file and never the fragment. Eleven citations across the
+two pages were written as **reversed ranges** (`scripts/atlas.mjs:1007-971`).
+
+*Stamps replaced by derivation, not by fresher stamps.* Every "last verified" line is gone. The command
+citations in `FEATURES.md` §1 and `CAPABILITIES.md` are now the line each `if (cmd === …)` sits on, re-derived
+from the source by `tests/run.mjs`; the signal citations in §2 are the line each finding is constructed on,
+derived the same way from `health.mjs` and `sop.mjs`. Citations into modules where no such anchor exists name
+the **symbol** instead of a line. Nine new cases extend the existing `inventory` group: they read each figure
+back out of the prose and compare it against the code, and **a regex that fails to find its sentence is a
+failure, not a skip** — the way a check like this rots is by quietly measuring nothing.
+
+*What is reported and not fixed here.* This change owns four documents and `tests/run.mjs` only.
+`plugin.json:2` still describes *"sixteen mechanical rot signals"* in its marketplace blurb, which is right for
+the corpus and silent about H17. `docs/ROADMAP.md` carries **two items numbered A-47 and two numbered A-48** —
+the renumbering recorded at A-48's own entry was applied to the entry and not to the earlier pair — so `atlas
+tasks` reports 102 items where 100 ids are distinct. Renumbering them would rewrite ids that commits and
+journal records already cite, so it is filed rather than done.
+
+**A-51 · Every page but the homepage refuses to say when it was built** — **P2 · Medium**
+*Filed, not fixed — the fix is in `scripts/lib/render.mjs`, which A-50 does not own.* `renderSite` derives
+`buildDate` from `git log -1 --format=%cI` — local and UTC, read rather than generated so the output stays
+byte-reproducible — and then passes it to **`indexPage` alone**. Every other page goes through `shell()`,
+whose footer is the single line *"Generated by project-atlas."* So `dashboard.html`, `view-*.html`,
+`wiki.html`, `health.html` and every document page carry no build stamp anywhere.
+
+*Why the header clock is not the answer.* The topbar clock says what **now** is, in both zones, and it is
+filled in by the browser precisely so it cannot be a frozen lie. That is a different question from *when was
+this page built*, and on a dashboard left open for a day the difference is the whole point: a reader looking
+at a stale panel has no way to tell whether they are seeing yesterday's build. The homepage answers it; the
+dashboard, which is the page people actually leave open, does not.
+
+*The fix is to pass `buildDate` into `shell()` and render it in the footer beside "Generated by".* The comment
+already in `render.mjs` argues that the footer is where a build mark belongs, and `buildDate` is already
+computed once per build — so this is threading an existing value through one more call, not new machinery. It
+must stay reproducible: the commit timestamp, never `new Date()`.
 
 ## Track 7 — Specification and consistency
 

@@ -1,8 +1,12 @@
 # Frequently asked questions
 
-**Last verified: 2026-08-11**, against `0.1.66` (`.claude-plugin/plugin.json:3`). Every answer that makes a
-claim about the code cites the code, and every answer that has a longer form links to it rather than
-restating it.
+Every answer that makes a claim about the code cites the code, and every answer that has a longer form links
+to it rather than restating it. **There is no "last verified" line here any more.** It read *"Last verified:
+2026-08-11, against `0.1.66`"* at version 0.1.70, four releases later — and while it said so this page was
+still telling readers that `/atlas:ask` was broken, still quoting a corpus of 49 documents against a real 77,
+and still linking to a `FEATURES.md` anchor that had been renamed. A version stamp is the least useful thing
+on a page that has gone stale, because it is the one line that makes the rest look checked. The figures below
+that can be derived are now derived by `tests/run.mjs` instead (A-50).
 
 These are the questions that come up **before installing** and **in the first hour after**. Most of them exist
 because somebody was surprised — several are recorded as defects in [`ROADMAP.md`](ROADMAP.md), and the
@@ -17,15 +21,15 @@ unflattering answers are here for the same reason the tool ships a *Not checked*
 It writes **one config file** and **one output directory**, and touches nothing else you wrote.
 
 - `project-atlas.config.json` at the root. `atlas init` refuses to overwrite an existing one without
-  `--force` (`scripts/atlas.mjs:1484-1438`), and it writes that file and nothing else
-  (`scripts/atlas.mjs:1522`).
+  `--force` (the `--force` guard in `init`), and it writes that file and nothing else
+  (`init` in `scripts/atlas.mjs`).
 - `docs/_wiki/` by default (`scripts/lib/config.mjs:236`), cleared and rewritten on every build.
 - `.atlas/` for operational state — a build lock, the server pidfile, the continuity journal. Most of it is
   git-ignored (`.gitignore:9-31`).
 
 The build **refuses to clear an output directory that does not look like its own**: if the directory has
 content but none of the markers a build leaves behind, it stops rather than deleting
-(`scripts/lib/render.mjs:53-64`). That guard has already stopped `{"output": "."}` from deleting a repository.
+(`prepareOutputDir` and `BUILD_MARKERS`). That guard has already stopped `{"output": "."}` from deleting a repository.
 
 ### Will it rewrite, move, or summarise my documentation?
 
@@ -82,8 +86,12 @@ argues this properly, including naming the abandonment trigger in advance.
 ### Why is it reporting dozens of orphans? Is my documentation that bad?
 
 No. **Orphans (H4) and staleness (H6) fire in bulk on any real corpus and always will.** This repository's own
-report on 2026-08-11: 49 documents, 28 orphans, 11 unclassified — and none of them is a defect. Session logs,
-work records and design scaffolds are found by search and by date, not by navigation.
+report: **78 documents, 53 orphans** — and none of them is a defect. Session logs, work records and design
+scaffolds are found by search and by date, not by navigation. Most of the orphans are `skills/*/SKILL.md`:
+the pages that catalogue them cite the path in a code span rather than as a link, because a link is an
+invitation to read a file written for a model rather than for you. No count of those is quoted here, because
+it is not one this page derives. (The figures quoted here were *49 documents, 28 orphans, 11 unclassified*
+until A-50, taken on a corpus that has since half again as many files in it.)
 
 That is why they are advisory rather than blocking. **The first report is a survey, not a to-do list**: read
 the blocking findings, the two or three advisory signals that look like real problems, and the *Not checked*
@@ -101,9 +109,11 @@ because first match wins. A repository keeping its SOPs under `docs/architecture
 one swallowed by the directory rule, and the Procedures cluster reads as empty when it is full.
 [`references/taxonomy.md`](references/taxonomy.md).
 
-**This page is one of the eleven.** No cluster rule in `project-atlas.config.json` matches `docs/FAQ.md`, so
-it fell through to `uncategorised` on the run that created it — which is the signal working, and a missing
-rule rather than a misplaced document.
+**This page used to be one of them.** No cluster rule matched `docs/FAQ.md` on the run that created it, so it
+fell through to `uncategorised` — which was the signal working, and a missing rule rather than a misplaced
+document. A rule was then added: `project-atlas.config.json` puts this page in the *What it does* cluster
+beside `CAPABILITIES.md` and `FEATURES.md`, and **H5 now reports clean on this repository** — nothing falls
+through at all.
 
 ### Why was my commit refused?
 
@@ -214,14 +224,20 @@ including the safety contract an external driver has to hold up.
 
 Yes, two ways, both read-only:
 
-- `atlas mcp` serves the corpus over stdio. Every handler reads; a test asserts `mcp.mjs` never reaches
-  `writeFileSync`, `stagePages`, `stageWiki`, `setItemPercent` or `--push` (`tests/run.mjs:4762-4775`).
+- `atlas mcp` serves the corpus over stdio. Every handler reads; the case *"mcp · every exposed tool reads and
+  none of them writes"* in `tests/run.mjs` asserts that no handler reaches `writeFileSync`, `stagePages`,
+  `stageWiki`, `setItemPercent` or `--push`. It is named rather than given a line number: this answer cited
+  `tests/run.mjs:4762-4775`, and by A-50 that range had become a build-lock test with nothing to do with MCP.
 - `atlas ask <task>` answers one task as JSON with **exit 0 clean, 1 blocking, 2 could not run**. That 1/2
   split is the point: a tool that exits non-zero for both tells a pipeline the documentation is broken when
   the truth was that atlas could not run.
 
-**The `/atlas:ask` slash command is currently broken** and is documented as a defect, with the reproduction,
-in [`FEATURES.md`](FEATURES.md#atlasask-is-currently-broken--defect). The CLI and MCP paths work.
+**`/atlas:ask` works, and takes either kind of argument.** A known task id goes to the structured path; any
+other text is treated as a person's question and returns the documents worth reading. This answer used to say
+*"the `/atlas:ask` slash command is currently broken"* and linked to a `FEATURES.md` anchor documenting the
+defect — but the defect was fixed by M-2's follow-up, the anchor was renamed to *"answers both kinds of
+question — fixed"*, and **the link had been dead ever since**. Neither H1 nor any other signal caught it: H1
+resolves the file, and `FEATURES.md` exists. An anchor is the part of a link nothing here checks.
 
 ### Does a clean health report mean my documentation is correct?
 
@@ -238,7 +254,8 @@ worth knowing before you plan around them, all verified today:
 - **No session driver, and none is planned here** (M-2, M-3). See above.
 - **The design record is detected and reported, never authored.** `atlas design --scaffold` writes the
   questions a missing document owes an answer to, never the answers, and a scaffold never counts as a design
-  record — this repository's own blueprint reads *0 written, 8 scaffolded* (S-3, A-18).
+  record — this repository's own record reads **1 written, 7 scaffolded** (S-3, A-18). It read *0 written, 8
+  scaffolded* here until A-50; the one that has since been written is Specifications.
 - **GitHub Pages has never served this project's own site** — the workflow builds and uploads, and the
   repository's Pages source is not set to *GitHub Actions*. That is a repository setting, not a tool gap
   (P-3).
