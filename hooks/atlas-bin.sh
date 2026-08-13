@@ -21,8 +21,15 @@
 # this tool, so the plugin manifest has to name it too — the same identity check, and the same reason, as the
 # marker files that let a build know an output directory is its own to delete.
 
+# **The root is passed in now, and asking `git` is the fallback rather than the rule.** This asked the
+# process cwd which repository it was in, which is the same question every hook used to ask and has the same
+# wrong answer: a session sitting in a parent directory that holds several checkouts is in no repository at
+# all, so this returned the installed plugin — correct by luck there, and *incorrect* the moment the session
+# directory is one repository while the work is in another. `hooks/atlas-root.sh` has already worked out which
+# tree is the subject by the time this is called; taking its answer is what keeps the two agreeing.
 atlas_bin() {
-  _root=$(git rev-parse --show-toplevel 2>/dev/null)
+  _root=${1:-}
+  [ -n "$_root" ] || _root=$(git rev-parse --show-toplevel 2>/dev/null)
   if [ -n "$_root" ] && [ -x "$_root/bin/atlas" ] && [ -f "$_root/scripts/atlas.mjs" ] &&
      grep -q '"name"[[:space:]]*:[[:space:]]*"atlas"' "$_root/.claude-plugin/plugin.json" 2>/dev/null; then
     printf '%s' "$_root/bin/atlas"

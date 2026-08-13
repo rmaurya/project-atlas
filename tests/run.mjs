@@ -12332,6 +12332,326 @@ test('S-8 · a refused item pattern does not fall through to the second dialect'
   eq(plan.notes.some((n) => /status-tag dialect/.test(n)), false);
 });
 
+/* ================================================================== which repository a hook is in (A-59) */
+
+/**
+ * **Synchronous, like everything appended below the drain.** `pendingAsync` is emptied thousands of lines
+ * above, so an `async` case here would be constructed, never awaited, and counted as a pass it never earned.
+ *
+ * These drive the shipped shell against the shape that broke it, because nothing smaller could have caught
+ * it: **a parent directory that is not a repository, holding two independent checkouts, one adopted and one
+ * not.** Every fixture elsewhere in this file is a single repository with the session standing inside it,
+ * which is exactly the case that always worked. The defect needed the other shape, and the other shape is
+ * the ordinary layout of a multi-repo product.
+ *
+ * What it cost: every hook opened with `root=$(git rev-parse --show-toplevel) || exit 0`, so from such a
+ * parent all of them exited 0 having done nothing — no task recorded, no rebuild, no dashboard, no journal
+ * record at a boundary — and **a hook that exits 0 having done nothing is indistinguishable from a hook that
+ * had nothing to do.** Half the assertions below are about the writing; the other half are about the two
+ * things that must never happen instead: silence, and writing into the neighbour.
+ */
+
+console.log('\nwhich repository a hook is talking about');
+
+/**
+ * The shape, built by hand rather than through `fixture()` — which git-inits what it makes, and the whole
+ * point here is a parent that is not a repository.
+ *
+ * `buildOnWrite` is off by default so the detached rebuilds these hooks fire return immediately: all but one
+ * of these cases is about *which* repository was chosen, and a suite that leaves a build running per case is
+ * a suite that races itself. The one case that asserts the rebuild turns it on.
+ */
+function multiRepo(name, { buildOnWrite = false } = {}) {
+  const parent = path.join(tmpRoot, name);
+  const state = path.join(tmpRoot, `${name}-state`);
+  fs.mkdirSync(parent, { recursive: true });
+  fs.mkdirSync(state, { recursive: true });
+  const child = (n, files) => {
+    const dir = path.join(parent, n);
+    for (const [p, body] of Object.entries(files)) {
+      fs.mkdirSync(path.dirname(path.join(dir, p)), { recursive: true });
+      fs.writeFileSync(path.join(dir, p), body, 'utf8');
+    }
+    const git = (...a) => execFileSync('git', a, { cwd: dir, stdio: 'ignore' });
+    git('init', '-q');
+    git('add', '-A');
+    execFileSync('git', ['-c', 'user.email=t@example.com', '-c', 'user.name=Test', 'commit', '-qm', 'init'],
+      { cwd: dir, stdio: 'ignore' });
+    git('branch', '-M', 'main');
+    return fs.realpathSync(dir);        // macOS resolves /var through /private, and git reports the real one
+  };
+  const adopted = child('adopted', {
+    'docs/A.md': '# A\n',
+    'src/x.ts': 'export const x = 1;\n',
+    'project-atlas.config.json': JSON.stringify({ automation: { buildOnWrite } }),
+  });
+  const plain = child('plain', { 'docs/B.md': '# B\n' });
+  // A pidfile naming this test process: alive, so `atlas serve` finds a running server and returns rather
+  // than starting one. These cases are about repository resolution, not about the dashboard.
+  fs.mkdirSync(path.join(adopted, '.atlas'), { recursive: true });
+  fs.writeFileSync(path.join(adopted, '.atlas', 'serve.pid'),
+    JSON.stringify({ pid: process.pid, port: 4321, startedAt: 'now' }), 'utf8');
+  // Asserted rather than assumed. If the temp directory ever landed inside a checkout, every case below
+  // would pass by taking the branch that always worked.
+  ok(spawnSync('git', ['rev-parse', '--show-toplevel'], { cwd: parent, encoding: 'utf8' }).status !== 0,
+     'the fixture parent must not be a git repository — that is the entire shape under test');
+  return { parent: fs.realpathSync(parent), adopted, plain, state };
+}
+
+/** Fire a hook the way `hooks.json` does: payload on stdin, the session's directory as cwd. */
+const fireHook = (script, { cwd, payload = {}, args = [], state, env = {} }) =>
+  spawnSync('sh', [path.join(REPO_ROOT, 'hooks', script), ...args], {
+    cwd, input: JSON.stringify(payload), encoding: 'utf8',
+    env: { ...process.env, CLAUDE_PLUGIN_ROOT: REPO_ROOT, ATLAS_STATE_DIR: state, ...env },
+  });
+
+test('A-59 · a session directory that is not a repository no longer switches every hook off', () => {
+  // The measurement this exists for: a session run from a directory holding thirteen independent
+  // repositories, working inside one of them. `utility-server-edge/.atlas/tasks-live.jsonl` held five
+  // records against a session's worth of work, and those five were there only because a few commands
+  // happened to `cd` into the child before the hook fired.
+  const w = multiRepo('hookroot-shape');
+  const sid = 'sess-shape';
+  const task = (n) => ({
+    session_id: sid, tool_name: 'TaskCreate', cwd: w.parent,
+    tool_input: { subject: 'do the thing' },
+    tool_response: `Task #${n} created successfully: do the thing`,
+  });
+
+  // Before anything has named a repository there is genuinely nothing to record — and this is the one case
+  // that must not be quiet about it, because it is what the entire session looked like.
+  const blind = fireHook('on-task.sh', { cwd: w.parent, payload: task(7), state: w.state });
+  eq(blind.status, 0, 'a PostToolUse hook must never fail the tool call that triggered it');
+  includes(blind.stderr, 'no repository found', 'the silence IS the defect; the notice is the fix');
+  includes(blind.stderr, w.parent, 'and it names the directory that turned out not to be one');
+  ok(!fs.existsSync(path.join(w.adopted, '.atlas', 'tasks-live.jsonl')),
+     'nothing may be recorded before anything has identified a repository');
+
+  // A write into the adopted child. Not markdown, so nothing rebuilds — but the repository the session is
+  // working in has now been *observed*, which is what the hooks with no path of their own read back.
+  const wrote = fireHook('on-write.sh', {
+    cwd: w.parent, state: w.state,
+    payload: { session_id: sid, tool_name: 'Edit', cwd: w.parent,
+               tool_input: { file_path: path.join(w.adopted, 'src', 'x.ts') } },
+  });
+  eq(wrote.status, 0);
+  eq(fs.readFileSync(path.join(w.state, `${sid}.root`), 'utf8').trim(), w.adopted,
+     'a write is the strongest signal there is: the repository containing the file that changed');
+
+  // And now the task lands, in the child that was written to.
+  const recorded = fireHook('on-task.sh', { cwd: w.parent, payload: task(9), state: w.state });
+  eq(recorded.status, 0);
+  const log = path.join(w.adopted, '.atlas', 'tasks-live.jsonl');
+  ok(fs.existsSync(log), 'the task the session created must reach the repository the session is working in');
+  const rec = JSON.parse(fs.readFileSync(log, 'utf8').trim().split('\n').pop());
+  eq(rec.id, '9');
+  eq(rec.subject, 'do the thing');
+
+  // Never the neighbour. This is the failure that would cost more than the one being fixed — on the machine
+  // this was measured on the parent holds thirteen checkouts, and writing another project's task log is a
+  // worse outcome than writing none.
+  ok(!fs.existsSync(path.join(w.plain, '.atlas')),
+     'no hook may write into a repository the session is not working in');
+}, { needsPosixShell: true, needsJq: true });
+
+test('A-59 · the notice is said once a session, and never in a repository that simply never adopted the tool', () => {
+  // Both halves are load-bearing and they pull in opposite directions. A hook that reports nothing is the
+  // defect above; a hook that reports after every Bash call is switched off within the hour, which restores
+  // the same silence by another route.
+  const w = multiRepo('hookroot-once');
+  const fire = (sid) => fireHook('on-activity.sh', { cwd: w.parent, payload: { session_id: sid }, state: w.state });
+
+  const first = fire('sess-once');
+  eq(first.status, 0);
+  includes(first.stderr, 'no repository found');
+  includes(JSON.parse(first.stdout).systemMessage, 'no repository found',
+           'on exit 0 stderr reaches only the debug log, so the line has to travel as hook JSON as well');
+  eq(fire('sess-once').stdout.trim(), '', 'the same session is not told twice');
+  eq(fire('sess-once').stderr.trim(), '', 'nor on the call after that');
+  includes(fire('sess-elsewhere').stderr, 'no repository found', 'a different session has not been told');
+
+  // The other half. An ordinary repository that has not adopted this stays inert and silent, exactly as it
+  // always was: the plugin is installed per user, and a line in every unrelated repository somebody opens is
+  // how it earns being uninstalled.
+  const quiet = fireHook('on-activity.sh', { cwd: w.plain, payload: { session_id: 'sess-plain' }, state: w.state });
+  eq(quiet.status, 0);
+  eq(quiet.stdout.trim(), '', 'an unadopted repository must not be announced at');
+  eq(quiet.stderr.trim(), '');
+}, { needsPosixShell: true, needsJq: true });
+
+test('A-59 · the write hook rebuilds the repository the file is in, not the one the process stands in', () => {
+  const w = multiRepo('hookroot-write', { buildOnWrite: true });
+  fs.writeFileSync(path.join(w.adopted, 'docs', 'C.md'), '# C\n', 'utf8');
+  const r = fireHook('on-write.sh', {
+    cwd: w.parent, state: w.state,
+    payload: { session_id: 'sess-w', tool_name: 'Write', cwd: w.parent,
+               tool_input: { file_path: path.join(w.adopted, 'docs', 'C.md') } },
+  });
+  eq(r.status, 0, `the rebuild must never fail the edit that triggered it: ${r.stderr}`);
+  ok(fs.existsSync(path.join(w.adopted, 'docs', '_wiki', 'index.html')),
+     `the tree that changed is the tree that rebuilds: ${r.stderr}`);
+  ok(!fs.existsSync(path.join(w.plain, 'docs', '_wiki')), 'and no other tree is touched');
+}, { needsPosixShell: true, needsJq: true });
+
+test('A-59 · a write into a repository that never adopted the tool is inert, and is never remembered', () => {
+  // The memo is the one thing here that outlives the call that wrote it, so what may go into it is the
+  // safety property of the whole design. An unadopted repository must not: a later `TaskCreate` answered out
+  // of it would record into a project nobody asked about.
+  const w = multiRepo('hookroot-unadopted');
+  const r = fireHook('on-write.sh', {
+    cwd: w.parent, state: w.state,
+    payload: { session_id: 'sess-u', tool_name: 'Write', cwd: w.parent,
+               tool_input: { file_path: path.join(w.plain, 'docs', 'B.md') } },
+  });
+  eq(r.status, 0);
+  eq(r.stdout.trim(), '', 'an unadopted repository is inert and quiet, which it always promised to be');
+  ok(!fs.existsSync(path.join(w.plain, 'docs', '_wiki')), 'and is never written into');
+  ok(!fs.existsSync(path.join(w.state, 'sess-u.root')), 'and never becomes the answer for a later hook');
+}, { needsPosixShell: true, needsJq: true });
+
+test('A-59 · the commit guard resolves a repository root, and stands aside when nothing names one', () => {
+  const w = multiRepo('hookroot-commit');
+  // A `cd` into a *subdirectory* of the child. A-47 handed that to the gates as it stood, so `--root` named
+  // a directory in which a `project-atlas.config.json` has never lived and `branching.sopGate` was never
+  // read there.
+  const r = fireHook('on-commit.sh', {
+    cwd: w.parent, state: w.state,
+    payload: { session_id: 'sess-c', cwd: w.parent,
+               tool_input: { command: `cd ${path.join(w.adopted, 'docs')} && git commit -m "x"` } },
+  });
+  eq(r.status, 0, 'a protected branch warns; A-57 settled that it does not refuse');
+  includes(r.stderr, 'protected', 'the gates ran against a tree git can actually read');
+  eq(fs.readFileSync(path.join(w.state, 'sess-c.root'), 'utf8').trim(), w.adopted,
+     'the subject is the repository, not the directory that was cd-ed into');
+
+  // And the fallback A-47 left behind: the payload's `cwd`, which here is a perfectly good directory and no
+  // repository at all. Passed as `--root` it made all three gates report that they could not run, and a
+  // guard that prints "NOT checked" on every commit is a guard that gets switched off.
+  const lost = fireHook('on-commit.sh', {
+    cwd: w.parent, state: w.state,
+    payload: { session_id: 'sess-c2', cwd: w.parent, tool_input: { command: 'git commit -m "x"' } },
+  });
+  eq(lost.status, 0, 'exit 2 is reserved for a claim that a repository is wrong');
+  includes(lost.stderr, 'no repository found');
+  ok(!lost.stderr.includes('NOT checked'),
+     'not being able to find a repository is one fact, not three crashed gates');
+}, { needsPosixShell: true, needsJq: true });
+
+test('A-59 · a session boundary is journalled into the repository the session worked in', () => {
+  const w = multiRepo('hookroot-continuity');
+  fs.writeFileSync(path.join(w.state, 'sess-k.root'), `${w.adopted}\n`, 'utf8');
+  fs.writeFileSync(path.join(w.adopted, '.atlas', 'last-stop'), 'deadbee', 'utf8');
+
+  const r = fireHook('on-continuity.sh', {
+    cwd: w.parent, state: w.state, args: ['stop'],
+    payload: { session_id: 'sess-k', hook_event_name: 'Stop',
+               transcript_path: '/Users/x/.claude/projects/p/9f2c.jsonl', cwd: w.parent },
+  });
+  eq(r.status, 0, 'a continuity hook fires while a session is torn down and must never fail');
+  const recs = journalRead(w.adopted).records;
+  eq(recs.length, 1, `expected exactly one record, got ${recs.length}`);
+  includes(recs[0].text, 'work landed on main');
+  // Reading a second field out of the payload must not cost A-20: the record still names the event that was
+  // observed rather than the argument `hooks.json` passed, and the transcript is still never opened.
+  eq(recs[0].agent, 'main');
+  ok(!fs.existsSync(path.join(w.plain, '.atlas')), 'and nothing reaches the neighbouring repository');
+}, { needsPosixShell: true, needsJq: true });
+
+test('A-59 · the order is the path, then the session directory, then what the session was seen working in', () => {
+  // The resolver itself, sourced and called directly, because the order is the design and asserting only the
+  // outcome would leave a version that scanned the parent for candidates passing every case above.
+  const w = multiRepo('hookroot-order');
+  const ask = (hint, sid, cwd) => {
+    const r = spawnSync('sh', ['-c',
+      '. "$1"/hooks/atlas-root.sh; atlas_resolve_root "$2" "$3"; printf \'%s|%s|%s\' "$?" "$ATLAS_ROOT_FROM" "$ATLAS_ROOT"',
+      'sh', REPO_ROOT, hint, sid], {
+      cwd, encoding: 'utf8', env: { ...process.env, ATLAS_STATE_DIR: w.state },
+    });
+    const [status, from, root] = r.stdout.split('|');
+    return { status: Number(status), from, root };
+  };
+  const outside = path.join(w.state, 'notes.md');
+  fs.writeFileSync(outside, '# not in any repository\n', 'utf8');
+
+  // 1 · the path wins over the directory the process is standing in, and it is the tree that changed.
+  eq(ask(path.join(w.adopted, 'docs', 'A.md'), 'sess-o', w.plain), { status: 0, from: 'path', root: w.adopted });
+
+  // 2 · no path, so the session's own directory — the only step that runs in an ordinary session.
+  eq(ask('', 'sess-o', w.adopted), { status: 0, from: 'cwd', root: w.adopted });
+
+  // A hint is a preference and not an override. A markdown file written to a scratch directory outside every
+  // repository must fall through rather than take the hook down with it — the shape that would have made
+  // this fix a regression for every ordinary session that touches a temp file.
+  eq(ask(outside, 'sess-o', w.adopted), { status: 0, from: 'cwd', root: w.adopted });
+
+  // 3 · nothing to go on and no memo yet: refused, and the caller says so.
+  eq(ask('', 'sess-o', w.parent).status, 2);
+  eq(ask(outside, 'sess-o', w.parent).status, 2, 'a hint that names nothing does not invent a repository');
+
+  // Now the memo, written the only way it can be — from an adopted repository a call actually touched.
+  const remember = (root, sid) => spawnSync('sh', ['-c',
+    '. "$1"/hooks/atlas-root.sh; atlas_remember_root "$2" "$3"; printf %s "$?"',
+    'sh', REPO_ROOT, root, sid], { cwd: w.parent, encoding: 'utf8', env: { ...process.env, ATLAS_STATE_DIR: w.state } });
+
+  eq(remember(w.plain, 'sess-o').stdout, '1', 'an unadopted repository is refused a memo');
+  eq(remember(w.adopted, 'sess-o').stdout, '0');
+  eq(ask('', 'sess-o', w.parent), { status: 0, from: 'memo', root: w.adopted });
+
+  // And it is a claim about the past, so it is re-validated: a memo naming a directory that has gone away is
+  // discarded rather than acted on. Acting on a stale claim is precisely how a hook would write into a
+  // repository nobody is working in.
+  fs.writeFileSync(path.join(w.state, 'sess-gone.root'), `${path.join(w.parent, 'deleted')}\n`, 'utf8');
+  eq(ask('', 'sess-gone', w.parent).status, 2);
+
+  // A session id becomes a filename, so anything outside the safe set is treated as no id at all rather than
+  // turned into a path.
+  eq(ask('', '../escape', w.parent).status, 2, 'an unusable session id must never become a path');
+  ok(!fs.existsSync(path.join(tmpRoot, 'escape.root')), 'and must not have written one either');
+
+  // The state never lives inside a repository — least of all one the code has just failed to identify.
+  for (const repo of [w.adopted, w.plain]) {
+    ok(!fs.existsSync(path.join(repo, '.atlas', 'sessions')), `${repo} must hold no session state`);
+  }
+}, { needsPosixShell: true });
+
+test('A-59 · a hook whose helper is missing degrades to the old behaviour rather than dying', () => {
+  // **This caught a real defect in the idiom the file already used.** The fallback was written as
+  // `. helper 2>/dev/null || { …definitions… }`, and a failed `.` is a special built-in failing, which under
+  // a POSIX shell ends the script outright: the `||` never runs. So the fallback was unreachable in the
+  // exact case it exists for — a half-installed plugin — and the hook exited 1 having done nothing and said
+  // nothing. Found by `runtimes · a guard that cannot run says so loudly`, which turned red for the guard
+  // being *gone* rather than broken.
+  const w = multiRepo('hookroot-nohelper');
+  const half = path.join(tmpRoot, 'hookroot-nohelper-plugin');
+  fs.mkdirSync(path.join(half, 'hooks'), { recursive: true });
+  fs.copyFileSync(path.join(REPO_ROOT, 'hooks', 'on-task.sh'), path.join(half, 'hooks', 'on-task.sh'));
+
+  // Run from inside the adopted checkout, which is what the degraded path can still answer.
+  const r = fireHook('on-task.sh', {
+    cwd: w.adopted, state: w.state, env: { CLAUDE_PLUGIN_ROOT: half },
+    payload: { session_id: 'sess-h', tool_name: 'TaskCreate', cwd: w.adopted,
+               tool_input: { subject: 'still works' }, tool_response: 'Task #3 created successfully' },
+  });
+  eq(r.status, 0, `a hook missing its helper must still exit 0: ${r.stderr}`);
+  const log = path.join(w.adopted, '.atlas', 'tasks-live.jsonl');
+  ok(fs.existsSync(log), 'and must still record — worse than the fix, and not nothing');
+  eq(JSON.parse(fs.readFileSync(log, 'utf8').trim().split('\n').pop()).id, '3');
+}, { needsPosixShell: true, needsJq: true });
+
+test('A-59 · session start is where the notice lands, in plain words rather than hook JSON', () => {
+  // The one script here that runs exactly once per session, so it can speak without any bookkeeping — and a
+  // SessionStart hook's stdout becomes the session's context as it stands, which is why this one is not
+  // wrapped: a JSON object would go into the transcript where a sentence belongs.
+  const w = multiRepo('hookroot-sessionstart');
+  const r = fireHook('on-session-start.sh', {
+    cwd: w.parent, state: w.state, payload: { session_id: 'sess-start' },
+    env: { ATLAS_UPDATE_CHECK: '1' },
+  });
+  eq(r.status, 0, 'a SessionStart hook must never fail the session it is starting');
+  includes(r.stdout, 'no repository found', 'the session is told at the top, where it is cheapest to act on');
+  ok(!r.stdout.includes('"systemMessage"'), 'and told in words, because this stdout is the context itself');
+}, { needsPosixShell: true, needsJq: true });
+
 console.log(`\n${pass} passed, ${fail} failed${skipped ? `, ${skipped} skipped on ${process.platform}` : ''}\n`);
 if (fail) {
   console.log('Failures:');

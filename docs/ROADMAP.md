@@ -50,7 +50,7 @@ measured against the code — the same distinction the tool preserves everywhere
 | A-50 | 100 | A-51 | 0 | A-52 | 100 |
 | A-53 | 100 | A-54 | 100 | A-55 | 100 |
 | A-56 | 100 | P-9 | 100 | A-57 | 100 |
-| I-4 | 100 | S-8 | 100 | | |
+| I-4 | 100 | S-8 | 100 | A-59 | 100 |
 
 ---
 
@@ -820,6 +820,66 @@ tool, over a defect in the tool. It warns.
 *Not fixed here, and it is the root cause of the crash:* `scripts/atlas.mjs` reads `plan.missing` from
 `readPlanning`, which returns `null` when `planning.source` is unset. The hook can no longer turn that into
 a refusal, but the crash itself belongs to whoever holds that file — one `if (!plan || plan.missing …)`.
+
+**A-59 · Every hook was switched off, silently, whenever the session directory was not a repository** — **P0 · Critical**
+
+*Shipped.* Measured on the owner's machine, mid-session. Claude Code run from
+`~/Working/GitHub/UtilityServer/` — a plain directory holding thirteen independent repositories, which is the
+normal shape of a multi-repo product — with the work being done inside `utility-server-edge/`:
+
+```
+$ cd ~/Working/GitHub/UtilityServer && git rev-parse --show-toplevel
+fatal: not a git repository (or any of the parent directories): .git
+```
+
+Every hook opened with `root=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0`. From there that fails,
+the hook exits 0, and **nothing happens** — no task recorded, no rebuild after a write, no dashboard
+announcement, no journal record at a session boundary. `utility-server-edge/.atlas/tasks-live.jsonl` held
+**five** records against a session's worth of work, and those five existed only because a handful of commands
+happened to `cd` into the child before the hook fired. In this working pattern the tool was off.
+
+***The exit code was the defect.*** `|| exit 0` is the same code, and the same absence of output, that the
+hooks use for the legitimate case — a repository that never adopted the tool. Inert-because-unadopted and
+inert-because-lost were indistinguishable, so this survived releases while the owner spent a session asking
+why tasks were missing from dashboards. **A-25's shape**: the failure mode was the success mode.
+
+*Three sources, tried in order, in `hooks/atlas-root.sh`.* **The path the tool call touched** —
+`on-write.sh` is handed a `file_path`, and the repository containing it is not a guess but the tree that
+actually changed; `on-commit.sh` has the same thing as the explicit `cd <dir>` A-47 already parses. Then
+**the session's own directory**, one `git rev-parse`, which stays the only line that runs in an ordinary
+single-repository session. Then **the repository this session was already observed writing into**: a
+`TaskCreate` payload names no path and neither does a `Stop`, so the hooks that can identify a repository
+write it down, keyed by session id, and the hooks that cannot read it back — two `test`s and a builtin read,
+no subprocess.
+
+*Descending from the session directory was rejected.* It is the obvious fourth candidate and it is a guess: a
+parent holding thirteen checkouts offers thirteen answers, and finding out costs a directory scan on every
+tool call. **A wrong guess writes another project's task log**, which is a worse outcome than the silence
+being fixed. Four properties keep the memo from being one: it is written only from a path the tool call
+itself touched, only when that repository carries a `project-atlas.config.json`, re-validated on every read,
+and scoped to a single session id so it cannot carry yesterday's repository into today's session. It lives
+under `XDG_CACHE_HOME` beside the update check, never inside a repository — least of all one the code has
+just failed to identify.
+
+***Resolving the root is half the fix; the other half is passing it on.*** A hook that identified the right
+repository and then ran `atlas build` from a cwd that is not one has resolved nothing, so every invocation is
+now explicit: `build --root`, `serve --root`, `note --root`, and the three gates in `on-commit.sh`.
+`atlas-bin.sh` takes the root as an argument rather than asking `git` a second time and getting the same
+wrong answer. Two smaller things fell out: `on-commit.sh` read `branching.sopGate` from the `cd` target even
+when that was a *subdirectory* of the repository, where a config has never lived; and `--root $target`
+was unquoted, so a repository path containing a space was passed as two arguments.
+
+*And it says so.* A hook that cannot establish a repository now prints one notice per session — the failure
+named, the session directory shown, the three sources listed, and what to do. **Once**, not per call: a
+notice after every Bash invocation is a notice somebody silences, which restores the original silence by
+another route. It stays quiet for a repository that has merely not adopted the tool, because that is a
+different fact and announcing it in every unrelated repository is how a per-user plugin earns being
+uninstalled. `ATLAS_HOOK_NOTICE=0` turns it off — an environment variable, not a config key, because it
+speaks exactly where there is no config to read.
+
+*Tested against the real shape*, which is the only way this could have been caught: a fixture parent
+directory that is **not** a repository, holding two children, one adopted and one not. Every case was
+verified to fail against the code it replaces.
 
 **A-1 · The autonomy switch** — **P1 · High**
 *Shipped in 0.1.50.*

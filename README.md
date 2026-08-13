@@ -553,7 +553,7 @@ node tests/run.mjs               # integration tests against throwaway git repos
 node tests/run.mjs --filter H6   # or a subset
 ```
 
-**The suite holds 569 test cases.** That figure is not maintained by hand: a test reads it out of this
+**The suite holds 578 test cases.** That figure is not maintained by hand: a test reads it out of this
 sentence and compares it against the cases it can count in `tests/run.mjs`, so adding a test and forgetting
 this line fails the suite. A count stated in prose beside a list that grows is a defect waiting to happen,
 and this repository has proved that three times (A-29) — most recently across the four public pages, where

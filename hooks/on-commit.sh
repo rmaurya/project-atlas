@@ -83,6 +83,31 @@ ATLAS="${CLAUDE_PLUGIN_ROOT:-.}/bin/atlas"
 # payload's own `cwd`. Both are what the shell will actually use, so the guard and the commit agree on the
 # subject. A directory that is not a repository, or one that never adopted this tool, leaves the guard inert —
 # which it already promised to be, and now is across repository boundaries too.
+#
+# **A-47 fixed half of this, and the half it left was the fallback.** Both candidates were handed to the
+# gates as directories, on the strength of `[ -d ]` alone. That is right when the session sits in a checkout
+# and wrong in the shape this tool is actually used in: a session directory holding thirteen independent
+# repositories is a perfectly good directory and no repository at all, so `--root` named a tree `git` could
+# not read and all three gates reported that they could not run. A guard that says "NOT checked" on every
+# commit is a guard that gets switched off.
+#
+# Both candidates are now resolved to a repository *root* — which also fixes a smaller thing A-47 left:
+# `cd repo/subdir && git commit` read the config out of `repo/subdir`, where there has never been one, and so
+# never saw `branching.sopGate`. When nothing names a repository, this says so once and stands aside. It does
+# not refuse: A-57 settled that this blocks only on a claim that a repository is wrong, and "I could not find
+# one" is a claim about the guard.
+# **`[ -r ]` before `.`, never `. file || fallback`.** A failed `.` is a special built-in failing, which ends
+# the script outright under a POSIX shell — the `||` never runs, and the hook dies in the one case the
+# fallback exists for: a half-installed plugin. Measured, on the test that already covers exactly that.
+ATLAS_HELPER="${CLAUDE_PLUGIN_ROOT:-.}/hooks/atlas-root.sh"
+if [ -r "$ATLAS_HELPER" ]; then . "$ATLAS_HELPER"; else
+  # No helper, so the behaviour that shipped before it: the session's own directory, and silence when that
+  # is not a repository. Worse than the fix, and still a working hook.
+  atlas_resolve_root() { ATLAS_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
+    [ -n "$ATLAS_ROOT" ] || return 2; [ -f "$ATLAS_ROOT/project-atlas.config.json" ] || return 1; }
+  atlas_remember_root() { return 0; }
+  atlas_warn_no_repo() { return 1; }
+fi
 target=$(printf '%s' "$cmd" | awk '
   match($0, /(^|[;&|][[:space:]]*)cd[[:space:]]+/) {
     s = substr($0, RSTART + RLENGTH)
@@ -91,20 +116,32 @@ target=$(printf '%s' "$cmd" | awk '
     else                            { sub(/[[:space:];&|].*/,"",s) }
     print s; exit
   }')
-if [ -z "$target" ] && command -v jq >/dev/null 2>&1; then
-  target=$(printf '%s' "$payload" | jq -r '.cwd // ""')
-fi
-ROOTARG=""
-if [ -n "$target" ] && [ -d "$target" ]; then
-  ROOTARG="--root $target"
+sid=""
+if command -v jq >/dev/null 2>&1; then
+  [ -n "$target" ] || target=$(printf '%s' "$payload" | jq -r '.cwd // ""')
+  sid=$(printf '%s' "$payload" | jq -r '.session_id // ""')
 fi
 
+# Return 1 — a repository that has not adopted the tool — is deliberately *not* an exit here. The three gates
+# are each independently inert without a config, and `atlas branch` is not: which branch somebody is on is a
+# fact about a git repository rather than about this tool's corpus, and warning about it in a repository that
+# never adopted anything is the one thing this hook has always done there. Only "no repository at all" stops.
+atlas_resolve_root "$target" "$sid"
+if [ $? -eq 2 ]; then
+  atlas_warn_no_repo "$sid"
+  exit 0
+fi
+root=$ATLAS_ROOT
+# Remembered only when an explicit `cd` named it, so the hooks with no path of their own — `on-task.sh`,
+# `on-continuity.sh` — can answer from what this one observed. `atlas_remember_root` refuses to record an
+# unadopted repository, so a commit in an unrelated project cannot redirect another hook's writes into it.
+[ "$ATLAS_ROOT_FROM" = path ] && atlas_remember_root "$root" "$sid"
+
 # The posture for the SOP half, read from the repository being committed in — not from the session's own
-# config, for the same reason the gates are pointed at `$target`.
+# config, for the same reason the gates are pointed at `$root`.
 posture=warn
-cfgdir=${target:-.}
-if [ -r "$cfgdir/project-atlas.config.json" ] && command -v jq >/dev/null 2>&1; then
-  case $(jq -r '.branching.sopGate // ""' "$cfgdir/project-atlas.config.json" 2>/dev/null) in
+if [ -r "$root/project-atlas.config.json" ] && command -v jq >/dev/null 2>&1; then
+  case $(jq -r '.branching.sopGate // ""' "$root/project-atlas.config.json" 2>/dev/null) in
     enforce) posture=enforce ;;
   esac
 fi
@@ -134,7 +171,7 @@ ${3}"
 
 # ------------------------------------------------------------------ 1 · branch discipline (SOP)
 
-out=$("$ATLAS" branch $ROOTARG 2>&1)
+out=$("$ATLAS" branch --root "$root" 2>&1)
 st=$?
 if [ $st -eq 1 ]; then
   add_warn "  SOP · one logical change, on a branch of its own
@@ -149,7 +186,7 @@ fi
 
 # ------------------------------------------------------------------ 2 · documentation rot (blocking)
 
-out=$("$ATLAS" health --gate $ROOTARG 2>&1)
+out=$("$ATLAS" health --gate --root "$root" 2>&1)
 st=$?
 if [ $st -eq 1 ]; then
   add_block "$out"
@@ -199,7 +236,7 @@ if [ -z "$msg" ]; then
   fi
 fi
 
-out=$(printf '%s' "$msg" | "$ATLAS" spec --gate $ROOTARG --why "$why" 2>&1)
+out=$(printf '%s' "$msg" | "$ATLAS" spec --gate --root "$root" --why "$why" 2>&1)
 st=$?
 if [ $st -eq 1 ]; then
   add_warn "  SOP · a shipped change names the plan item it advances
