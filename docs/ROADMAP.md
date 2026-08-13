@@ -45,7 +45,7 @@ measured against the code — the same distinction the tool preserves everywhere
 | A-36 | 0 | A-37 | 100 | A-38 | 100 |
 | A-39 | 100 | A-40 | 100 | A-41 | 100 |
 | A-42 | 100 | A-43 | 100 | A-44 | 100 |
-| A-45 | 100 | A-46 | 100 | | |
+| A-45 | 100 | A-46 | 100 | A-47 | 100 |
 
 ---
 
@@ -1257,6 +1257,21 @@ attribute values whole. And **a silent pass-through is now unreachable**: the lo
 no longer matches, anything unwalkable throws, and every exit door calls `assertNoLocalOnly` on the bytes it
 is about to hand over rather than trusting that a strip happened. Refusing to publish is recoverable;
 publishing the panel is not.
+
+**A-47 · The commit guard judged the wrong repository** — **P1 · High**
+*Shipped.* Every gate ran against the process cwd — the session's directory — so a commit made in a *second*
+repository was evaluated against a tree that had nothing to do with it. Twice in one session work in another
+project was refused: once because *this* repository sat on a protected branch, once because *this* repository
+had a blocking finding mid-merge.
+
+***A guard that refuses for a reason the operator cannot act on teaches people to route around it***, which
+is worse than not having one. The only way past was to switch branch in a project that was not the subject.
+
+The target is parsed from an explicit `cd <dir>` in the command, falling back to the payload's `cwd`. Parsing
+is necessary rather than fussy: the hook fires **before** the shell runs, so for `cd X && …` the recorded cwd
+is still the old directory. `--root` now reaches branch, health and spec alike, so the three gates agree with
+each other and with the work — and a repository that never adopted this tool stays inert across repository
+boundaries, which it already promised within one.
 
 **A-46 · The third exit door, and the one with no test** — **P0 · Critical**
 *Shipped.* `stripLocalOnly` is reached from `exportSingleFile`, from `exportBundle`, and from
