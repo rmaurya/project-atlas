@@ -66,6 +66,7 @@ import { designRecord } from './lib/design.mjs';
 import { scaffold as scaffoldDesign } from './lib/scaffold.mjs';
 import { acquire as acquireBuildLock, foreignBuildWarning } from './lib/lock.mjs';
 import { renderLauncher, launcherProjects } from './lib/launcher.mjs';
+import { productRootFor, readProduct, renderProduct, productPagePath, writeProductPage } from './lib/product.mjs';
 import { num } from './lib/format.mjs';
 import { startServer, spawnDetached, serverStatus, stopServer, writePid, clearPid, openInBrowser, portInUse, unmanagedServer,
          adoptableServer, portForRoot, readRegistry, registerServer, deregisterServer, DEFAULT_PORT, DEFAULT_IDLE_MS,
@@ -78,7 +79,7 @@ const argv = process.argv.slice(2);
  * boolean, so a positional after a boolean flag stays positional — `atlas tasks --json safety` keeps `safety`
  * as the filter rather than swallowing it as `--json`'s value.
  */
-const VALUE_FLAGS = new Set(['target', 'page', 'out', 'root', 'config', 'interval', 'refs', 'agent', 'since', 'day', 'why', 'port', 'idle-ms', 'item', 'only', 'query', 'base', 'serve-root', 'plan']);
+const VALUE_FLAGS = new Set(['target', 'page', 'out', 'root', 'config', 'interval', 'refs', 'agent', 'since', 'day', 'why', 'port', 'idle-ms', 'item', 'only', 'query', 'base', 'serve-root', 'plan', 'product']);
 
 const { cmd, positionals, flags } = parseArgs(argv);
 
@@ -373,6 +374,87 @@ async function main() {
   const configPath = typeof flag('config') === 'string' ? flag('config') : undefined;
 
   if (cmd === 'init') return init(root, configPath);
+
+  /*
+   * `atlas product` — one page across sibling repositories. (A-61)
+   *
+   * **Placed above `resolveConfig` deliberately.** A product root is a directory that is *not* a repository
+   * and has no config in it; resolving one there would either fail or silently hand back defaults for a
+   * repository that does not exist. Every other command below this line is about one checkout. This one is
+   * the only surface designed for standing in a directory that is not a checkout at all — which is exactly
+   * where the hooks are inert, since every one of them opens with
+   * `root=$(git rev-parse --show-toplevel) || exit 0`.
+   */
+  if (cmd === 'product') {
+    const asked = typeof flag('product') === 'string' ? path.resolve(flag('product')) : root;
+    const verdict = productRootFor(asked);
+    if (!verdict.ok) {
+      console.error(`Not a product root: ${verdict.reason}`);
+      if (verdict.hint) console.error(`  ${verdict.hint}`);
+      process.exitCode = 1;
+      return;
+    }
+
+    // Ground truth for "is a dashboard up", the same source `--list` uses: the process table, not the
+    // registry, which was once empty while two servers were answering (A-49).
+    let runningRoots = [];
+    try {
+      runningRoots = surveyServers().servers.filter((s) => s.root && !s.orphan).map((s) => s.root);
+    } catch { /* a survey is a nicety here; a page that cannot say "running" still says everything else */ }
+
+    // The expensive half, and only when asked for by name. Each adopted member's whole corpus is indexed.
+    const deepRunner = flag('deep')
+      ? (dir, memberCfg) => {
+          // `!flag('no-git')` rather than the `withGit` binding below: that `const` is declared after this
+          // block, and this closure runs before it — a TDZ crash, not a fallback.
+          const index = buildIndex(dir, memberCfg, { withGit: !flag('no-git') });
+          const h = runHealth(index, memberCfg, dir);
+          const active = h.findings.filter((f) => !f.suppressed);
+          return { blocking: h.blockingCount, advisory: active.length - h.blockingCount, documents: index.documents.length };
+        }
+      : null;
+
+    const model = readProduct(verdict.root, { deep: !!flag('deep'), running: runningRoots, deepRunner, members: verdict.members });
+
+    if (flag('json')) { console.log(JSON.stringify(model, null, 2)); return; }
+
+    const out = typeof flag('out') === 'string' ? path.resolve(flag('out')) : productPagePath(verdict.root);
+    const written = writeProductPage(out, renderProduct(model), model);
+
+    const c = paint(color);
+    say(c.bold(`${model.name}`) + c.dim(`  ${model.root}`));
+    say('');
+    for (const m of model.members) {
+      const state = m.state === 'adopted' ? c.green('adopted    ')
+        : m.state === 'unadopted' ? c.yellow('not adopted')
+        : c.red('unreadable ');
+      // Three different sentences, because "no plan" hides three different facts and only one of them is a
+      // problem: nothing configured, configured and gone, configured and read.
+      const planWord = !m.plan ? 'no planning source configured'
+        : m.plan.missing ? `plan ${m.plan.source || '(unnamed)'} — configured but not readable`
+        : m.plan.items ? `plan ${num(m.plan.done)}/${num(m.plan.items)} · mean ${num(m.plan.mean)}%`
+        : `plan ${m.plan.source} — parsed, no items`;
+      const healthWord = m.health?.measured
+        ? ` · health ${num(m.health.blocking)} blocking, ${num(m.health.advisory)} advisory over ${num(m.health.documents)} doc(s)`
+        : m.health ? ` · health unmeasurable — ${m.health.reason}` : '';
+      const tail = m.state === 'adopted' ? planWord + healthWord
+        : m.state === 'unadopted' ? `${num(m.markdown)} markdown file(s) · atlas init would index them`
+        : m.reason;
+      say(`  ${state}  ${m.name.padEnd(28)} ${c.dim(tail)}`);
+    }
+    say('');
+    say(`  ${num(model.counts.members)} member(s) · ${num(model.counts.adopted)} adopted · ${num(model.counts.unadopted)} not adopted · ${num(model.counts.unreadable)} unreadable`);
+    if (model.unowned.length) {
+      say(c.yellow(`  ${num(model.unowned.length)} product-level document(s) are committed to no repository:`) +
+          ` ${model.unowned.map((d) => d.path).join(', ')}`);
+    }
+    say('');
+    say(`  Page: ${written}`);
+    say(c.dim('  Outside every repository, on purpose — nothing this command writes can be committed anywhere.'));
+    if (!flag('deep')) say(c.dim('  Health was not measured. --deep indexes every adopted member and costs real time.'));
+    if (flag('open')) openInBrowser(`file://${written}`);
+    return;
+  }
 
   const cfg = resolveConfig(root, configPath);
   const withGit = !flag('no-git');
@@ -2122,6 +2204,11 @@ function usage() {
   atlas serve                build, then run the live dashboard detached and open it
     --status | --stop        what is running here | end it now
     --list | --launcher      every atlas dashboard on this machine | write a page linking them all
+  atlas product              one page across sibling repositories under a directory that is not a repository.
+                             Members are discovered, never declared; an unadopted one is a stated row with
+                             what adopting it would take. Writes outside every repository, so it is never
+                             committable. --product DIR to name the root explicitly (it never ascends on its
+                             own), --deep to index each adopted member and measure health, --json, --out FILE
   atlas watch [--serve]      rebuild on change; --serve hosts it live at http://127.0.0.1:4173
   atlas all                  scan + health + build
   atlas pause [--dry-run]    checkpoint every agent worktree to a wip/agent-* ref, and record the session

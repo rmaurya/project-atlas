@@ -147,7 +147,7 @@ clone this repository and call your agent's own plugin command.
 claude plugin marketplace add rmaurya/project-atlas && claude plugin install atlas@project-atlas
 ```
 
-Skills arrive namespaced — **forty of them**, one per directory under `skills/`. `/atlas:help` prints
+Skills arrive namespaced — **forty-one of them**, one per directory under `skills/`. `/atlas:help` prints
 the map. The ones worth knowing on day one: `/atlas:build` `/atlas:status` `/atlas:health` `/atlas:changes`
 `/atlas:diff` `/atlas:ask` `/atlas:review` `/atlas:config` `/atlas:publish` `/atlas:dashboard` `/atlas:mcp`
 `/atlas:plan`. The full list, each with the command it shells out to, is
@@ -230,6 +230,7 @@ at any time.
 | `atlas note` / `atlas state` / `atlas handoff` | The continuity journal: record what was decided, read back what a resuming session needs, print the derived half of a handoff. |
 | `atlas design [--scaffold]` | Which design artifacts exist; `--scaffold` writes the questions a missing one owes an answer to, never the answers. |
 | `atlas serve` | The live dashboard on loopback — build, start, open, and print the URL. `--list` shows every one running on this machine. |
+| `atlas product` | One page across sibling repositories under a directory that is **not** a repository — which is where a product of many checkouts is actually worked on, and where every hook here is inert. Members are discovered rather than declared, an unadopted one is a stated row with what adopting it would take, and the page is written outside every checkout so it can never be committed. Reads members; writes into none of them. |
 | `atlas changes` | Uncommitted work, what this branch does, and which documents cite the files you touched. |
 | `atlas diff <file>` | One file's diff — uncommitted, else across the branch. |
 | `atlas health` | Documentation rot report: dead links, forked documents, stale citations, orphans. Exit 1 if a blocking signal fires. |
@@ -261,7 +262,7 @@ above because a second row is the copy that goes stale. `atlas spec --gate` is t
 check; it reads the message from **stdin** and prints nothing when it passes, which is why it is a gate rather
 than a command you type. **Bare `atlas spec` is not a command at all** — it exits 2 with *Unknown command*,
 and it is written here with its flag so that nobody types the half that does not exist. The table plus this
-paragraph now name all 40, and a test fails if a dispatched command appears in neither (A-50).
+paragraph now name all 41, and a test fails if a dispatched command appears in neither (A-50).
 
 `atlas help` prints the same list from the CLI, and **that list is complete** — a test derives the dispatch
 table from the source and fails when a command is missing from it, or when it names one that does not exist.
@@ -532,6 +533,7 @@ Loaded on demand, one topic each.
 | Guide | Answers |
 |---|---|
 | [adoption](docs/references/adoption.md) | First run on a repository, and what to do with an existing docs tree |
+| [product-view](docs/references/product-view.md) | Several sibling repositories as one product — discovery, cost, and why the page is written where it is |
 | [authoring](docs/references/authoring.md) | The evidence rules and page shapes — **read before writing documentation** |
 | [taxonomy](docs/references/taxonomy.md) | The cluster model, and why filename rules must precede directory rules |
 | [health-signals](docs/references/health-signals.md) | Every signal, its detection, and its legitimate exceptions |
@@ -558,11 +560,7 @@ node tests/run.mjs               # integration tests against throwaway git repos
 node tests/run.mjs --filter H6   # or a subset
 ```
 
-<<<<<<< HEAD
-**The suite holds 579 test cases.** That figure is not maintained by hand: a test reads it out of this
-=======
-**The suite holds 576 test cases.** That figure is not maintained by hand: a test reads it out of this
->>>>>>> feat/cheatsheet-elaborated
+**The suite holds 609 test cases.** That figure is not maintained by hand: a test reads it out of this
 sentence and compares it against the cases it can count in `tests/run.mjs`, so adding a test and forgetting
 this line fails the suite. A count stated in prose beside a list that grows is a defect waiting to happen,
 and this repository has proved that three times (A-29) — most recently across the four public pages, where

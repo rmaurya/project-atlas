@@ -1,12 +1,12 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="900" height="1840" viewBox="0 0 900 1840" role="img" aria-labelledby="cs-title cs-desc">
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="1869" viewBox="0 0 900 1869" role="img" aria-labelledby="cs-title cs-desc">
 <title id="cs-title">project-atlas — command cheatsheet</title>
-<desc id="cs-desc">The shape of project-atlas — what your markdown becomes and which command does it — and all 47 commands, grouped by intent. Generated from the command surface by scripts/gen-cheatsheet.mjs.</desc>
-<rect x="0" y="0" width="900" height="1840" rx="10" fill="#0F1A1C"/>
-<rect x="0.5" y="0.5" width="899" height="1839" rx="10" fill="none" stroke="#26403F" stroke-width="1"/>
+<desc id="cs-desc">The shape of project-atlas — what your markdown becomes and which command does it — and all 48 commands, grouped by intent. Generated from the command surface by scripts/gen-cheatsheet.mjs.</desc>
+<rect x="0" y="0" width="900" height="1869" rx="10" fill="#0F1A1C"/>
+<rect x="0.5" y="0.5" width="899" height="1868" rx="10" fill="none" stroke="#26403F" stroke-width="1"/>
 <g transform="translate(23.52 24.8) scale(0.32)"><path d="M88 108 L26 108 C19.5 108 17.5 102 20 96.5 L56.5 19.5 C58.5 15.5 61 13.5 64 13.5 C67 13.5 69.5 15.5 71.5 19.5 L106.5 93 C108.8 98 106 103 100 103.5" fill="none" stroke="#5FA396" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/><path d="M64 28 C61.8 28 60 29.5 58.5 32.5 L33 87.5 C31 92 32.5 96.5 38 96.5 L90 96.5 C95.5 96.5 97 92 95 87.5 L69.5 32.5 C68 29.5 66.2 28 64 28 Z" fill="none" stroke="#5FA396" stroke-width="4.2" stroke-linejoin="round"/><path d="M64 44 C62.5 44 61.4 45 60.4 47 L44.5 81 C43 84.2 44.2 87 48 87 L80 87 C83.8 87 85 84.2 83.5 81 L67.6 47 C66.6 45 65.5 44 64 44 Z" fill="#EAF2EF" stroke="#EAF2EF" stroke-width="4" stroke-linejoin="round"/><circle cx="64" cy="70.5" r="6" fill="#E5A33C"/></g>
 <text x="71" y="46.04" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="22" font-weight="700" fill="#EDF4F2">project-atlas</text>
 <text x="210.61" y="46.04" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="13" fill="#8FD3C6">command cheatsheet</text>
-<text x="756.39" y="46.04" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10" fill="#7C918D">47 commands · 10 groups</text>
+<text x="756.39" y="46.04" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10" fill="#7C918D">48 commands · 10 groups</text>
 <text x="71" y="62.54" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="11" fill="#BCCAC7">a derived, auditable knowledgebase over your repository's documentation.</text>
 <rect x="28" y="74.64" width="844" height="0.9" fill="#22383A"/>
 <text x="28" y="95.89" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="12.5" font-weight="700" fill="#8FD3C6">The markdown is the source of truth. Everything this tool writes is derived and safe to delete.</text>
@@ -54,7 +54,7 @@
 <text x="749.6" y="188.36" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10" fill="#BCCAC7">branch, or one</text>
 <text x="749.6" y="201.16" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10" fill="#BCCAC7">self-contained file</text>
 <text x="28" y="232.38" font-family="'Courier New',Courier,'Liberation Mono','Nimbus Mono PS',monospace" font-size="10" fill="#9FDCCE">init</text>
-<text x="98.8" y="232.38" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10" fill="#BCCAC7">write project-atlas.config.json, detecting this repository's layout</text>
+<text x="98.8" y="232.38" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10" fill="#BCCAC7">write project-atlas.config.json, detecting the layout and the plan document</text>
 <text x="28" y="245.98" font-family="'Courier New',Courier,'Liberation Mono','Nimbus Mono PS',monospace" font-size="10" fill="#9FDCCE">all</text>
 <text x="98.8" y="245.98" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10" fill="#BCCAC7">scan + health + build</text>
 <text x="28" y="259.58" font-family="'Courier New',Courier,'Liberation Mono','Nimbus Mono PS',monospace" font-size="10" fill="#9FDCCE">serve</text>
@@ -156,169 +156,175 @@
 <rect x="28.43" y="1125.13" width="5.14" height="5.14" fill="none" stroke="#E5A33C" stroke-width="0.86"/>
 <text x="38" y="1132.99" font-family="'Courier New',Courier,'Liberation Mono','Nimbus Mono PS',monospace" font-size="10.93" fill="#9FDCCE">dashboard</text>
 <text x="181.1" y="1132.99" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">build, serve and hand back a URL</text>
-<text x="28" y="1154.95" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="12" font-weight="700" fill="#E5A33C">Working on a change</text>
-<rect x="28" y="1159.26" width="409" height="0.6" fill="#22383A"/>
-<text x="38" y="1176.99" font-family="'Courier New',Courier,'Liberation Mono','Nimbus Mono PS',monospace" font-size="10.93" fill="#9FDCCE">branch [type slug]</text>
-<text x="181.1" y="1176.99" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">branch state, or create type/short-slug carrying your</text>
-<text x="181.1" y="1191.49" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">changes</text>
-<text x="38" y="1208.49" font-family="'Courier New',Courier,'Liberation Mono','Nimbus Mono PS',monospace" font-size="10.93" fill="#9FDCCE">plan [slug]</text>
-<text x="181.1" y="1208.49" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">the route for the change in your tree — branch, item,</text>
-<text x="181.1" y="1222.99" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">version; --apply cuts the branch</text>
-<text x="38" y="1239.99" font-family="'Courier New',Courier,'Liberation Mono','Nimbus Mono PS',monospace" font-size="10.93" fill="#9FDCCE">changes [--json]</text>
-<text x="181.1" y="1239.99" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">what is uncommitted and which documents cite it</text>
-<text x="38" y="1256.99" font-family="'Courier New',Courier,'Liberation Mono','Nimbus Mono PS',monospace" font-size="10.93" fill="#9FDCCE">diff &lt;file&gt;</text>
-<text x="181.1" y="1256.99" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">that file's diff — uncommitted, else across the branch</text>
-<rect x="28.43" y="1266.13" width="5.14" height="5.14" fill="none" stroke="#E5A33C" stroke-width="0.86"/>
-<text x="38" y="1273.99" font-family="'Courier New',Courier,'Liberation Mono','Nimbus Mono PS',monospace" font-size="10.93" fill="#9FDCCE">review</text>
-<text x="181.1" y="1273.99" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">what this diff breaks or fixes, before the commit</text>
-<text x="28" y="1295.95" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="12" font-weight="700" fill="#E5A33C">Picking up cold</text>
-<rect x="28" y="1300.27" width="409" height="0.6" fill="#22383A"/>
-<text x="38" y="1317.99" font-family="'Courier New',Courier,'Liberation Mono','Nimbus Mono PS',monospace" font-size="10.93" fill="#9FDCCE">state [--json]</text>
-<text x="181.1" y="1317.99" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">what a resuming session reads first: where you are,</text>
-<text x="181.1" y="1332.49" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">what was recorded</text>
-<text x="38" y="1349.49" font-family="'Courier New',Courier,'Liberation Mono','Nimbus Mono PS',monospace" font-size="10.93" fill="#9FDCCE">handoff</text>
-<text x="181.1" y="1349.49" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">the derived half of a handoff, for the half only a</text>
-<text x="181.1" y="1363.99" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">person can write</text>
-<text x="38" y="1380.99" font-family="'Courier New',Courier,'Liberation Mono','Nimbus Mono PS',monospace" font-size="10.93" fill="#9FDCCE">note &lt;kind&gt; &quot;&lt;text&gt;&quot;</text>
-<text x="181.1" y="1380.99" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">record one decision, trap or blocker — the only</text>
-<text x="181.1" y="1395.49" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">command here that writes to the repository</text>
-<text x="28" y="1417.45" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="12" font-weight="700" fill="#E5A33C">Digging into history</text>
-<rect x="28" y="1421.77" width="409" height="0.6" fill="#22383A"/>
-<text x="38" y="1439.49" font-family="'Courier New',Courier,'Liberation Mono','Nimbus Mono PS',monospace" font-size="10.93" fill="#9FDCCE">contrib [--json]</text>
-<text x="181.1" y="1439.49" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">who did what, from git history alone</text>
-<text x="38" y="1456.49" font-family="'Courier New',Courier,'Liberation Mono','Nimbus Mono PS',monospace" font-size="10.93" fill="#9FDCCE">ownership [--json]</text>
-<text x="181.1" y="1456.49" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">bus factor per area — how many people have ever</text>
-<text x="181.1" y="1470.99" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">touched it</text>
-<text x="38" y="1487.99" font-family="'Courier New',Courier,'Liberation Mono','Nimbus Mono PS',monospace" font-size="10.93" fill="#9FDCCE">surviving [--json]</text>
-<text x="181.1" y="1487.99" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">whose written lines are still in the tree, by git blame</text>
-<text x="181.1" y="1502.49" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">rather than by commit</text>
-<text x="38" y="1519.49" font-family="'Courier New',Courier,'Liberation Mono','Nimbus Mono PS',monospace" font-size="10.93" fill="#9FDCCE">worklog [--day D]</text>
-<text x="181.1" y="1519.49" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">write today's entry from git and the plan; --stdout to</text>
-<text x="181.1" y="1533.99" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">see it without writing</text>
-<text x="38" y="1550.99" font-family="'Courier New',Courier,'Liberation Mono','Nimbus Mono PS',monospace" font-size="10.93" fill="#9FDCCE">sessions [--out F]</text>
-<text x="181.1" y="1550.99" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">how sessions went — turns, interruptions, friction,</text>
-<text x="181.1" y="1565.49" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">rework</text>
-<text x="38" y="1582.49" font-family="'Courier New',Courier,'Liberation Mono','Nimbus Mono PS',monospace" font-size="10.93" fill="#9FDCCE">tokens [--out FILE]</text>
-<text x="181.1" y="1582.49" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">token accounting from local session transcripts —</text>
-<text x="181.1" y="1596.99" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">opt-in, never published</text>
-<text x="48" y="1611.99" font-family="'Courier New',Courier,'Liberation Mono','Nimbus Mono PS',monospace" font-size="10" fill="#7C918D">--snapshot</text>
-<text x="181.1" y="1611.99" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10" fill="#7C918D">append the counts-only day rollup to .atlas/tokens.jsonl</text>
-<text x="181.1" y="1626.99" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10" fill="#7C918D">(needs tokens.snapshot)</text>
-<text x="28" y="1648.95" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="12" font-weight="700" fill="#E5A33C">What git history says, and nothing else here reads</text>
-<rect x="28" y="1653.27" width="409" height="0.6" fill="#22383A"/>
-<text x="38" y="1670.99" font-family="'Courier New',Courier,'Liberation Mono','Nimbus Mono PS',monospace" font-size="10.93" fill="#9FDCCE">git-insights [sect]</text>
-<text x="181.1" y="1670.99" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">what git history says that nothing else here reads —</text>
-<text x="181.1" y="1685.49" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">strictly read-only sections: hotspots, coupling,</text>
-<text x="181.1" y="1699.99" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">branches, cadence, hygiene, change</text>
-<rect x="28.43" y="1709.13" width="5.14" height="5.14" fill="none" stroke="#E5A33C" stroke-width="0.86"/>
-<text x="38" y="1716.99" font-family="'Courier New',Courier,'Liberation Mono','Nimbus Mono PS',monospace" font-size="10.93" fill="#9FDCCE">git-hotspots</text>
-<text x="181.1" y="1716.99" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">the files change keeps returning to, what changes</text>
-<text x="181.1" y="1731.49" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">together, and who knows each area</text>
-<rect x="28.43" y="1740.63" width="5.14" height="5.14" fill="none" stroke="#E5A33C" stroke-width="0.86"/>
-<text x="38" y="1748.49" font-family="'Courier New',Courier,'Liberation Mono','Nimbus Mono PS',monospace" font-size="10.93" fill="#9FDCCE">git-history</text>
-<text x="181.1" y="1748.49" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">cadence and commit hygiene</text>
-<rect x="28.43" y="1757.63" width="5.14" height="5.14" fill="none" stroke="#E5A33C" stroke-width="0.86"/>
-<text x="38" y="1765.49" font-family="'Courier New',Courier,'Liberation Mono','Nimbus Mono PS',monospace" font-size="10.93" fill="#9FDCCE">git-branch</text>
-<text x="181.1" y="1765.49" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">branch state and the branch inventory</text>
-<text x="38" y="1782.49" font-family="'Courier New',Courier,'Liberation Mono','Nimbus Mono PS',monospace" font-size="10.93" fill="#9FDCCE">git-tree</text>
-<text x="181.1" y="1782.49" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">the branch topology — what was cut from what,</text>
-<text x="181.1" y="1796.99" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">drawn as a tree, with every origin marked as the</text>
-<text x="181.1" y="1811.49" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">inference it is</text>
+<text x="38" y="1149.99" font-family="'Courier New',Courier,'Liberation Mono','Nimbus Mono PS',monospace" font-size="10.93" fill="#9FDCCE">product</text>
+<text x="181.1" y="1149.99" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">every sibling repository under one directory at once</text>
+<text x="181.1" y="1164.49" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">— which have adopted this tool and which have not</text>
+<text x="181.1" y="1178.99" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">— for the case where the session is running from a</text>
+<text x="181.1" y="1193.49" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">directory that is not a repository, and every other</text>
+<text x="181.1" y="1207.99" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">surface here is therefore blank</text>
+<text x="28" y="1229.95" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="12" font-weight="700" fill="#E5A33C">Working on a change</text>
+<rect x="28" y="1234.26" width="409" height="0.6" fill="#22383A"/>
+<text x="38" y="1251.99" font-family="'Courier New',Courier,'Liberation Mono','Nimbus Mono PS',monospace" font-size="10.93" fill="#9FDCCE">branch [type slug]</text>
+<text x="181.1" y="1251.99" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">branch state, or create type/short-slug carrying your</text>
+<text x="181.1" y="1266.49" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">changes</text>
+<text x="38" y="1283.49" font-family="'Courier New',Courier,'Liberation Mono','Nimbus Mono PS',monospace" font-size="10.93" fill="#9FDCCE">plan [slug]</text>
+<text x="181.1" y="1283.49" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">the route for the change in your tree — branch, item,</text>
+<text x="181.1" y="1297.99" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">version; --apply cuts the branch</text>
+<text x="38" y="1314.99" font-family="'Courier New',Courier,'Liberation Mono','Nimbus Mono PS',monospace" font-size="10.93" fill="#9FDCCE">changes [--json]</text>
+<text x="181.1" y="1314.99" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">what is uncommitted and which documents cite it</text>
+<text x="38" y="1331.99" font-family="'Courier New',Courier,'Liberation Mono','Nimbus Mono PS',monospace" font-size="10.93" fill="#9FDCCE">diff &lt;file&gt;</text>
+<text x="181.1" y="1331.99" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">that file's diff — uncommitted, else across the branch</text>
+<rect x="28.43" y="1341.13" width="5.14" height="5.14" fill="none" stroke="#E5A33C" stroke-width="0.86"/>
+<text x="38" y="1348.99" font-family="'Courier New',Courier,'Liberation Mono','Nimbus Mono PS',monospace" font-size="10.93" fill="#9FDCCE">review</text>
+<text x="181.1" y="1348.99" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">what this diff breaks or fixes, before the commit</text>
+<text x="28" y="1370.95" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="12" font-weight="700" fill="#E5A33C">Picking up cold</text>
+<rect x="28" y="1375.27" width="409" height="0.6" fill="#22383A"/>
+<text x="38" y="1392.99" font-family="'Courier New',Courier,'Liberation Mono','Nimbus Mono PS',monospace" font-size="10.93" fill="#9FDCCE">state [--json]</text>
+<text x="181.1" y="1392.99" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">what a resuming session reads first: where you are,</text>
+<text x="181.1" y="1407.49" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">what was recorded</text>
+<text x="38" y="1424.49" font-family="'Courier New',Courier,'Liberation Mono','Nimbus Mono PS',monospace" font-size="10.93" fill="#9FDCCE">handoff</text>
+<text x="181.1" y="1424.49" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">the derived half of a handoff, for the half only a</text>
+<text x="181.1" y="1438.99" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">person can write</text>
+<text x="38" y="1455.99" font-family="'Courier New',Courier,'Liberation Mono','Nimbus Mono PS',monospace" font-size="10.93" fill="#9FDCCE">note &lt;kind&gt; &quot;&lt;text&gt;&quot;</text>
+<text x="181.1" y="1455.99" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">record one decision, trap or blocker — the only</text>
+<text x="181.1" y="1470.49" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">command here that writes to the repository</text>
+<text x="28" y="1492.45" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="12" font-weight="700" fill="#E5A33C">Digging into history</text>
+<rect x="28" y="1496.77" width="409" height="0.6" fill="#22383A"/>
+<text x="38" y="1514.49" font-family="'Courier New',Courier,'Liberation Mono','Nimbus Mono PS',monospace" font-size="10.93" fill="#9FDCCE">contrib [--json]</text>
+<text x="181.1" y="1514.49" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">who did what, from git history alone</text>
+<text x="38" y="1531.49" font-family="'Courier New',Courier,'Liberation Mono','Nimbus Mono PS',monospace" font-size="10.93" fill="#9FDCCE">ownership [--json]</text>
+<text x="181.1" y="1531.49" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">bus factor per area — how many people have ever</text>
+<text x="181.1" y="1545.99" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">touched it</text>
+<text x="38" y="1562.99" font-family="'Courier New',Courier,'Liberation Mono','Nimbus Mono PS',monospace" font-size="10.93" fill="#9FDCCE">surviving [--json]</text>
+<text x="181.1" y="1562.99" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">whose written lines are still in the tree, by git blame</text>
+<text x="181.1" y="1577.49" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">rather than by commit</text>
+<text x="38" y="1594.49" font-family="'Courier New',Courier,'Liberation Mono','Nimbus Mono PS',monospace" font-size="10.93" fill="#9FDCCE">worklog [--day D]</text>
+<text x="181.1" y="1594.49" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">write today's entry from git and the plan; --stdout to</text>
+<text x="181.1" y="1608.99" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">see it without writing</text>
+<text x="38" y="1625.99" font-family="'Courier New',Courier,'Liberation Mono','Nimbus Mono PS',monospace" font-size="10.93" fill="#9FDCCE">sessions [--out F]</text>
+<text x="181.1" y="1625.99" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">how sessions went — turns, interruptions, friction,</text>
+<text x="181.1" y="1640.49" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">rework</text>
+<text x="38" y="1657.49" font-family="'Courier New',Courier,'Liberation Mono','Nimbus Mono PS',monospace" font-size="10.93" fill="#9FDCCE">tokens [--out FILE]</text>
+<text x="181.1" y="1657.49" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">token accounting from local session transcripts —</text>
+<text x="181.1" y="1671.99" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">opt-in, never published</text>
+<text x="48" y="1686.99" font-family="'Courier New',Courier,'Liberation Mono','Nimbus Mono PS',monospace" font-size="10" fill="#7C918D">--snapshot</text>
+<text x="181.1" y="1686.99" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10" fill="#7C918D">append the counts-only day rollup to .atlas/tokens.jsonl</text>
+<text x="181.1" y="1701.99" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10" fill="#7C918D">(needs tokens.snapshot)</text>
+<text x="28" y="1723.95" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="12" font-weight="700" fill="#E5A33C">What git history says, and nothing else here reads</text>
+<rect x="28" y="1728.27" width="409" height="0.6" fill="#22383A"/>
+<text x="38" y="1745.99" font-family="'Courier New',Courier,'Liberation Mono','Nimbus Mono PS',monospace" font-size="10.93" fill="#9FDCCE">git-insights [sect]</text>
+<text x="181.1" y="1745.99" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">what git history says that nothing else here reads —</text>
+<text x="181.1" y="1760.49" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">strictly read-only sections: hotspots, coupling,</text>
+<text x="181.1" y="1774.99" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">branches, cadence, hygiene, change</text>
+<rect x="28.43" y="1784.13" width="5.14" height="5.14" fill="none" stroke="#E5A33C" stroke-width="0.86"/>
+<text x="38" y="1791.99" font-family="'Courier New',Courier,'Liberation Mono','Nimbus Mono PS',monospace" font-size="10.93" fill="#9FDCCE">git-hotspots</text>
+<text x="181.1" y="1791.99" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">the files change keeps returning to, what changes</text>
+<text x="181.1" y="1806.49" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">together, and who knows each area</text>
+<rect x="28.43" y="1815.63" width="5.14" height="5.14" fill="none" stroke="#E5A33C" stroke-width="0.86"/>
+<text x="38" y="1823.49" font-family="'Courier New',Courier,'Liberation Mono','Nimbus Mono PS',monospace" font-size="10.93" fill="#9FDCCE">git-history</text>
+<text x="181.1" y="1823.49" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">cadence and commit hygiene</text>
+<rect x="28.43" y="1832.63" width="5.14" height="5.14" fill="none" stroke="#E5A33C" stroke-width="0.86"/>
+<text x="38" y="1840.49" font-family="'Courier New',Courier,'Liberation Mono','Nimbus Mono PS',monospace" font-size="10.93" fill="#9FDCCE">git-branch</text>
+<text x="181.1" y="1840.49" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">branch state and the branch inventory</text>
 <text x="463" y="875.45" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="12" font-weight="700" fill="#E5A33C">What git history says, and nothing else here reads (cont.)</text>
 <rect x="463" y="879.77" width="409" height="0.6" fill="#22383A"/>
-<rect x="463.43" y="889.63" width="5.14" height="5.14" fill="none" stroke="#E5A33C" stroke-width="0.86"/>
-<text x="473" y="897.49" font-family="'Courier New',Courier,'Liberation Mono','Nimbus Mono PS',monospace" font-size="10.93" fill="#9FDCCE">git-status</text>
-<text x="616.1" y="897.49" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">where you are, what is uncommitted, and what this</text>
-<text x="616.1" y="911.99" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">change touches</text>
-<rect x="463.43" y="921.13" width="5.14" height="5.14" fill="none" stroke="#E5A33C" stroke-width="0.86"/>
-<text x="473" y="928.99" font-family="'Courier New',Courier,'Liberation Mono','Nimbus Mono PS',monospace" font-size="10.93" fill="#9FDCCE">git-diff &lt;path&gt;</text>
-<text x="616.1" y="928.99" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">one file, with the history around it</text>
-<text x="463" y="950.95" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="12" font-weight="700" fill="#E5A33C">Stopping and picking back up</text>
-<rect x="463" y="955.27" width="409" height="0.6" fill="#22383A"/>
-<text x="473" y="972.99" font-family="'Courier New',Courier,'Liberation Mono','Nimbus Mono PS',monospace" font-size="10.93" fill="#9FDCCE">pause [--dry-run]</text>
-<text x="616.1" y="972.99" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">checkpoint every agent worktree to a wip/agent-* ref</text>
-<text x="616.1" y="987.49" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">before the session ends — writes git refs</text>
-<text x="473" y="1004.49" font-family="'Courier New',Courier,'Liberation Mono','Nimbus Mono PS',monospace" font-size="10.93" fill="#9FDCCE">resume</text>
-<text x="616.1" y="1004.49" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">print the re-spawn plan for a paused session —</text>
-<text x="616.1" y="1018.99" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">branch, worktree, checkpoint</text>
-<text x="473" y="1035.99" font-family="'Courier New',Courier,'Liberation Mono','Nimbus Mono PS',monospace" font-size="10.93" fill="#9FDCCE">stop [--force]</text>
-<text x="616.1" y="1035.99" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">clear session state and agent worktrees; every</text>
-<text x="616.1" y="1050.49" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">branch and checkpoint survives</text>
-<text x="463" y="1072.45" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="12" font-weight="700" fill="#E5A33C">Publishing</text>
-<rect x="463" y="1076.76" width="409" height="0.6" fill="#22383A"/>
-<text x="473" y="1094.49" font-family="'Courier New',Courier,'Liberation Mono','Nimbus Mono PS',monospace" font-size="10.93" fill="#9FDCCE">caps</text>
-<text x="616.1" y="1094.49" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">which features the host has on — makes one</text>
-<text x="616.1" y="1108.99" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">network request</text>
-<text x="473" y="1125.99" font-family="'Courier New',Courier,'Liberation Mono','Nimbus Mono PS',monospace" font-size="10.93" fill="#9FDCCE">community [--write]</text>
-<text x="616.1" y="1125.99" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">issue and PR scaffolding for the features that came</text>
-<text x="616.1" y="1140.49" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">back on</text>
-<text x="473" y="1157.49" font-family="'Courier New',Courier,'Liberation Mono','Nimbus Mono PS',monospace" font-size="10.93" fill="#9FDCCE">publish</text>
-<text x="616.1" y="1157.49" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">wiki, pages or a single file, and never without</text>
-<text x="616.1" y="1171.99" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">confirmation</text>
-<text x="483" y="1186.99" font-family="'Courier New',Courier,'Liberation Mono','Nimbus Mono PS',monospace" font-size="10" fill="#7C918D">--target wiki</text>
-<text x="616.1" y="1186.99" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10" fill="#7C918D">GitHub Wiki — flattened markdown, links rewritten,</text>
-<text x="616.1" y="1201.99" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10" fill="#7C918D">drift-guarded</text>
-<text x="483" y="1216.99" font-family="'Courier New',Courier,'Liberation Mono','Nimbus Mono PS',monospace" font-size="10" fill="#7C918D">--target pages</text>
-<text x="616.1" y="1216.99" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10" fill="#7C918D">the full site to a gh-pages branch (dashboard + deck</text>
-<text x="616.1" y="1231.99" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10" fill="#7C918D">survive)</text>
-<text x="483" y="1246.99" font-family="'Courier New',Courier,'Liberation Mono','Nimbus Mono PS',monospace" font-size="10" fill="#7C918D">--target export</text>
-<text x="616.1" y="1246.99" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10" fill="#7C918D">one self-contained HTML file (--page</text>
-<text x="616.1" y="1261.99" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10" fill="#7C918D">dashboard|index|health)</text>
-<text x="483" y="1276.99" font-family="'Courier New',Courier,'Liberation Mono','Nimbus Mono PS',monospace" font-size="10" fill="#7C918D">--ci</text>
-<text x="616.1" y="1276.99" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10" fill="#7C918D">(GitLab, pages) write the .gitlab-ci.yml job instead —</text>
-<text x="616.1" y="1291.99" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10" fill="#7C918D">Pages is an artifact there</text>
-<rect x="463.43" y="1301.13" width="5.14" height="5.14" fill="none" stroke="#E5A33C" stroke-width="0.86"/>
-<text x="473" y="1308.99" font-family="'Courier New',Courier,'Liberation Mono','Nimbus Mono PS',monospace" font-size="10.93" fill="#9FDCCE">artifact</text>
-<text x="616.1" y="1308.99" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">the dashboard, health report or index to claude.ai as</text>
-<text x="616.1" y="1323.49" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">a shareable page — it leaves this machine, with</text>
-<text x="616.1" y="1337.99" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">every local-only panel stripped and the export</text>
-<text x="616.1" y="1352.49" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">asserting that itself</text>
-<text x="463" y="1374.45" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="12" font-weight="700" fill="#E5A33C">Agent surfaces</text>
-<rect x="463" y="1378.77" width="409" height="0.6" fill="#22383A"/>
-<text x="473" y="1396.49" font-family="'Courier New',Courier,'Liberation Mono','Nimbus Mono PS',monospace" font-size="10.93" fill="#9FDCCE">mcp</text>
-<text x="616.1" y="1396.49" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">serve the corpus over MCP on stdio — read-only, no</text>
-<text x="616.1" y="1410.99" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">dependency</text>
-<text x="483" y="1425.99" font-family="'Courier New',Courier,'Liberation Mono','Nimbus Mono PS',monospace" font-size="10" fill="#7C918D">--status</text>
-<text x="616.1" y="1425.99" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10" fill="#7C918D">what a client would connect to, where it is registered,</text>
-<text x="616.1" y="1440.99" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10" fill="#7C918D">what is running</text>
-<text x="473" y="1457.99" font-family="'Courier New',Courier,'Liberation Mono','Nimbus Mono PS',monospace" font-size="10.93" fill="#9FDCCE">ask &lt;task&gt;</text>
-<text x="616.1" y="1457.99" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">one structured answer for a program; exit 1 on</text>
-<text x="616.1" y="1472.49" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">findings, 2 if it could not run</text>
-<text x="473" y="1489.49" font-family="'Courier New',Courier,'Liberation Mono','Nimbus Mono PS',monospace" font-size="10.93" fill="#9FDCCE">prompt [--out FILE]</text>
-<text x="616.1" y="1489.49" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">a system prompt assembled from this repository's</text>
-<text x="616.1" y="1503.99" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">own rules and state</text>
-<text x="463" y="1525.95" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="12" font-weight="700" fill="#E5A33C">Command line only</text>
-<rect x="463" y="1530.27" width="409" height="0.6" fill="#22383A"/>
-<rect x="463" y="1539.71" width="6" height="6" fill="#E5A33C"/>
-<text x="473" y="1547.99" font-family="'Courier New',Courier,'Liberation Mono','Nimbus Mono PS',monospace" font-size="10.93" fill="#9FDCCE">init</text>
-<text x="616.1" y="1547.99" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">write project-atlas.config.json, detecting this</text>
-<text x="616.1" y="1562.49" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">repository's layout</text>
-<rect x="463" y="1571.21" width="6" height="6" fill="#E5A33C"/>
-<text x="473" y="1579.49" font-family="'Courier New',Courier,'Liberation Mono','Nimbus Mono PS',monospace" font-size="10.93" fill="#9FDCCE">scan [--json]</text>
-<text x="616.1" y="1579.49" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">build and summarise the index</text>
-<rect x="463" y="1588.21" width="6" height="6" fill="#E5A33C"/>
-<text x="473" y="1596.49" font-family="'Courier New',Courier,'Liberation Mono','Nimbus Mono PS',monospace" font-size="10.93" fill="#9FDCCE">contention [branch…]</text>
-<text x="616.1" y="1596.49" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">what a fan-out will collide on: files more than one</text>
-<text x="616.1" y="1610.99" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">branch touches, plan ids defined twice, and the next</text>
-<text x="616.1" y="1625.49" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">free id. --base REF; exit 1 on a duplicate id only</text>
+<text x="473" y="897.49" font-family="'Courier New',Courier,'Liberation Mono','Nimbus Mono PS',monospace" font-size="10.93" fill="#9FDCCE">git-tree</text>
+<text x="616.1" y="897.49" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">the branch topology — what was cut from what,</text>
+<text x="616.1" y="911.99" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">drawn as a tree, with every origin marked as the</text>
+<text x="616.1" y="926.49" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">inference it is</text>
+<rect x="463.43" y="935.63" width="5.14" height="5.14" fill="none" stroke="#E5A33C" stroke-width="0.86"/>
+<text x="473" y="943.49" font-family="'Courier New',Courier,'Liberation Mono','Nimbus Mono PS',monospace" font-size="10.93" fill="#9FDCCE">git-status</text>
+<text x="616.1" y="943.49" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">where you are, what is uncommitted, and what this</text>
+<text x="616.1" y="957.99" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">change touches</text>
+<rect x="463.43" y="967.13" width="5.14" height="5.14" fill="none" stroke="#E5A33C" stroke-width="0.86"/>
+<text x="473" y="974.99" font-family="'Courier New',Courier,'Liberation Mono','Nimbus Mono PS',monospace" font-size="10.93" fill="#9FDCCE">git-diff &lt;path&gt;</text>
+<text x="616.1" y="974.99" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">one file, with the history around it</text>
+<text x="463" y="996.95" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="12" font-weight="700" fill="#E5A33C">Stopping and picking back up</text>
+<rect x="463" y="1001.27" width="409" height="0.6" fill="#22383A"/>
+<text x="473" y="1018.99" font-family="'Courier New',Courier,'Liberation Mono','Nimbus Mono PS',monospace" font-size="10.93" fill="#9FDCCE">pause [--dry-run]</text>
+<text x="616.1" y="1018.99" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">checkpoint every agent worktree to a wip/agent-* ref</text>
+<text x="616.1" y="1033.49" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">before the session ends — writes git refs</text>
+<text x="473" y="1050.49" font-family="'Courier New',Courier,'Liberation Mono','Nimbus Mono PS',monospace" font-size="10.93" fill="#9FDCCE">resume</text>
+<text x="616.1" y="1050.49" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">print the re-spawn plan for a paused session —</text>
+<text x="616.1" y="1064.99" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">branch, worktree, checkpoint</text>
+<text x="473" y="1081.99" font-family="'Courier New',Courier,'Liberation Mono','Nimbus Mono PS',monospace" font-size="10.93" fill="#9FDCCE">stop [--force]</text>
+<text x="616.1" y="1081.99" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">clear session state and agent worktrees; every</text>
+<text x="616.1" y="1096.49" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">branch and checkpoint survives</text>
+<text x="463" y="1118.45" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="12" font-weight="700" fill="#E5A33C">Publishing</text>
+<rect x="463" y="1122.76" width="409" height="0.6" fill="#22383A"/>
+<text x="473" y="1140.49" font-family="'Courier New',Courier,'Liberation Mono','Nimbus Mono PS',monospace" font-size="10.93" fill="#9FDCCE">caps</text>
+<text x="616.1" y="1140.49" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">which features the host has on — makes one</text>
+<text x="616.1" y="1154.99" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">network request</text>
+<text x="473" y="1171.99" font-family="'Courier New',Courier,'Liberation Mono','Nimbus Mono PS',monospace" font-size="10.93" fill="#9FDCCE">community [--write]</text>
+<text x="616.1" y="1171.99" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">issue and PR scaffolding for the features that came</text>
+<text x="616.1" y="1186.49" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">back on</text>
+<text x="473" y="1203.49" font-family="'Courier New',Courier,'Liberation Mono','Nimbus Mono PS',monospace" font-size="10.93" fill="#9FDCCE">publish</text>
+<text x="616.1" y="1203.49" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">wiki, pages or a single file, and never without</text>
+<text x="616.1" y="1217.99" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">confirmation</text>
+<text x="483" y="1232.99" font-family="'Courier New',Courier,'Liberation Mono','Nimbus Mono PS',monospace" font-size="10" fill="#7C918D">--target wiki</text>
+<text x="616.1" y="1232.99" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10" fill="#7C918D">GitHub Wiki — flattened markdown, links rewritten,</text>
+<text x="616.1" y="1247.99" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10" fill="#7C918D">drift-guarded</text>
+<text x="483" y="1262.99" font-family="'Courier New',Courier,'Liberation Mono','Nimbus Mono PS',monospace" font-size="10" fill="#7C918D">--target pages</text>
+<text x="616.1" y="1262.99" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10" fill="#7C918D">the full site to a gh-pages branch (dashboard + deck</text>
+<text x="616.1" y="1277.99" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10" fill="#7C918D">survive)</text>
+<text x="483" y="1292.99" font-family="'Courier New',Courier,'Liberation Mono','Nimbus Mono PS',monospace" font-size="10" fill="#7C918D">--target export</text>
+<text x="616.1" y="1292.99" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10" fill="#7C918D">one self-contained HTML file (--page</text>
+<text x="616.1" y="1307.99" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10" fill="#7C918D">dashboard|index|health)</text>
+<text x="483" y="1322.99" font-family="'Courier New',Courier,'Liberation Mono','Nimbus Mono PS',monospace" font-size="10" fill="#7C918D">--ci</text>
+<text x="616.1" y="1322.99" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10" fill="#7C918D">(GitLab, pages) write the .gitlab-ci.yml job instead —</text>
+<text x="616.1" y="1337.99" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10" fill="#7C918D">Pages is an artifact there</text>
+<rect x="463.43" y="1347.13" width="5.14" height="5.14" fill="none" stroke="#E5A33C" stroke-width="0.86"/>
+<text x="473" y="1354.99" font-family="'Courier New',Courier,'Liberation Mono','Nimbus Mono PS',monospace" font-size="10.93" fill="#9FDCCE">artifact</text>
+<text x="616.1" y="1354.99" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">the dashboard, health report or index to claude.ai as</text>
+<text x="616.1" y="1369.49" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">a shareable page — it leaves this machine, with</text>
+<text x="616.1" y="1383.99" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">every local-only panel stripped and the export</text>
+<text x="616.1" y="1398.49" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">asserting that itself</text>
+<text x="463" y="1420.45" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="12" font-weight="700" fill="#E5A33C">Agent surfaces</text>
+<rect x="463" y="1424.77" width="409" height="0.6" fill="#22383A"/>
+<text x="473" y="1442.49" font-family="'Courier New',Courier,'Liberation Mono','Nimbus Mono PS',monospace" font-size="10.93" fill="#9FDCCE">mcp</text>
+<text x="616.1" y="1442.49" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">serve the corpus over MCP on stdio — read-only, no</text>
+<text x="616.1" y="1456.99" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">dependency</text>
+<text x="483" y="1471.99" font-family="'Courier New',Courier,'Liberation Mono','Nimbus Mono PS',monospace" font-size="10" fill="#7C918D">--status</text>
+<text x="616.1" y="1471.99" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10" fill="#7C918D">what a client would connect to, where it is registered,</text>
+<text x="616.1" y="1486.99" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10" fill="#7C918D">what is running</text>
+<text x="473" y="1503.99" font-family="'Courier New',Courier,'Liberation Mono','Nimbus Mono PS',monospace" font-size="10.93" fill="#9FDCCE">ask &lt;task&gt;</text>
+<text x="616.1" y="1503.99" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">one structured answer for a program; exit 1 on</text>
+<text x="616.1" y="1518.49" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">findings, 2 if it could not run</text>
+<text x="473" y="1535.49" font-family="'Courier New',Courier,'Liberation Mono','Nimbus Mono PS',monospace" font-size="10.93" fill="#9FDCCE">prompt [--out FILE]</text>
+<text x="616.1" y="1535.49" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">a system prompt assembled from this repository's</text>
+<text x="616.1" y="1549.99" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">own rules and state</text>
+<text x="463" y="1571.95" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="12" font-weight="700" fill="#E5A33C">Command line only</text>
+<rect x="463" y="1576.27" width="409" height="0.6" fill="#22383A"/>
+<rect x="463" y="1585.71" width="6" height="6" fill="#E5A33C"/>
+<text x="473" y="1593.99" font-family="'Courier New',Courier,'Liberation Mono','Nimbus Mono PS',monospace" font-size="10.93" fill="#9FDCCE">init [--plan PATH]</text>
+<text x="616.1" y="1593.99" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">write project-atlas.config.json, detecting the layout</text>
+<text x="616.1" y="1608.49" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">and the plan document</text>
+<rect x="463" y="1617.21" width="6" height="6" fill="#E5A33C"/>
+<text x="473" y="1625.49" font-family="'Courier New',Courier,'Liberation Mono','Nimbus Mono PS',monospace" font-size="10.93" fill="#9FDCCE">scan [--json]</text>
+<text x="616.1" y="1625.49" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">build and summarise the index</text>
 <rect x="463" y="1634.21" width="6" height="6" fill="#E5A33C"/>
-<text x="473" y="1642.49" font-family="'Courier New',Courier,'Liberation Mono','Nimbus Mono PS',monospace" font-size="10.93" fill="#9FDCCE">spec --gate</text>
-<text x="616.1" y="1642.49" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">the commit gate: refuse a staged change whose</text>
-<text x="616.1" y="1656.99" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">message names no plan item</text>
-<rect x="463" y="1665.71" width="6" height="6" fill="#E5A33C"/>
-<text x="473" y="1673.99" font-family="'Courier New',Courier,'Liberation Mono','Nimbus Mono PS',monospace" font-size="10.93" fill="#9FDCCE">serve</text>
-<text x="616.1" y="1673.99" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">build, then run the live dashboard detached and open</text>
-<text x="616.1" y="1688.49" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">it</text>
-<text x="483" y="1703.49" font-family="'Courier New',Courier,'Liberation Mono','Nimbus Mono PS',monospace" font-size="10" fill="#7C918D">--status | --stop</text>
-<text x="616.1" y="1703.49" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10" fill="#7C918D">what is running here | end it now</text>
-<text x="483" y="1718.49" font-family="'Courier New',Courier,'Liberation Mono','Nimbus Mono PS',monospace" font-size="10" fill="#7C918D">--list | --launcher</text>
-<text x="616.1" y="1718.49" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10" fill="#7C918D">every atlas dashboard on this machine | write a page</text>
-<text x="616.1" y="1733.49" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10" fill="#7C918D">linking them all</text>
-<rect x="463" y="1742.21" width="6" height="6" fill="#E5A33C"/>
-<text x="473" y="1750.49" font-family="'Courier New',Courier,'Liberation Mono','Nimbus Mono PS',monospace" font-size="10.93" fill="#9FDCCE">watch [--serve]</text>
-<text x="616.1" y="1750.49" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">rebuild on change; --serve hosts it live at</text>
-<text x="616.1" y="1764.99" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">http://127.0.0.1:4173</text>
-<rect x="463" y="1773.71" width="6" height="6" fill="#E5A33C"/>
-<text x="473" y="1781.99" font-family="'Courier New',Courier,'Liberation Mono','Nimbus Mono PS',monospace" font-size="10.93" fill="#9FDCCE">all</text>
-<text x="616.1" y="1781.99" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">scan + health + build</text>
+<text x="473" y="1642.49" font-family="'Courier New',Courier,'Liberation Mono','Nimbus Mono PS',monospace" font-size="10.93" fill="#9FDCCE">contention [branch…]</text>
+<text x="616.1" y="1642.49" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">what a fan-out will collide on: files more than one</text>
+<text x="616.1" y="1656.99" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">branch touches, plan ids defined twice, and the next</text>
+<text x="616.1" y="1671.49" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">free id. --base REF; exit 1 on a duplicate id only</text>
+<rect x="463" y="1680.21" width="6" height="6" fill="#E5A33C"/>
+<text x="473" y="1688.49" font-family="'Courier New',Courier,'Liberation Mono','Nimbus Mono PS',monospace" font-size="10.93" fill="#9FDCCE">spec --gate</text>
+<text x="616.1" y="1688.49" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">the commit gate: refuse a staged change whose</text>
+<text x="616.1" y="1702.99" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">message names no plan item</text>
+<rect x="463" y="1711.71" width="6" height="6" fill="#E5A33C"/>
+<text x="473" y="1719.99" font-family="'Courier New',Courier,'Liberation Mono','Nimbus Mono PS',monospace" font-size="10.93" fill="#9FDCCE">serve</text>
+<text x="616.1" y="1719.99" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">build, then run the live dashboard detached and open</text>
+<text x="616.1" y="1734.49" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">it</text>
+<text x="483" y="1749.49" font-family="'Courier New',Courier,'Liberation Mono','Nimbus Mono PS',monospace" font-size="10" fill="#7C918D">--status | --stop</text>
+<text x="616.1" y="1749.49" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10" fill="#7C918D">what is running here | end it now</text>
+<text x="483" y="1764.49" font-family="'Courier New',Courier,'Liberation Mono','Nimbus Mono PS',monospace" font-size="10" fill="#7C918D">--list | --launcher</text>
+<text x="616.1" y="1764.49" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10" fill="#7C918D">every atlas dashboard on this machine | write a page</text>
+<text x="616.1" y="1779.49" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10" fill="#7C918D">linking them all</text>
+<rect x="463" y="1788.21" width="6" height="6" fill="#E5A33C"/>
+<text x="473" y="1796.49" font-family="'Courier New',Courier,'Liberation Mono','Nimbus Mono PS',monospace" font-size="10.93" fill="#9FDCCE">watch [--serve]</text>
+<text x="616.1" y="1796.49" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">rebuild on change; --serve hosts it live at</text>
+<text x="616.1" y="1810.99" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">http://127.0.0.1:4173</text>
+<rect x="463" y="1819.71" width="6" height="6" fill="#E5A33C"/>
+<text x="473" y="1827.99" font-family="'Courier New',Courier,'Liberation Mono','Nimbus Mono PS',monospace" font-size="10.93" fill="#9FDCCE">all</text>
+<text x="616.1" y="1827.99" font-family="Helvetica,Arial,'Liberation Sans','Nimbus Sans',sans-serif" font-size="10.81" fill="#BCCAC7">scan + health + build</text>
 </svg>
