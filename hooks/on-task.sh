@@ -26,7 +26,22 @@ payload=$(cat 2>/dev/null)
 # Which build answers. Working on this tool itself, the installed plugin is an older feature set writing the
 # same output directory — see hooks/atlas-bin.sh. The inline fallback keeps the hook working if the helper is
 # missing, because a hook that cannot find a helper must still do its job rather than silently stop.
-. "${CLAUDE_PLUGIN_ROOT:-.}/hooks/atlas-bin.sh" 2>/dev/null || atlas_bin() { printf '%s' "${CLAUDE_PLUGIN_ROOT:-.}/bin/atlas"; }
+ATLAS_BIN_HELPER="${CLAUDE_PLUGIN_ROOT:-.}/hooks/atlas-bin.sh"
+if [ -r "$ATLAS_BIN_HELPER" ]; then . "$ATLAS_BIN_HELPER"; else
+  atlas_bin() { printf '%s' "${CLAUDE_PLUGIN_ROOT:-.}/bin/atlas"; }
+fi
+# **`[ -r ]` before `.`, never `. file || fallback`.** A failed `.` is a special built-in failing, which ends
+# the script outright under a POSIX shell — the `||` never runs, and the hook dies in the one case the
+# fallback exists for: a half-installed plugin. Measured, on the test that already covers exactly that.
+ATLAS_HELPER="${CLAUDE_PLUGIN_ROOT:-.}/hooks/atlas-root.sh"
+if [ -r "$ATLAS_HELPER" ]; then . "$ATLAS_HELPER"; else
+  # No helper, so the behaviour that shipped before it: the session's own directory, and silence when that
+  # is not a repository. Worse than the fix, and still a working hook.
+  atlas_resolve_root() { ATLAS_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
+    [ -n "$ATLAS_ROOT" ] || return 2; [ -f "$ATLAS_ROOT/project-atlas.config.json" ] || return 1; }
+  atlas_remember_root() { return 0; }
+  atlas_warn_no_repo() { return 1; }
+fi
 
 # Without jq the payload cannot be parsed, and guessing at it with sed would record malformed lines that the
 # reader then has to defend against. Recording nothing is the honest failure.
@@ -38,8 +53,22 @@ case "$tool" in
   *) exit 0 ;;
 esac
 
-root=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
-[ -f "$root/project-atlas.config.json" ] || exit 0
+# **The line above this used to be `root=$(git rev-parse --show-toplevel) || exit 0`, and that is where the
+# task log went.** A task change carries no file path — there is nothing in a `TaskCreate` payload that names
+# a tree — so when the session directory is a parent holding several checkouts, this hook had nothing to go
+# on and did the one thing it must not: exited 0, silently, on every task the session created. Five records
+# in a whole session's log, all of them from commands that happened to `cd` first.
+#
+# It now asks `hooks/atlas-root.sh`, which falls through to the repository this session was already observed
+# writing into. That is an observation rather than a guess — and when there is no observation either, this
+# says so once instead of adding a sixth silent exit.
+sid=$(printf '%s' "$payload" | jq -r '.session_id // ""' 2>/dev/null)
+atlas_resolve_root '' "$sid"
+case $? in
+  0) root=$ATLAS_ROOT ;;
+  1) exit 0 ;;
+  *) atlas_warn_no_repo "$sid"; exit 0 ;;
+esac
 
 mkdir -p "$root/.atlas" 2>/dev/null
 
@@ -78,5 +107,9 @@ printf '%s\n' "$line" >> "$root/.atlas/tasks-live.jsonl" 2>/dev/null
 # `build-stamp.txt` that `atlas serve` wrote. The open page then polls a file that 404s, gives up after
 # three misses, and sits there looking exactly like a live dashboard showing figures from an hour ago —
 # the precise failure this whole surface exists to remove, reintroduced by the fix for it.
-("$(atlas_bin)" build --auto --quiet --stamp >/dev/null 2>&1 &)
+#
+# **`--root` for the same reason the record above is written to `$root` rather than to `.`.** A build with no
+# root asks `git` where it is, from a cwd that has just been established as no repository at all — so the
+# rebuild that makes the record visible would either fail or regenerate a different project's dashboard.
+("$(atlas_bin "$root")" build --auto --quiet --stamp --root "$root" >/dev/null 2>&1 &)
 exit 0

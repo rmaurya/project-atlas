@@ -4,9 +4,10 @@
 and any session can drift from it. A hook is executed by the harness, so it cannot be forgotten, reasoned
 around, or skipped because a change "seemed small".
 
-There are **six scripts, wired to eight entries across six events**. *This paragraph said "two" for as long as
-there were more than two — a count in prose, next to a list that grew, with nothing checking the two against
-each other. It is the same drift the tool detects in documentation, in the documentation of the tool.*
+There are **six hook scripts, wired to eight entries across six events**, and **two helpers** beside them that
+`hooks.json` never names. *This paragraph said "two" for as long as there were more than two — a count in
+prose, next to a list that grew, with nothing checking the two against each other. It is the same drift the
+tool detects in documentation, in the documentation of the tool.*
 
 | When | Hook | What it does | Blocks? |
 |---|---|---|---|
@@ -21,8 +22,71 @@ Every one of them is inert in a repository with no `project-atlas.config.json`. 
 user-wide, and a plugin that starts writing `docs/_wiki` into unrelated repositories — or refusing their
 commits — has decided someone else's policy for them.
 
-`atlas-bin.sh` is a helper rather than a hook: it decides *which build answers*, so that working on this tool
-does not have the installed copy rebuild the working copy's output with an older feature set.
+Two files here are helpers rather than hooks. `atlas-bin.sh` decides *which build answers*, so that working on
+this tool does not have the installed copy rebuild the working copy's output with an older feature set.
+`atlas-root.sh` decides *which repository is the subject*, which is the section below.
+
+## Which repository a hook is talking about
+
+**Every script here opened with `root=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0`, and that line
+switched the whole tool off for anyone whose session directory is not itself a repository.**
+
+Measured, not imagined. A session run from a directory holding thirteen independent checkouts — the ordinary
+shape of a multi-repo product — with the work done inside one of them. `git rev-parse` fails from the parent,
+every hook exits 0, and nothing happens: no task recorded, no rebuild after a write, no dashboard. One such
+child's `tasks-live.jsonl` held **five** records against a session's worth of work, and those five existed
+only because a few commands happened to `cd` into it before the hook fired. **The failure looked exactly like
+success** — a hook that exits 0 having done nothing is indistinguishable from a hook that had nothing to do,
+which is why it survived releases and cost a session spent asking why dashboards were missing tasks.
+
+Three sources now, tried in order. The first that names a repository wins.
+
+| | Source | Used by | Cost |
+|---|---|---|---|
+| 1 | the **path the tool call touched** | `on-write.sh` (`file_path`), `on-commit.sh` (the `cd` target A-47 parses) | one `git -C` |
+| 2 | the **session's own directory** | all of them | one `git rev-parse` |
+| 3 | the repository this session was **already seen working in** | `on-task.sh`, `on-activity.sh`, `on-continuity.sh` | two `test`s, no subprocess |
+
+Source 1 is the strong one and it is not a guess: the repository containing the file that changed *is* the
+tree that changed. Source 2 is the ordinary single-repository session, and it stays the only line that runs
+there — the common path costs exactly what it always cost. Source 3 exists because a `TaskCreate` payload and
+a `Stop` payload name no path at all; the hooks that *can* identify a repository from a path write it down,
+keyed by session id, and the hooks that cannot read it back.
+
+**Descending from the session directory was the obvious fourth candidate and it is a guess.** A parent
+holding thirteen checkouts offers thirteen answers with no way to choose between them, and finding out costs
+a directory scan on every tool call. Source 3 is the same information obtained by observation instead.
+
+**The memo may never name somebody else's project.** Four things hold that line: it is written only from a
+path the tool call itself touched, only when that repository has a `project-atlas.config.json`, and it is
+re-validated on every read — a memo naming a directory that has gone away, or stopped being adopted, is
+discarded rather than acted on. It is scoped to one session id, so it cannot carry yesterday's repository
+into today's session. It lives beside the update check's cache under `XDG_CACHE_HOME`, never inside a
+repository — least of all inside one the code has just failed to identify.
+
+### And when there is no repository at all, it says so — once
+
+That is the half of this that could not be got wrong. The defect above cost a session *because* it was
+silent, and a silent failure in a tool whose entire subject is silent failure is not one anybody gets to
+leave in. But a hook that prints after every Bash call is a hook people switch off within the hour, after
+which nothing is ever reported again — so the notice is bound to one appearance per session, tracked by the
+same session-scoped marker the memo uses. `on-session-start.sh` is where it usually lands, being the one
+script here that runs exactly once and can therefore speak without any bookkeeping at all.
+
+Two distinctions it depends on, because getting either wrong turns it into noise:
+
+- **no repository** speaks. Nothing named a tree, the tool is inert, and nobody knows.
+- **a repository that never adopted the tool** stays silent, exactly as it always has. This plugin is
+  installed per user; announcing itself in every unrelated repository somebody opens is how it would earn
+  being uninstalled. `atlas version --notice` already covers the one repository worth suggesting adoption
+  in — the one the session is standing in.
+
+Off with `ATLAS_HOOK_NOTICE=0`. An environment variable rather than a config key, for the same reason the
+update notice gives: it speaks precisely where there is no `project-atlas.config.json` to read a key out of.
+
+Once a root is resolved, every command a hook runs is given it explicitly — `atlas build --root`,
+`atlas serve --root`, `atlas note --root`, and the three gates in `on-commit.sh`. A hook that resolved the
+right repository and then invoked a command that asks `git` where *it* is has resolved nothing.
 
 ## Two verdicts, and the line between them
 

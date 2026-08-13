@@ -37,18 +37,42 @@
 
 payload=$(cat 2>/dev/null)   # only the session id is read from this; never what was run
 
-root=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
-[ -f "$root/project-atlas.config.json" ] || exit 0
-
-pidfile="$root/.atlas/serve.pid"
-marker="$root/.atlas/serve-announced"
+# **`[ -r ]` before `.`, never `. file || fallback`.** A failed `.` is a special built-in failing, which ends
+# the script outright under a POSIX shell — the `||` never runs, and the hook dies in the one case the
+# fallback exists for: a half-installed plugin. Measured, on the test that already covers exactly that.
+ATLAS_HELPER="${CLAUDE_PLUGIN_ROOT:-.}/hooks/atlas-root.sh"
+if [ -r "$ATLAS_HELPER" ]; then . "$ATLAS_HELPER"; else
+  # No helper, so the behaviour that shipped before it: the session's own directory, and silence when that
+  # is not a repository. Worse than the fix, and still a working hook.
+  atlas_resolve_root() { ATLAS_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
+    [ -n "$ATLAS_ROOT" ] || return 2; [ -f "$ATLAS_ROOT/project-atlas.config.json" ] || return 1; }
+  atlas_remember_root() { return 0; }
+  atlas_warn_no_repo() { return 1; }
+fi
 
 # The session id scopes the announcement. Without jq it cannot be read, and the fallback is to announce only
 # when this hook is the one that starts the server — which still covers adoption, the case that was broken.
+# It is read before the root because the root now depends on it: a session directory that is not a repository
+# is answered out of a memo keyed by exactly this id.
 sid=""
 if command -v jq >/dev/null 2>&1; then
   sid=$(printf '%s' "$payload" | jq -r '.session_id // ""' 2>/dev/null)
 fi
+
+# **This is the hook whose budget is tightest — it fires after every single tool call — so the ordering in
+# `atlas-root.sh` is what makes the fix affordable here.** In the ordinary session the answer comes from one
+# `git rev-parse` and nothing else runs, exactly as before. It is only when that fails, which is the case
+# that used to exit 0 and take the dashboard down with it, that anything more happens: two `test`s and a
+# builtin read of a memo another hook already wrote. No directory is ever scanned.
+atlas_resolve_root '' "$sid"
+case $? in
+  0) root=$ATLAS_ROOT ;;
+  1) exit 0 ;;
+  *) atlas_warn_no_repo "$sid"; exit 0 ;;
+esac
+
+pidfile="$root/.atlas/serve.pid"
+marker="$root/.atlas/serve-announced"
 
 port_of() { [ -r "$pidfile" ] && sed -n 's/.*"port"[[:space:]]*:[[:space:]]*\([0-9]*\).*/\1/p' "$pidfile"; }
 
@@ -79,7 +103,7 @@ fi
 # Not running. Bring it back, detached — a tool call must never wait on a dashboard, and must never fail
 # because one could not start. Then wait, briefly and boundedly, for it to write its pidfile, so the link can
 # be named in the same turn rather than one tool call later.
-("${CLAUDE_PLUGIN_ROOT:-.}/bin/atlas" serve --quiet --no-open >/dev/null 2>&1 &)
+("${CLAUDE_PLUGIN_ROOT:-.}/bin/atlas" serve --quiet --no-open --root "$root" >/dev/null 2>&1 &)
 i=0
 while [ $i -lt 12 ]; do
   [ -n "$(port_of)" ] && break

@@ -53,6 +53,36 @@ If that boundary is wrong for a given repository, the honest version is not a fl
 It is CI: a workflow that runs on a branch you already trust, where the audit trail is the run log. That is a
 different mechanism with a different accountability story, and it should be configured as one.
 
+## Which repository the edge is drawn around
+
+Autonomy is defined above as *everything up to the edge of the repository* — which assumes the tool knows
+which repository that is. For four releases it did not, and the way it got that wrong is worth reading as a
+design failure rather than a bug.
+
+Every hook opened with `root=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0`. That is correct for a
+session started inside a checkout and wrong for the ordinary multi-repository shape: a session directory
+holding thirteen independent repositories, with the work in one of them. `git rev-parse` fails there, every
+hook exits 0, and **the entire automation layer is switched off without a word** — no task recorded, no
+rebuild after a write, no dashboard, no journal record at a session boundary. One such child repository's
+task log held five records against a session's worth of work.
+
+**The autonomy question and the silence question are the same question here.** A tool that will not act
+without a config file has already accepted that doing nothing is a legitimate outcome — which is exactly what
+makes doing nothing *for a different reason* invisible. Inert-because-unadopted and inert-because-lost are
+the same exit code and the same absence of output, and the second one is a defect wearing the first one's
+clothes.
+
+So the resolution order is now: the path the tool call touched, then the session's directory, then the
+repository this session was already observed writing into. Never a scan of the parent for candidates — that
+is a guess dressed as a discovery, and a wrong guess writes another project's task log. Full mechanism in
+[hooks/README.md](../../hooks/README.md#which-repository-a-hook-is-talking-about).
+
+**And when none of the three answers, a hook says so once per session.** Once, not per call: a notice that
+appears after every Bash invocation is a notice somebody silences, which restores the original silence by
+another route. It stays quiet for a repository that has simply not adopted the tool — that is a different
+fact, already covered by the adoption line at session start, and announcing it everywhere would make an
+installed plugin an unwelcome guest in every unrelated repository somebody opens.
+
 ## Configuration
 
 ```jsonc

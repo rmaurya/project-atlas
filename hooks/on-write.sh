@@ -10,19 +10,55 @@
 #
 # Inert unless the repository has a project-atlas.config.json, so installing the plugin does not start writing
 # a docs/_wiki into unrelated repositories. Turn it off with `automation.buildOnWrite: false`.
+#
+# **This hook holds the one unambiguous answer to "which repository", and for four releases it threw it
+# away.** It is handed the path that was written. The repository containing that path is not a guess and not
+# a preference — it is the tree that just changed. Everything here ran from the process cwd instead, so a
+# session whose directory is a parent holding several checkouts rebuilt nothing at all. See
+# hooks/atlas-root.sh for the measurement and for what the other hooks do with the answer this one finds.
 
 payload=$(cat)
 
 # Which build answers. Working on this tool itself, the installed plugin is an older feature set writing the
 # same output directory — see hooks/atlas-bin.sh. The inline fallback keeps the hook working if the helper is
 # missing, because a hook that cannot find a helper must still do its job rather than silently stop.
-. "${CLAUDE_PLUGIN_ROOT:-.}/hooks/atlas-bin.sh" 2>/dev/null || atlas_bin() { printf '%s' "${CLAUDE_PLUGIN_ROOT:-.}/bin/atlas"; }
+ATLAS_BIN_HELPER="${CLAUDE_PLUGIN_ROOT:-.}/hooks/atlas-bin.sh"
+if [ -r "$ATLAS_BIN_HELPER" ]; then . "$ATLAS_BIN_HELPER"; else
+  atlas_bin() { printf '%s' "${CLAUDE_PLUGIN_ROOT:-.}/bin/atlas"; }
+fi
+# **`[ -r ]` before `.`, never `. file || fallback`.** A failed `.` is a special built-in failing, which ends
+# the script outright under a POSIX shell — the `||` never runs, and the hook dies in the one case the
+# fallback exists for: a half-installed plugin. Measured, on the test that already covers exactly that.
+ATLAS_HELPER="${CLAUDE_PLUGIN_ROOT:-.}/hooks/atlas-root.sh"
+if [ -r "$ATLAS_HELPER" ]; then . "$ATLAS_HELPER"; else
+  # No helper, so the behaviour that shipped before it: the session's own directory, and silence when that
+  # is not a repository. Worse than the fix, and still a working hook.
+  atlas_resolve_root() { ATLAS_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
+    [ -n "$ATLAS_ROOT" ] || return 2; [ -f "$ATLAS_ROOT/project-atlas.config.json" ] || return 1; }
+  atlas_remember_root() { return 0; }
+  atlas_warn_no_repo() { return 1; }
+fi
 
 # Without jq the file path cannot be read, and rebuilding on every write regardless would be worse than not
 # running: most writes are not markdown.
 command -v jq >/dev/null 2>&1 || exit 0
 
 p=$(printf '%s' "$payload" | jq -r '.tool_input.file_path // ""')
+sid=$(printf '%s' "$payload" | jq -r '.session_id // ""')
+
+# **Resolved before the markdown filter, on purpose.** The build below only ever wants a `.md`, but the
+# *answer to which repository* is wanted by `on-task.sh`, `on-activity.sh` and `on-continuity.sh`, none of
+# which is handed a path by anything. A session editing only TypeScript would otherwise never establish one,
+# and the task log would stay as empty as it was before this was fixed — so every write records the
+# repository it landed in, and only markdown goes on to rebuild.
+atlas_resolve_root "$p" "$sid"
+case $? in
+  0) root=$ATLAS_ROOT ;;
+  1) exit 0 ;;                          # a repository that never adopted this: inert, and quiet about it
+  *) atlas_warn_no_repo "$sid"; exit 0 ;;
+esac
+[ "$ATLAS_ROOT_FROM" = path ] && atlas_remember_root "$root" "$sid"
+
 case "$p" in
   *.md) ;;
   *) exit 0 ;;
@@ -37,14 +73,18 @@ esac
 #
 # `atlas serve` is idempotent and cheap when the server is already running — it reads a pidfile, finds a live
 # pid and returns. Backgrounded regardless, because an edit must never wait on a dashboard.
-("${CLAUDE_PLUGIN_ROOT:-.}/bin/atlas" serve --quiet --no-open >/dev/null 2>&1 &)
+#
+# `--root` because the server it is reviving belongs to the repository that changed, which is not necessarily
+# the one this process is standing in — the port is derived from the root, so a `serve` pointed at the wrong
+# tree brings up a second dashboard for a project nobody asked about.
+("${CLAUDE_PLUGIN_ROOT:-.}/bin/atlas" serve --quiet --no-open --root "$root" >/dev/null 2>&1 &)
 
 # **`--stamp` is what makes the rebuild visible.** Without it this hook was actively worse than doing
 # nothing: every build clears the output directory first, so a rebuild with no stamp *deletes* the
 # `build-stamp.txt` that `atlas serve` wrote. The open page then polls a file that 404s, gives up after
 # three misses, and sits there looking exactly like a live dashboard showing figures from an hour ago —
 # the precise failure this whole surface exists to remove, reintroduced by the fix for it.
-out=$("$(atlas_bin)" build --auto --quiet --stamp 2>&1)
+out=$("$(atlas_bin "$root")" build --auto --quiet --stamp --root "$root" 2>&1)
 st=$?
 if [ $st -ne 0 ]; then
   echo "project-atlas: the site did not rebuild after $p (exit $st). It is now older than the markdown." >&2
