@@ -22,7 +22,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { compileRule } from './config.mjs';
+import { compileRule, globToRegExp, CONFIG_NAME, PLAN_DOCUMENT_GLOBS } from './config.mjs';
 import { confine } from './paths.mjs';
 import { maskInlineCode } from './markdown.mjs';
 import { num } from './format.mjs';
@@ -43,6 +43,90 @@ export const DEFAULT_PLANNING = {
     { max: 100, label: 'Done', tone: 'done' },
   ],
 };
+
+/* ------------------------------------------------------------------ finding the plan */
+
+/**
+ * The documents in a corpus that look like a plan — pure, so it can be asked of any file list.
+ *
+ * The globs come from `PLAN_DOCUMENT_GLOBS`, which is a selection over the taxonomy rather than a second
+ * opinion about what a plan looks like. See config.mjs.
+ *
+ * **The order is display order and nothing more.** It follows the glob list, then the path, so two runs
+ * over the same repository print the same list in the same sequence — a list that reshuffles between runs
+ * reads as a ranking that changed its mind. It is not a ranking, and nothing downstream treats it as one:
+ * where there is more than one candidate, nothing is chosen. See `planSetupNotice`.
+ */
+export function planCandidates(paths) {
+  const sorted = [...new Set(paths || [])].sort();
+  const seen = new Set();
+  const out = [];
+  for (const glob of PLAN_DOCUMENT_GLOBS) {
+    const re = globToRegExp(glob);
+    for (const p of sorted) {
+      if (seen.has(p) || !re.test(p)) continue;
+      seen.add(p);
+      out.push(p);
+    }
+  }
+  return out;
+}
+
+/**
+ * What to tell a repository that has a plan and has not configured one.
+ *
+ * Returns `null` when `planning.source` is set — including when it is set to a document this detection
+ * would never have offered, which is a deliberate choice by whoever set it and none of this function's
+ * business.
+ *
+ * **It refuses to choose between candidates, and says that it is refusing.** The plan is the spine of the
+ * dashboard: the item table, the progress and status charts, spec-to-build coverage, the timeline and the
+ * commit gate all read it. Picking the wrong document does not produce a smaller dashboard, it produces a
+ * confident and wrong one — so a lone candidate is named as a setting to apply, several are named as a
+ * question to answer, and neither is applied to anything by this function. Writing config is `atlas init`'s
+ * job and no other command's.
+ *
+ * The sentences carry backticked code spans so a terminal can print them unchanged and a page can render
+ * them as `<code>`. One wording, two surfaces — the alternative is the message the owner read three times
+ * being right on one surface and stale on the other.
+ */
+export function planSetupNotice(paths, cfg = {}) {
+  if (cfg?.planning?.source) return null;
+  const candidates = planCandidates(paths);
+  const absence = `No planning document is configured, so no item charts are drawn — rather than charting ` +
+    `nothing and calling it zero.`;
+  const where = `\`planning.source\` in \`${CONFIG_NAME}\``;
+
+  if (!candidates.length) {
+    return {
+      candidates,
+      sentences: [
+        absence,
+        `No document here is named like a plan either (\`BACKLOG\`, \`TASKS\`, \`TODO\`, \`HANDOFF\`, \`ROADMAP\`, ` +
+        `\`PLAN-*\`, or anything under \`docs/planning/\`). Set ${where} to a task list once one exists.`,
+      ],
+    };
+  }
+  if (candidates.length === 1) {
+    return {
+      candidates,
+      sentences: [
+        absence,
+        `One document here is named like a plan: \`${candidates[0]}\`. Set ${where} to it to chart it. It has ` +
+        `not been set for you: writing configuration is \`atlas init\`'s job and no other command's.`,
+      ],
+    };
+  }
+  return {
+    candidates,
+    sentences: [
+      absence,
+      `${candidates.length} documents here are named like a plan: ${candidates.map((c) => `\`${c}\``).join(', ')}.`,
+      `None was chosen. The plan is the spine of this dashboard, so guessing which of them it is would be worse ` +
+      `than asking — set ${where} to whichever one it is, and the rest stay ordinary documents.`,
+    ],
+  };
+}
 
 /**
  * The second dialect's item line: a top-level bullet opening with a bolded `[status]` tag.

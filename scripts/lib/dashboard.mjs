@@ -28,7 +28,7 @@ import { SIGNALS } from './health.mjs';
 // renders every page. See `operatorSignals()`.
 import * as healthModule from './health.mjs';
 import { taskCoverage, fillAxis, weeklyAxis } from './contrib.mjs';
-import { DEFAULT_PLANNING } from './planning.mjs';
+import { DEFAULT_PLANNING, planSetupNotice } from './planning.mjs';
 import { read as readJournalFor } from './journal.mjs';
 import { PANELS } from './views.mjs';
 import { readChanges } from './changes.mjs';
@@ -250,7 +250,9 @@ function panel(id, { index, health, plan, cfg, contrib, view, nameFor, repo, fli
     case 'progress': return hasPlan ? progressChart(plan) : null;
     case 'status': return hasPlan ? statusChart(plan) : null;
     case 'items': return hasPlan ? itemTable(plan) : null;
-    case 'backlog': return hasPlan ? backlogPanel(plan, contrib, index, pageOf) : null;
+    // Not omitted when there is no plan. "Not shown on this page" means "no data behind it", and an
+    // unconfigured setting is not an absent corpus — see `noPlanning`.
+    case 'backlog': return hasPlan ? backlogPanel(plan, contrib, index, pageOf) : noPlanning(cfg, index);
     case 'worklog': return worklogPanel(cfg, repo);
     case 'charts': return chartsPanel(contrib, plan, health);
     case 'signals': return signalCataloguePanel(health, cfg);
@@ -1104,10 +1106,27 @@ function itemTable(plan) {
 </section>`;
 }
 
-function noPlanning(cfg) {
-  return `<figure class="card"><figcaption><h2>Planning</h2></figcaption>
-  <p class="empty">No planning source configured, so no item charts are drawn — rather than charting nothing and calling it zero.
-  Set <code>planning.source</code> in <code>project-atlas.config.json</code> to a task list such as <code>docs/TASKS.md</code>.</p></figure>`;
+/**
+ * The empty state, which is the sentence three owners read as the tool being broken.
+ *
+ * It used to stop at the absence — *"No planning source configured"* — and this function was never called
+ * from anywhere, so on the Backlog view even that much was not said: the panel returned `null` and appeared
+ * under *"Not shown on this page"*, whose stated meaning is "there is no data behind it". There was data.
+ * There were six candidate documents in one case. The page was reporting a missing setting as a missing
+ * corpus, which is the one claim it must never make.
+ *
+ * So it is wired in, and it **names the remedy and the candidates**. The wording comes from
+ * `planSetupNotice` rather than being written here, because the build summary and `atlas tasks` say the
+ * same thing and three copies of one sentence is three chances for two of them to go stale.
+ */
+function noPlanning(cfg, index) {
+  const advice = planSetupNotice(index.documents.map((d) => d.path), cfg);
+  if (!advice) return null;
+  const code = (s) => escapeHtml(s).replace(/`([^`]+)`/g, '<code>$1</code>');
+  return `<figure class="card"><figcaption><h2>Backlog</h2></figcaption>
+  ${advice.sentences.map((s, i) => `<p class="${i ? 'det' : 'empty'}">${code(s)}</p>`).join('\n  ')}
+  <p class="hint">Nothing was written to your configuration to produce this page. <code>atlas init --plan &lt;path&gt;</code>
+  is the only command that writes it.</p></figure>`;
 }
 
 /**
@@ -2738,7 +2757,9 @@ function inflightPanel(flight, index) {
   ${flight.unrecognised.length ? `<p class="hint">Also named, and not in the plan: ${
     flight.unrecognised.map((id) => `<code>${escapeHtml(id)}</code>`).join(', ')}.</p>` : ''}`
     : `<p class="det">No commit on this branch names a plan item, so none of this work can be matched to one.</p>`)
-    : `<p class="det">No planning document is configured, so none of this can be matched to an item.</p>`}
+    : `<p class="det">No planning document is configured, so none of this can be matched to an item. Set
+      <code>planning.source</code> in <code>project-atlas.config.json</code> — the Backlog page names the
+      documents here that look like a plan.</p>`}
 
   <p class="det">${flight.journal.available
     ? `The journal holds <strong>${flight.journal.records}</strong> record(s) written since the last commit` +

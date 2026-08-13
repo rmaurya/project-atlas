@@ -16,7 +16,8 @@ import path from 'node:path';
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-import { globToRegExp, resolveConfig, DEFAULT_CLUSTERS, DEFAULT_CONFIG, clusterFor, unsafeRegexReason, AUTOMATION_KEYS } from '../scripts/lib/config.mjs';
+import { globToRegExp, resolveConfig, DEFAULT_CLUSTERS, DEFAULT_CONFIG, clusterFor, unsafeRegexReason, AUTOMATION_KEYS,
+         PLAN_GLOB_SELECTORS, PLAN_DOCUMENT_GLOBS } from '../scripts/lib/config.mjs';
 import { buildIndex } from '../scripts/lib/scan.mjs';
 import { runHealth, formatReport, SIGNALS, OPERATOR_SIGNALS, readParallelism,
          DEFAULT_PARALLELISM_EDITS, PARALLELISM_SAMPLE, parallelismEvidence,
@@ -26,7 +27,7 @@ import { readContention, formatContention, definedIds } from '../scripts/lib/con
 import { SIGNALS as CORPUS_SIGNALS } from '../scripts/lib/signals.mjs';
 import { renderSite, writeBuildStamp, BUILD_CLAIM, BUILD_MARKERS, groupNav, NAV_GROUPS, generatedPaths } from '../scripts/lib/render.mjs';
 import { renderMarkdown, inline } from '../scripts/lib/markdown.mjs';
-import { readPlanning, DEFAULT_PLANNING } from '../scripts/lib/planning.mjs';
+import { readPlanning, DEFAULT_PLANNING, planCandidates, planSetupNotice } from '../scripts/lib/planning.mjs';
 import { writeDay, contributorSlug } from '../scripts/lib/worklog.mjs';
 import { buildPrompt } from '../scripts/lib/prompt.mjs';
 import { readDeck } from '../scripts/lib/deck.mjs';
@@ -12349,6 +12350,246 @@ test('S-8 · a refused item pattern does not fall through to the second dialect'
   eq(plan.items, []);
   includes(plan.notes.join(' '), 'was NOT applied');
   eq(plan.notes.some((n) => /status-tag dialect/.test(n)), false);
+});
+
+/* ================================================================== adopting a repository finds its plan (A-58) */
+
+/**
+ * **Three repositories on one machine had a real plan and an empty Backlog page.**
+ *
+ * `planning: {}` was the default and nothing ever filled it, so `atlas init` wrote a taxonomy that filed
+ * `docs/DEVELOPMENT-BACKLOG.md` under Planning and a `planning` key that said there was no plan. The owner
+ * read the resulting page as the tool being broken three separate times.
+ *
+ * What is pinned here is the whole of the fix, and one thing it deliberately does **not** do: where more
+ * than one document could be the plan, nothing is chosen. Storage Studio offers seven candidates and three
+ * of them parse to zero items — a silent pick there has a better-than-even chance of producing a confident,
+ * empty dashboard over a document that is not the plan.
+ *
+ * **Synchronous, like everything appended below the drain.** `pendingAsync` is emptied thousands of lines
+ * above this point, so an `async` case registered here would never be awaited and would report a pass it
+ * never earned. Every case below was checked by reverting the change and watching it fail.
+ */
+
+console.log('\nA-58 · adoption finds the plan');
+
+test('A-58 · the plan globs are a selection over the taxonomy, never a second list of them', () => {
+  // The defect this whole item exists to fix is one question with two answers. Detection must therefore
+  // read the taxonomy's own globs — and a selector that has quietly stopped resolving is that same defect
+  // arriving by attrition: rename `**/*ROADMAP*.md` in DEFAULT_CLUSTERS and detection would find no
+  // roadmaps, silently, while the cluster kept filing them.
+  ok(PLAN_GLOB_SELECTORS.length, 'the selectors must not be empty');
+  for (const sel of PLAN_GLOB_SELECTORS) {
+    const cluster = DEFAULT_CLUSTERS.find((c) => c.id === sel.cluster);
+    ok(cluster, `PLAN_GLOB_SELECTORS names cluster "${sel.cluster}", which the taxonomy no longer has`);
+    for (const g of sel.only || []) {
+      ok(cluster.match.includes(g),
+         `PLAN_GLOB_SELECTORS names glob ${g} in cluster "${sel.cluster}", which no longer has it`);
+    }
+    const got = cluster.match.filter((g) => !sel.only || sel.only.includes(g));
+    ok(got.length, `the selector for "${sel.cluster}" resolved to no globs at all`);
+  }
+
+  // Every glob detection uses is a glob the taxonomy uses. Nothing was invented on the way through.
+  const inTaxonomy = new Set(DEFAULT_CLUSTERS.flatMap((c) => c.match));
+  for (const g of PLAN_DOCUMENT_GLOBS) {
+    ok(inTaxonomy.has(g), `${g} is used to find plans and appears in no cluster — that is the second list`);
+  }
+});
+
+test('A-58 · the globs match the plan names real repositories actually use', () => {
+  // Every path here is a real tracked file on the machine this was written on. The bare `**/BACKLOG.md`
+  // shape matched *none* of the first four: a taxonomy that only recognises a plan called exactly
+  // `BACKLOG.md` recognises almost no plans, which is why the Planning cluster looked innocent.
+  const real = ['docs/DEVELOPMENT-BACKLOG.md', 'docs/12-ROADMAP.md', 'srs/TODO-Deferred-DeveloperID.md',
+                'docs/HANDOFF-TRIAL-ENDED-OPTIONS.md', 'srs/PLAN-Collab-Sync.md', 'docs/MIGRATION-PLAN.md',
+                'docs/ROADMAP.md', 'BACKLOG.md', 'docs/planning/next.md'];
+  eq(planCandidates(real).slice().sort(), real.slice().sort(), 'a real plan name was not recognised');
+
+  // And the shapes that must not be swept in. `EXPLANATION.md` is why `PLAN` is hyphen-anchored rather than
+  // wrapped in stars like the other stems.
+  eq(planCandidates(['README.md', 'docs/EXPLANATION.md', 'docs/ARCHITECTURE.md', 'docs/plans.md']), []);
+});
+
+test('A-58 · widening the plan globs reclassifies nothing in this repository', () => {
+  // The globs are shared with the taxonomy, so widening them moves documents between clusters as well as
+  // feeding detection. That is the cost of one definition instead of two, and it has to be measured rather
+  // than assumed: the Planning cluster runs before Manuals, Operations, Product, Research and Engineering,
+  // so a widened filename rule can shadow any of them.
+  // Measured against the *defaults* on both sides. This repository configures its own clusters, so it is
+  // insulated from the change either way, and comparing its live taxonomy against the defaults would
+  // measure that rather than this.
+  const narrow = JSON.parse(JSON.stringify(DEFAULT_CLUSTERS));
+  narrow.find((c) => c.id === 'planning').match =
+    ['**/BACKLOG.md', '**/TASKS.md', '**/TODO.md', '**/HANDOFF.md', 'docs/planning/**'];
+  const product = narrow.find((c) => c.id === 'product');
+  product.match = product.match.map((g) => (g === '**/*ROADMAP*.md' ? '**/ROADMAP.md' : g));
+
+  const wide = { clusters: DEFAULT_CLUSTERS, fallbackCluster: 'uncategorised' };
+  const old = { clusters: narrow, fallbackCluster: 'uncategorised' };
+  const paths = buildIndex(REPO_ROOT, resolveConfig(REPO_ROOT), { withGit: false }).documents.map((d) => d.path);
+
+  const moved = paths.filter((p) => clusterFor(p, old) !== clusterFor(p, wide));
+  eq(moved.map((p) => `${p}: ${clusterFor(p, old)} -> ${clusterFor(p, wide)}`), [],
+     'a document changed cluster — that is a real consequence and needs stating, not a test to relax');
+});
+
+test('A-58 · init sets planning.source when exactly one document looks like a plan', () => {
+  // The lone-candidate case is not a guess: there is nothing to guess between. It is still said out loud on
+  // the terminal, because a setting that appears in a file nobody watched being written is a setting that
+  // surprises somebody later.
+  const dir = fixture('a58-one', {
+    'docs/12-ROADMAP.md': '# Roadmap\n\nPhases.\n', 'docs/A.md': '# A\n', 'README.md': '# R\n',
+  });
+  const r = cli(dir, ['init']);
+  eq(r.code, 0, r.stdout);
+  const cfg = JSON.parse(fs.readFileSync(path.join(dir, 'project-atlas.config.json'), 'utf8'));
+  eq(cfg.planning, { source: 'docs/12-ROADMAP.md' });
+  includes(r.stdout, 'planning.source = docs/12-ROADMAP.md');
+  includes(r.stdout, 'the only document here named like a plan');
+});
+
+test('A-58 · init configures nothing and names them all when several look like a plan', () => {
+  // Several is the normal case, not the edge — one repository on this machine offers seven. Picking one
+  // silently is the single thing this must never do: the plan drives the item table, both charts, spec
+  // coverage and the commit gate, so the wrong document does not make the dashboard smaller, it makes it
+  // confidently wrong.
+  const dir = fixture('a58-several', {
+    'docs/DEVELOPMENT-BACKLOG.md': '# Backlog\n', 'docs/MIGRATION-PLAN.md': '# Migration\n',
+    'srs/PLAN-Collab-Sync.md': '# Collab\n', 'docs/A.md': '# A\n',
+  });
+  const r = cli(dir, ['init']);
+  eq(r.code, 0, r.stdout);
+  const cfg = JSON.parse(fs.readFileSync(path.join(dir, 'project-atlas.config.json'), 'utf8'));
+  eq(cfg.planning, {}, 'nothing may be chosen when there is a choice to be made');
+  includes(r.stdout, 'planning.source is NOT set');
+  for (const p of ['docs/DEVELOPMENT-BACKLOG.md', 'docs/MIGRATION-PLAN.md', 'srs/PLAN-Collab-Sync.md']) {
+    includes(r.stdout, p, 'every candidate must be named, or the reader cannot answer the question');
+  }
+  includes(r.stdout, 'worse than asking');
+  includes(r.stdout, '--plan', 'the remedy has to be runnable, not only describable');
+});
+
+test('A-58 · init --plan takes the answer, and refuses a document that is not there', () => {
+  const dir = fixture('a58-plan-flag', {
+    'docs/DEVELOPMENT-BACKLOG.md': '# Backlog\n', 'docs/MIGRATION-PLAN.md': '# Migration\n', 'docs/A.md': '# A\n',
+  });
+  eq(cli(dir, ['init', '--plan', 'docs/MIGRATION-PLAN.md']).code, 0);
+  eq(JSON.parse(fs.readFileSync(path.join(dir, 'project-atlas.config.json'), 'utf8')).planning,
+     { source: 'docs/MIGRATION-PLAN.md' });
+
+  // A typo'd path must not become a configured plan that silently reads as missing on every later build.
+  const bad = cli(dir, ['init', '--force', '--plan', 'docs/NOPE.md']);
+  eq(bad.code, 1);
+  includes(bad.stdout, 'not an indexable markdown file');
+  eq(JSON.parse(fs.readFileSync(path.join(dir, 'project-atlas.config.json'), 'utf8')).planning,
+     { source: 'docs/MIGRATION-PLAN.md' }, 'a refused --plan must leave the existing config alone');
+});
+
+test('A-58 · a repository that already configured a plan is left alone, detection or no detection', () => {
+  // The important half is the *deliberate* setting detection would never have offered. Someone chose
+  // `docs/notes/sprint.md`; nothing here may quietly replace it with the BACKLOG sitting next to it, and no
+  // command but `init` may write the config file at all.
+  const dir = fixture('a58-already-configured', {
+    'docs/notes/sprint.md': [
+      '# Sprint', '',
+      '## Track 1 — Work', '',
+      '**Z-1 · An item nobody detected** — **P1 · High**',
+      '*It is the plan because somebody said so.*', '',
+      '| ID | % |', '|---|---|', '| Z-1 | 60 |', '',
+    ].join('\n'),
+    'docs/DEVELOPMENT-BACKLOG.md': '# A decoy that detection would offer\n',
+    'docs/README.md': '# Index\n',
+    'project-atlas.config.json': JSON.stringify({
+      $schema: DEFAULT_CONFIG.$schema, siteTitle: 'Already', output: 'docs/_wiki',
+      clusters: DEFAULT_CLUSTERS, planning: { source: 'docs/notes/sprint.md' },
+    }, null, 2) + '\n',
+  });
+  const configFile = path.join(dir, 'project-atlas.config.json');
+  const before = fs.readFileSync(configFile);
+
+  eq(planCandidates(['docs/notes/sprint.md']), [], 'the fixture is pointless unless detection would miss it');
+
+  // The build and the health run are the two commands that run unattended, on every session that writes
+  // markdown. Neither may write configuration.
+  eq(cli(dir, ['build', '--quiet']).code, 0);
+  eq(cli(dir, ['health']).code, 0);
+  eq(fs.readFileSync(configFile).equals(before), true, 'a command other than init rewrote the config file');
+
+  const plan = readPlanning(dir, resolveConfig(dir));
+  eq(plan.source, 'docs/notes/sprint.md');
+  eq(plan.items.map((i) => i.id), ['Z-1'], 'the configured plan is the one that was read');
+
+  // And init still refuses rather than re-detecting over the top of it.
+  const again = cli(dir, ['init']);
+  eq(again.code, 1);
+  includes(again.stdout, 'already exists');
+  eq(fs.readFileSync(configFile).equals(before), true);
+
+  // This repository is the same case in the wild, and it stays untouched by everything above.
+  eq(resolveConfig(REPO_ROOT).planning.source, 'docs/ROADMAP.md');
+});
+
+test('A-58 · an already-adopted repository is told by its build, as advice and not as a failure', () => {
+  // Detection in `init` reaches nobody who adopted last year, which is all three of the repositories that
+  // provoked this. The build runs in all of them; this is where they find out. It must not gate anything.
+  const dir = fixture('a58-adopted-long-ago', {
+    'docs/DEVELOPMENT-BACKLOG.md': '# Backlog\n\n- **[open] P1 — something.**\n',
+    'docs/12-ROADMAP.md': '# Roadmap\n',
+    'docs/README.md': '# Index\n',
+    'project-atlas.config.json': JSON.stringify({
+      $schema: DEFAULT_CONFIG.$schema, siteTitle: 'Old', output: 'docs/_wiki', clusters: DEFAULT_CLUSTERS,
+    }, null, 2) + '\n',
+  });
+  const before = fs.readFileSync(path.join(dir, 'project-atlas.config.json'));
+  const r = cli(dir, ['build']);
+  eq(r.code, 0, 'advice never gates a build');
+  includes(r.stdout, 'no planning source configured');
+  includes(r.stdout, 'docs/DEVELOPMENT-BACKLOG.md');
+  includes(r.stdout, 'docs/12-ROADMAP.md');
+  includes(r.stdout, 'None was chosen');
+  eq(fs.readFileSync(path.join(dir, 'project-atlas.config.json')).equals(before), true,
+     'a build that edited the config would be a worse defect than the one being fixed');
+});
+
+test('A-58 · the Backlog page names the remedy instead of omitting itself', () => {
+  // The sentence the owner read three times. It sat under "Not shown on this page", whose stated meaning is
+  // "omitted because there is no data behind them" — and there were seven candidate documents behind it.
+  // Reporting a missing setting as a missing corpus is the one claim this page must never make.
+  const dir = fixture('a58-empty-state', {
+    'docs/DEVELOPMENT-BACKLOG.md': '# Backlog\n', 'docs/12-ROADMAP.md': '# Roadmap\n', 'docs/README.md': '# Index\n',
+  });
+  const cfg = resolveConfig(dir);
+  const index = buildIndex(dir, cfg, { withGit: false });
+  const health = runHealth(index, cfg, dir);
+  const site = renderSite(index, health, cfg, dir);
+  const html = fs.readFileSync(path.join(site.outDir, 'view-backlog.html'), 'utf8');
+
+  includes(html, 'planning.source', 'the empty state must name the setting, not only the absence');
+  includes(html, 'docs/DEVELOPMENT-BACKLOG.md');
+  includes(html, 'docs/12-ROADMAP.md');
+  includes(html, 'atlas init --plan');
+  eq(/Not shown on this page[\s\S]{0,400}>backlog</.test(html), false,
+     'the backlog panel must no longer report an unconfigured setting as an absent corpus');
+});
+
+test('A-58 · one wording for the remedy, shared by every surface that states it', () => {
+  // Three copies of one sentence is three chances for two of them to go stale, which is the failure this
+  // tool exists to detect. The build line, `atlas tasks` and the page all read `planSetupNotice`.
+  const dir = fixture('a58-one-wording', {
+    'docs/DEVELOPMENT-BACKLOG.md': '# Backlog\n', 'docs/12-ROADMAP.md': '# Roadmap\n', 'docs/README.md': '# Index\n',
+  });
+  const notice = planSetupNotice(['docs/DEVELOPMENT-BACKLOG.md', 'docs/12-ROADMAP.md'], {});
+  ok(notice, 'an unconfigured repository with candidates must have something to say');
+  const plain = notice.sentences[1].replace(/`/g, '');
+
+  includes(cli(dir, ['build']).stdout, plain, 'the build prints the shared wording');
+  const tasks = cli(dir, ['tasks']);
+  eq(tasks.code, 1, 'tasks still fails — there is no plan to print');
+  includes(tasks.stdout, plain, '`atlas tasks` prints the shared wording');
+
+  // Configured means silent. A repository that answered the question is not asked it again.
+  eq(planSetupNotice(['docs/DEVELOPMENT-BACKLOG.md'], { planning: { source: 'docs/anything.md' } }), null);
 });
 
 console.log(`\n${pass} passed, ${fail} failed${skipped ? `, ${skipped} skipped on ${process.platform}` : ''}\n`);

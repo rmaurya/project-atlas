@@ -154,6 +154,19 @@ act on. Note it uses `??`, not `||`, so a configured `0` genuinely means zero.
 **Estimated versus measured is preserved everywhere** — estimated figures are drawn hatched, and an item with
 no figure is charted as **unknown, never as zero**, and excluded from means.
 
+### `planning.source` is detected, and never guessed at
+
+`atlas init` looks for it, using the taxonomy's own Planning globs plus the roadmap rule rather than a second
+opinion about what a plan looks like — `BACKLOG`, `TASKS`, `TODO`, `HANDOFF`, `PLAN-…`, `…-PLAN`, `ROADMAP`,
+and anything under `docs/planning/`. One candidate is written into the config and announced. **Several
+candidates is the normal case and nothing is written**: they are all named instead, and `init --plan <path>`
+takes the answer. The plan drives the item table, both charts, spec coverage and the commit gate, so the
+wrong document produces a confident, wrong dashboard rather than a smaller one.
+
+`init` is the only command that writes configuration. A repository that has already set `planning.source` —
+including one pointed at a document this detection would never have offered — is left exactly as it is;
+`build` and `health` state the finding and change nothing. See [`adoption.md`](adoption.md).
+
 ### Two plan dialects, detected rather than declared
 
 You do not configure which dialect you wrote. The reader tries the id-and-percentage patterns above first;

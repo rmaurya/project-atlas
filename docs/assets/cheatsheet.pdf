@@ -10,7 +10,7 @@ endobj
 << /Type /Page /Parent 2 0 R /MediaBox [0 0 842 595] /Resources << /Font << /F1 5 0 R /F2 6 0 R /F3 7 0 R >> >> /Contents 4 0 R >>
 endobj
 4 0 obj
-<< /Length 16533 >>
+<< /Length 16555 >>
 stream
 1.0000 1.0000 1.0000 rg 0 0 842 595 re f
 BT 0.0706 0.1608 0.1686 rg /F2 17 Tf 1 0 0 1 20 558 Tm (project-atlas) Tj ET
@@ -148,8 +148,8 @@ BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 542.88 215.3 Tm (a system prompt 
 BT 0.1098 0.2275 0.2431 rg /F2 8.8 Tf 1 0 0 1 432 202.2 Tm (Command line only) Tj ET
 0.7373 0.7843 0.7765 rg 432 198.43 390 0.6 re f
 0.1098 0.2275 0.2431 rg 432 189 4.4 4.4 re f
-BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 440.4 187.5 Tm (init) Tj ET
-BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 542.88 187.5 Tm (write project-atlas.config.json, detecting this repository's layout) Tj ET
+BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 440.4 187.5 Tm (init [--plan PATH]) Tj ET
+BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 542.88 187.5 Tm (write project-atlas.config.json, detecting the layout and the plan document) Tj ET
 0.1098 0.2275 0.2431 rg 432 178 4.4 4.4 re f
 BT 0.0627 0.0784 0.0745 rg /F3 7.79 Tf 1 0 0 1 440.4 176.5 Tm (scan [--json]) Tj ET
 BT 0.2706 0.3098 0.3059 rg /F1 7.71 Tf 1 0 0 1 542.88 176.5 Tm (build and summarise the index) Tj ET
@@ -211,11 +211,11 @@ xref
 0000000064 00000 n 
 0000000121 00000 n 
 0000000267 00000 n 
-0000016853 00000 n 
-0000016950 00000 n 
-0000017052 00000 n 
+0000016875 00000 n 
+0000016972 00000 n 
+0000017074 00000 n 
 trailer
 << /Size 8 /Root 1 0 R >>
 startxref
-17147
+17169
 %%EOF

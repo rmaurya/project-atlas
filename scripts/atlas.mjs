@@ -32,7 +32,7 @@ import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { resolveConfig, DEFAULT_CONFIG, DEFAULT_CLUSTERS, CONFIG_NAME , automationAllows } from './lib/config.mjs';
 import { buildIndex, discover } from './lib/scan.mjs';
-import { readPlanning } from './lib/planning.mjs';
+import { readPlanning, planCandidates, planSetupNotice } from './lib/planning.mjs';
 import { runHealth, formatReport } from './lib/health.mjs';
 import { readSessionParallelism } from './lib/parallelism.mjs';
 import { renderSite, writeBuildStamp } from './lib/render.mjs';
@@ -78,7 +78,7 @@ const argv = process.argv.slice(2);
  * boolean, so a positional after a boolean flag stays positional — `atlas tasks --json safety` keeps `safety`
  * as the filter rather than swallowing it as `--json`'s value.
  */
-const VALUE_FLAGS = new Set(['target', 'page', 'out', 'root', 'config', 'interval', 'refs', 'agent', 'since', 'day', 'why', 'port', 'idle-ms', 'item', 'only', 'query', 'base', 'serve-root']);
+const VALUE_FLAGS = new Set(['target', 'page', 'out', 'root', 'config', 'interval', 'refs', 'agent', 'since', 'day', 'why', 'port', 'idle-ms', 'item', 'only', 'query', 'base', 'serve-root', 'plan']);
 
 const { cmd, positionals, flags } = parseArgs(argv);
 
@@ -393,7 +393,15 @@ async function main() {
 
   if (cmd === 'tasks') {
     const plan = readPlanning(root, cfg);
-    if (!plan) { console.error('No planning source configured. Set planning.source in project-atlas.config.json.'); process.exitCode = 1; return; }
+    if (!plan) {
+      // The same advice the build prints, from the same function — a remedy that is right in one place and
+      // stale in the other is how the reader learns to stop believing either.
+      const advice = planSetupNotice(discover(root, cfg), cfg);
+      console.error(['No planning source configured. Set planning.source in project-atlas.config.json.',
+                     ...advice.sentences.slice(1).map((s) => `  ${s.replace(/`/g, '')}`)].join('\n'));
+      process.exitCode = 1;
+      return;
+    }
     if (plan.missing) { console.error(`${plan.source} not found.`); process.exitCode = 1; return; }
     if (flag('json')) { console.log(JSON.stringify(plan, null, 2)); return; }
     say(formatTasks(plan, positionals[0], color));
@@ -1895,9 +1903,28 @@ function doBuild(root, cfg, withGit, withReport, { stamp = false, autoDerived = 
     for (const c of collisions.slice(0, 5)) say(`    ${c.renamed} → ${c.to}`);
   }
   if (truncated) say(`  ${truncated} long document(s) indexed to the first ${num(cfg.searchBodyLimit || 6000)} characters for search.`);
-  say(plan && !plan.missing
-    ? `  Dashboard: ${plan.stats.total} item(s) from ${plan.source}${plan.stats.unknown ? `, ${plan.stats.unknown} without a figure` : ''}.`
-    : `  Dashboard: no planning source configured — set planning.source to chart a task list.`);
+  /*
+   * **How an already-adopted repository hears about its own plan.**
+   *
+   * Detection in `init` reaches repositories adopted from now on and no others; the three that provoked
+   * this were adopted long ago and would never have run `init` again. The build runs in all of them, every
+   * time a session writes markdown, so this line is where they find out.
+   *
+   * **Advice, not a failure.** It is one line in the ordinary build summary, beside the deck line that says
+   * there is no deck. It changes no exit code, gates nothing, and writes nothing — a build that silently
+   * edited `project-atlas.config.json` would be a worse defect than the one being fixed.
+   */
+  if (plan && !plan.missing) {
+    say(`  Dashboard: ${plan.stats.total} item(s) from ${plan.source}${plan.stats.unknown ? `, ${plan.stats.unknown} without a figure` : ''}.`);
+  } else if (plan?.missing) {
+    // Configured and absent is a different fact from unconfigured, and it always was — the two shared a
+    // line that named only one of them, so a typo'd path read as "you never set this".
+    say(`  Dashboard: planning.source is ${plan.source}, which does not exist — no item charts.`);
+  } else {
+    const advice = planSetupNotice(index.documents.map((d) => d.path), cfg);
+    say(`  Dashboard: no planning source configured — set planning.source to chart a task list.`);
+    for (const s of advice?.sentences.slice(1) || []) say(`    ${s.replace(/`/g, '')}`);
+  }
   say(deck ? `  Deck: ${deck.slides.length} slide(s) from ${deck.source}.` : `  Deck: none — create docs/atlas/DECK.md to add one.`);
   // **Say that the agent-readable half exists.** The HTML is announced by the `Open:` line below and the
   // markdown knowledge graph was announced nowhere — which is the same defect this release spent the day
@@ -1966,6 +1993,31 @@ function init(root, configPath) {
     }
   }
 
+  /*
+   * **The plan, found rather than left blank.**
+   *
+   * `planning: {}` was the default and nothing ever filled it, so three adopted repositories with real,
+   * actively maintained plan documents each rendered a dashboard saying no planning document was
+   * configured — read three times as the tool being broken. The taxonomy above already knows what a plan
+   * looks like; the same globs answer this question, via `PLAN_DOCUMENT_GLOBS`.
+   *
+   * **One candidate is a setting. Several is a question, and it is asked.** Several is the normal case, not
+   * the edge: one repository here offers six. A plan drives the item table, both charts, spec coverage, the
+   * timeline and the commit gate, so choosing the wrong document does not make the dashboard smaller — it
+   * makes it confidently wrong. `--plan` exists so the answer can be given in one command instead of an
+   * editor.
+   */
+  const candidates = planCandidates(files);
+  const asked = typeof flag('plan') === 'string' ? flag('plan').replace(/^\.\//, '') : null;
+  if (asked !== null && !files.includes(asked)) {
+    console.error(`--plan ${asked} is not an indexable markdown file in this repository. ` +
+      (candidates.length ? `Documents named like a plan here: ${candidates.join(', ')}.`
+                         : `No document here is named like a plan.`));
+    process.exitCode = 1;
+    return;
+  }
+  const source = asked ?? (candidates.length === 1 ? candidates[0] : null);
+
   const cfg = {
     $schema: DEFAULT_CONFIG.$schema,
     siteTitle: path.basename(root),
@@ -1979,6 +2031,9 @@ function init(root, configPath) {
     forbiddenTerms: [],
     crossref: [],
     suppress: [],
+    // Written even when empty, because a key that is absent from the file is a key nobody knows to set —
+    // which is how three repositories with a plan ended up with no `planning.source`.
+    planning: source ? { source } : {},
   };
   if (!cfg.clusters.length) cfg.clusters = DEFAULT_CLUSTERS;
 
@@ -1987,6 +2042,21 @@ function init(root, configPath) {
   say(`Wrote ${path.relative(root, target)}`);
   say(`  ${files.length} markdown file(s) across ${dirs.size} directories.`);
   say(`  ${cfg.clusters.length} cluster(s) kept of ${DEFAULT_CLUSTERS.length} defaults — the rest matched nothing here.`);
+  say('');
+  if (source) {
+    say(asked
+      ? `  planning.source = ${source}, as asked for.`
+      : `  planning.source = ${source} — the only document here named like a plan, so nothing was chosen between.`);
+  } else if (candidates.length) {
+    say(`  planning.source is NOT set. ${candidates.length} documents here are named like a plan:`);
+    for (const c of candidates) say(`    ${c}`);
+    say(`    Nothing was picked — the plan drives the item table, both charts and the commit gate, so guessing`);
+    say(`    which one it is would be worse than asking. Set planning.source, or re-run:`);
+    say(`      atlas init --force --plan ${candidates[0]}`);
+  } else {
+    say(`  planning.source is NOT set — no document here is named like a plan (BACKLOG, TASKS, TODO, HANDOFF,`);
+    say(`    ROADMAP, PLAN-*, or anything under docs/planning/). The dashboard's item charts stay off until it is.`);
+  }
   say('');
   say('  Next: review the clusters, then add the two checks that are off until configured —');
   say('    forbiddenTerms  retired product or persona names   (enables H7)');
@@ -2014,7 +2084,7 @@ function usage() {
 
   atlas help                 this list (also what a bare \`atlas\` prints)
   atlas version              which build is answering, where it lives, and whether it is behind
-  atlas init                 write ${CONFIG_NAME}, detecting this repository's layout
+  atlas init [--plan PATH]   write ${CONFIG_NAME}, detecting the layout and the plan document
   atlas config [--json]      the resolved configuration — the file merged over the defaults, which is what runs
   atlas scan  [--json]       build and summarise the index
   atlas tasks [word]         the planning document with progress bars; a word filters it
