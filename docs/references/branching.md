@@ -113,6 +113,46 @@ one rule this file exists to state.
    nothing publishes without explicit confirmation covers `git push` too.
 6. **Say which branch you are on** when you report work. The user cannot see your shell.
 
+## The commit guard warns and refuses in different cases
+
+`hooks/on-commit.sh` runs three checks before any `git commit`, and they do not all carry the same weight.
+
+| Check | The claim it makes | Verdict |
+|---|---|---|
+| `atlas health --gate` | a dead link, two documents with one title, a file with no `# ` heading | **refuses** (exit 2) |
+| `atlas branch` | you are committing on a protected branch, or off the naming convention | warns |
+| `atlas spec --gate` | this shipped change names no plan item | warns |
+| any of the three failing to run | the guard is broken | warns, always |
+
+**Blocking is reserved for claims that the repository is wrong.** Nobody can reasonably disagree with a dead
+link, and the commit would land known rot. Which branch you are on and whether you named an item are claims
+about *how the work is organised* — right, worth saying every time, and still a judgement a person makes.
+This is the same line [`autonomy.md`](autonomy.md) draws in keeping H17 advisory, and the same reasoning that
+made `branching.posture` a setting rather than a rule.
+
+It was learned the expensive way. For one release the guard refused on all three, and it stalled a live
+session: every refusal opened with *"Safe to commit here. Branch follows the convention and is not
+protected"* — nothing was wrong — and then blocked because it could not read a commit message that could not
+yet exist. A hook runs **before** the shell, so `cat > msg.txt && git commit -F msg.txt` was refused whole,
+the file was never written, and the retry failed because the file was missing. One of those refusals was not
+a refusal at all but a crash inside the gate. **A guard people disable is worse than no guard.**
+
+So a warning has to earn the interruption: it names the SOP, says why the SOP exists, says what to do, and
+gets out of the way. It travels as hook JSON as well as on stderr, because on exit 0 stderr reaches only the
+debug log — a "warning" nobody can see is a silent gate.
+
+**To restore the old strictness**, in `project-atlas.config.json`:
+
+```json
+{ "branching": { "sopGate": "enforce" } }
+```
+
+Then the branch guard, the plan gate, and a gate that could not run all refuse, exactly as they did before.
+`ATLAS_COMMIT_SOP=enforce` does the same for one command or one CI job. The default is `warn`.
+
+This is separate from `branching.posture`, which decides whether `atlas branch` itself calls a protected
+branch unsafe; `sopGate` decides what the *commit hook* does with that answer.
+
 ## When to break this
 
 Genuinely: almost never. But it is a real question, so it gets a real answer.

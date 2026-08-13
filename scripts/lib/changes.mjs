@@ -75,13 +75,53 @@ export function defaultBranch(root, cfg = {}) {
   return 'main';
 }
 
+/**
+ * Was this path written by the build rather than by a person? (A-36)
+ *
+ * **Only ever true when the caller declared a generated set**, which exactly one caller does: `renderSite`
+ * attaches `cfg.__generated` to the config it hands the page renderers. `atlas changes` in a terminal
+ * declares nothing and therefore sees everything — which is right, because a generated file you are about to
+ * commit is a file you need to be told about.
+ *
+ * The list is composed by `render.mjs::generatedPaths` out of what each writing module says it authors. This
+ * function only matches; it does not know what is on the list, and nothing here should ever grow a literal
+ * path. See the header of `worklogDir` for why that separation is the load-bearing part.
+ */
+export function isGeneratedPath(cfg = {}, p) {
+  const list = cfg.__generated;
+  if (!Array.isArray(list) || !list.length) return false;
+  const q = String(p || '').replace(/\\/g, '/');
+  return list.some((prefix) => prefix && (q === prefix.replace(/\/$/, '') || q.startsWith(prefix)));
+}
+
 export function readChanges(root, cfg = {}, index = null) {
   const main = defaultBranch(root, cfg);
   const branch = (probe(root, ['rev-parse', '--abbrev-ref', 'HEAD']) || '').trim();
   if (!branch) return { available: false, reason: 'not a git repository, or no commits yet' };
 
-  const unstaged = numstat(git(root, ['diff', '--numstat']));
-  const staged = numstat(git(root, ['diff', '--cached', '--numstat']));
+  /*
+   * A-36 · the build's own output is subtracted from the working tree, and *only* from the working tree.
+   *
+   * `atlas build` writes `worklog/<today>/<contributor>.md`, and that file is read back by the next build as
+   * work in flight. Measured on a clean clone: build 1 hashed differently from builds 2 and 3, and the whole
+   * of the difference was the build reporting its own output as somebody's uncommitted work.
+   *
+   * **Committed rows are left alone deliberately.** Once the worklog is in a commit it is part of the
+   * record, the same as any other file, and it cannot make two consecutive builds disagree — the commit does
+   * not move between them. Filtering it there would hide real history to fix a problem that only exists
+   * before the commit.
+   *
+   * Nothing is dropped silently: what was subtracted comes back as `generated`, so a caller that wants to
+   * say "and one file the build wrote itself" has the number.
+   */
+  const mine = (rows) => rows.filter((r) => isGeneratedPath(cfg, r.path));
+  const notMine = (rows) => rows.filter((r) => !isGeneratedPath(cfg, r.path));
+
+  const unstagedAll = numstat(git(root, ['diff', '--numstat']));
+  const stagedAll = numstat(git(root, ['diff', '--cached', '--numstat']));
+  const generated = dedupe([...mine(unstagedAll), ...mine(stagedAll)]);
+  const unstaged = notMine(unstagedAll);
+  const staged = notMine(stagedAll);
 
   // The branch's own work: everything since it diverged. Falls back to the last two commits when the branch
   // has not diverged — on `main` there is no merge-base to compare against.
@@ -98,7 +138,7 @@ export function readChanges(root, cfg = {}, index = null) {
   const all = dedupe([...unstaged, ...staged, ...committed]);
   return {
     available: true, branch, main, scope, base: base && base.slice(0, 8),
-    unstaged, staged, committed, commits,
+    unstaged, staged, committed, commits, generated,
     docsAtRisk: index ? docsCiting(all.map((f) => f.path), index) : [],
     clusters: index ? clusterOf(all.map((f) => f.path), index) : {},
   };

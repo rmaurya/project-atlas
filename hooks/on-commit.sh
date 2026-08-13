@@ -1,22 +1,59 @@
 #!/bin/sh
 # project-atlas · commit guard
 #
-# Two checks, in the order that matters: you cannot be told your documentation is broken on a branch you
-# should not have been committing to anyway.
+# Three checks, and **two different verdicts** — which is the whole design.
 #
-#   1. atlas branch        — protected branch, or a name that does not follow type/short-slug
-#   2. atlas health --gate — a blocking signal (dead link, duplicate title, missing H1) this commit would land
+#   1. atlas branch        — protected branch, or a name that does not follow type/short-slug   WARN
+#   2. atlas health --gate — a dead link, a duplicate title, a missing H1 this commit would land BLOCK
+#   3. atlas spec  --gate  — the commit names the plan item it advances                          WARN
 #
-# **Exit 2 is the only code that stops the tool call and puts stderr in front of Claude.** Exit 1 is treated as
-# an ordinary command failure and the commit proceeds, which is how the first version of this hook printed
-# eleven lines of refusal and then let the commit through.
+# ## Why two verdicts, when this file used to have one
 #
-# When a check cannot run, this refuses anyway and says so. A guard that waves the commit past because it could
-# not evaluate is the failure this project exists to detect.
+# The health gate makes a claim about the **repository**: this link resolves to nothing, these two documents
+# both claim the same title. There is no legitimate exception, a person cannot reasonably disagree, and the
+# commit would land known rot. That refuses.
 #
-# Turn the health half off with `automation.healthOnCommit: false` in project-atlas.config.json. It is also
-# inert in any repository with no config file, so installing the plugin does not start policing repositories
-# that never adopted it.
+# The other two make claims about **how somebody is working**: branch before you commit, name the item your
+# change advances. Those are process SOPs. They are right, they are worth saying every time, and they are
+# still somebody's judgement — the same line `health.mjs` already draws when it makes H17 advisory *because*
+# "you should have parallelised" is a claim about a working method rather than about the corpus.
+#
+# The version of this file that refused on all three was actively obstructing a live session. Every refusal it
+# printed opened with *"Safe to commit here. Branch follows the convention and is not protected"* — nothing was
+# wrong with the repository — and then blocked because it could not read a commit message that **structurally
+# could not exist yet**: a PreToolUse hook sees `cat > msg.txt && git commit -F msg.txt` before the shell runs
+# it, so the file it is asked to read is written by the command it just refused. The retry then failed because
+# the file was still missing. A loop with no exit, over a message the author had written correctly.
+#
+# **A guard people disable is worse than no guard**, and that is where this was heading. So a warning here has
+# to earn its interruption: name the SOP, say why it exists, say what to do, and then get out of the way.
+#
+# ## When the guard itself fails
+#
+# It warns. It used to refuse — *"When a check cannot run, this refuses anyway and says so"* — and one of the
+# refusals in that session was not a refusal at all but a crash (`Cannot read properties of null (reading
+# 'missing')`), which cost the operator a blocked commit for a defect in this tool. "A check that did not run
+# is never reported as having passed" is still true and still honoured: an unrunnable gate says loudly that it
+# did not run. What it must not do is convert a defect in the guard into a refusal of somebody else's work.
+#
+# ## Exit codes, which are the mechanism
+#
+# **Exit 2 is the only code that stops the tool call and puts stderr in front of Claude.** Exit 1 is an
+# ordinary command failure and the commit proceeds, which is how the first version of this hook printed eleven
+# lines of refusal and then let the commit through. On exit 0 stderr goes only to the debug log — so a warning
+# that were merely printed there would be a warning nobody ever reads. Warnings are therefore emitted as hook
+# JSON on stdout (`systemMessage` for the person, `hookSpecificOutput.additionalContext` for the model) *and*
+# on stderr for every other runtime and for the log.
+#
+# ## Switches
+#
+#   automation.healthOnCommit: false     stop gating commits on documentation rot
+#   automation.specOnCommit:   false     stop asking a shipped change to name a plan item
+#   branching.sopGate: "enforce"         refuse on the SOPs too, the way this hook behaved before
+#   ATLAS_COMMIT_SOP=enforce|warn        the same switch for one command or one CI job
+#
+# It is inert in any repository with no config file, so installing the plugin does not start policing
+# repositories that never adopted it.
 
 payload=$(cat)
 
@@ -62,46 +99,164 @@ if [ -n "$target" ] && [ -d "$target" ]; then
   ROOTARG="--root $target"
 fi
 
-"$ATLAS" branch $ROOTARG >&2
+# The posture for the SOP half, read from the repository being committed in — not from the session's own
+# config, for the same reason the gates are pointed at `$target`.
+posture=warn
+cfgdir=${target:-.}
+if [ -r "$cfgdir/project-atlas.config.json" ] && command -v jq >/dev/null 2>&1; then
+  case $(jq -r '.branching.sopGate // ""' "$cfgdir/project-atlas.config.json" 2>/dev/null) in
+    enforce) posture=enforce ;;
+  esac
+fi
+case "$ATLAS_COMMIT_SOP" in
+  enforce) posture=enforce ;;
+  warn)    posture=warn ;;
+esac
+
+WARN=''
+BLOCK=''
+BROKE=''
+
+# Two lines of shell instead of an array, because this has to run under `sh`.
+add_warn() { WARN="${WARN}$1
+"; }
+add_block() { BLOCK="${BLOCK}$1
+"; }
+
+# A gate that exits with anything other than 0 or 1 did not evaluate anything. Reported as loudly as a
+# finding — "a check that did not run is never reported as having passed" — and never as a refusal unless
+# someone asked for that. The reasoning is printed once at the end rather than three times here.
+broke() {
+  BROKE=1
+  add_warn "  ${1} could not run (exit ${2}). This commit was NOT checked by it.
+${3}"
+}
+
+# ------------------------------------------------------------------ 1 · branch discipline (SOP)
+
+out=$("$ATLAS" branch $ROOTARG 2>&1)
 st=$?
-if [ $st -ne 0 ]; then
-  [ $st -ne 1 ] && echo "project-atlas: the branch guard could not run (exit $st). This commit was NOT checked." >&2
-  exit 2
+if [ $st -eq 1 ]; then
+  add_warn "  SOP · one logical change, on a branch of its own
+${out}
+  Why: this project's own first five commits went straight to \`main\` while its contributing guide preached
+  discipline, and a rule nobody notices being broken is not a rule. A branch keeps review, revert and two
+  people working at once cheap.
+  Do:  atlas branch <type> <slug>   — uncommitted work comes across with you."
+elif [ $st -ne 0 ]; then
+  broke "the branch guard" $st "$out"
 fi
 
-"$ATLAS" health --gate $ROOTARG >&2
+# ------------------------------------------------------------------ 2 · documentation rot (blocking)
+
+out=$("$ATLAS" health --gate $ROOTARG 2>&1)
 st=$?
-if [ $st -ne 0 ]; then
-  [ $st -ne 1 ] && echo "project-atlas: the health gate could not run (exit $st). This commit was NOT checked." >&2
-  exit 2
+if [ $st -eq 1 ]; then
+  add_block "$out"
+elif [ $st -ne 0 ]; then
+  broke "the health gate" $st "$out"
 fi
 
+# ------------------------------------------------------------------ 3 · the plan item (SOP)
+#
 # The plan gate needs the commit message. It is piped rather than passed as an argument so nothing has to be
 # quoted back into a shell — a message containing a quote would otherwise rewrite the command running it.
 #
-# `git commit -F -` takes the message on stdin, where this hook cannot see it. That is reported as unreadable
-# and refused by the gate rather than waved through: a check that silently skips the cases it cannot parse is
-# a check that is off.
+# Why the message is missing is something only this script can tell, and the difference matters: the gate used
+# to name stdin for every case, which told someone who had written `-F "$DIR/msg.txt"` to use `-F <file>` —
+# advice to do the thing they had just done. A guard is trusted, so misdiagnosis costs more than silence.
 msg=$(printf '%s' "$cmd" | sed -n 's/.*-m[[:space:]][[:space:]]*"\([^"]*\)".*/\1/p')
 [ -z "$msg" ] && msg=$(printf '%s' "$cmd" | sed -n "s/.*-m[[:space:]][[:space:]]*'\([^']*\)'.*/\1/p")
 
-# Why the message is missing is something only this script can tell, and the difference matters: the gate
-# used to name stdin for every case, which told someone who had written `-F "$DIR/msg.txt"` to use `-F
-# <file>` — advice to do the thing they had just done. A guard is trusted, so misdiagnosis costs more than
-# silence.
 why=absent
 if [ -z "$msg" ]; then
-  f=$(printf '%s' "$cmd" | sed -n 's/.*-F[[:space:]][[:space:]]*\([^[:space:]]*\).*/\1/p')
-  f=$(printf '%s' "$f" | sed "s/^[\"']//; s/[\"']$//")     # a quoted path is still quoted at hook time
+  raw=$(printf '%s' "$cmd" | sed -n 's/.*-F[[:space:]][[:space:]]*\([^[:space:]]*\).*/\1/p')
+  f=$(printf '%s' "$raw" | sed "s/^[\"']//; s/[\"']$//")     # a quoted path is still quoted at hook time
   if [ "$f" = "-" ]; then
     why=stdin
   elif [ -n "$f" ]; then
-    if [ -r "$f" ]; then msg=$(cat "$f"); else why=unresolved; fi
+    if [ -r "$f" ]; then
+      msg=$(cat "$f")
+    else
+      # Three ways a `-F <path>` fails to open at hook time, and they need three different sentences.
+      #
+      #   pending      the same command line writes the file — `cat > msg.txt && git commit -F msg.txt`.
+      #                The hook runs *before* the shell, so the file cannot exist yet and never will if this
+      #                refuses: the write is inside the command being judged. This is the shape that put a
+      #                live session in a loop.
+      #   unexpanded   a variable or `~` that the shell has not substituted yet, so the path is literal text.
+      #   unresolved   a literal path that simply is not there.
+      case "$f" in
+        *'$'*|'~'*) why=unexpanded ;;
+        *)
+          if printf '%s' "$cmd" | grep -qF "> $f" || printf '%s' "$cmd" | grep -qF ">$f"; then
+            why=pending
+          else
+            why=unresolved
+          fi ;;
+      esac
+    fi
   fi
 fi
 
-printf '%s' "$msg" | "$ATLAS" spec --gate $ROOTARG --why "$why" >&2
+out=$(printf '%s' "$msg" | "$ATLAS" spec --gate $ROOTARG --why "$why" 2>&1)
 st=$?
-[ $st -eq 0 ] && exit 0
-[ $st -ne 1 ] && echo "project-atlas: the plan gate could not run (exit $st). This commit was NOT checked." >&2
-exit 2
+if [ $st -eq 1 ]; then
+  add_warn "  SOP · a shipped change names the plan item it advances
+${out}"
+elif [ $st -ne 0 ]; then
+  broke "the plan gate" $st "$out"
+fi
+
+# ------------------------------------------------------------------ the verdict
+
+[ -z "$BLOCK" ] && [ -z "$WARN" ] && exit 0
+
+FOOT=""
+if [ -n "$BROKE" ]; then
+  FOOT="  A gate that could not run is a defect in this guard, not in the commit. It says so rather than
+  claiming to have passed, and it does not refuse: a tool that blocks somebody's work because its own
+  check crashed is a tool that gets switched off, after which nothing is checked at all.
+"
+fi
+if [ "$posture" = enforce ]; then
+  FOOT="${FOOT}  Refused because branching.sopGate is \"enforce\" in this repository. The default is to warn and
+  proceed: these are claims about how work is organised, not claims that the repository is wrong."
+else
+  FOOT="${FOOT}  Blocking findings are claims that the repository is wrong — a dead link, a duplicate title, a missing
+  H1. The above are process SOPs, which are judgements a person makes, so they say their piece and let the
+  commit through. To refuse on them too: \"branching\": { \"sopGate\": \"enforce\" } in project-atlas.config.json."
+fi
+
+if [ -n "$BLOCK" ]; then
+  printf '%s\n' "$BLOCK" >&2
+  [ -n "$WARN" ] && printf 'project-atlas: also, process SOP(s) not met — none of these blocked this commit:\n\n%s\n' "$WARN" >&2
+  exit 2
+fi
+
+if [ "$posture" = enforce ]; then
+  HEAD='project-atlas: process SOP(s) not met. Refused.'
+else
+  HEAD='project-atlas: process SOP(s) not met. This is a WARNING and the commit proceeds.'
+fi
+TEXT="${HEAD}
+
+${WARN}
+${FOOT}"
+
+if [ "$posture" = enforce ]; then
+  printf '%s\n' "$TEXT" >&2
+  exit 2
+fi
+
+# stderr for the debug log and for any runtime that reads it; stdout JSON is what actually reaches the
+# session on exit 0. Unrecognised keys in hook JSON are ignored rather than fatal, so this is safe on a
+# runtime that knows only some of them.
+printf '%s\n' "$TEXT" >&2
+if command -v jq >/dev/null 2>&1; then
+  printf '%s' "$TEXT" | jq -Rs '{systemMessage: ., hookSpecificOutput: {hookEventName: "PreToolUse", additionalContext: .}}'
+else
+  esc=$(printf '%s' "$TEXT" | tr '\n\r\t' '   ' | sed 's/\\/\\\\/g; s/"/\\"/g')
+  printf '{"systemMessage":"%s","hookSpecificOutput":{"hookEventName":"PreToolUse","additionalContext":"%s"}}\n' "$esc" "$esc"
+fi
+exit 0
