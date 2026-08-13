@@ -29,6 +29,7 @@ export const PANELS = {
   people: 'Per-author commits, files, churn, days, estimated hours',
   desks: 'Per-desk attribution from the Desk: trailer',
   coverage: 'Spec-to-build — items named by a commit',
+  timeline: 'When each plan item was actually worked on — first to last commit naming it, on a shared day axis. Observed, never scheduled',
   repoTiles: 'Repository scale — files under change, how few areas hold half the churn, branches, sole-author areas',
   churn: 'Where the change lands — lines changed per area of the tree, and how many people have ever touched each',
   hotspots: 'The files the work keeps returning to, and how far each one moves when it is touched',
@@ -82,6 +83,39 @@ export const DEFAULT_VIEWS = [
     id: 'backlog', title: 'Backlog', nav: true,
     blurb: 'Every task in full — what it says, what specifies it, and who has worked on it.',
     panels: ['inflight', 'backlog', 'caveats'],
+  },
+  {
+    /*
+     * **Asked for as "a Gantt", shipped as a timeline, and the rename is the whole design.**
+     *
+     * A Gantt is a plan — planned start, planned end, dependencies between bars. This plan has none of the
+     * three: `docs/ROADMAP.md` records an id, a title, a track, a priority and a percentage, and no date of
+     * any kind exists for a plan item anywhere in the repository. Every bar of a planned Gantt here would
+     * therefore be invented, and a forecast drawn in the grammar of a measurement is the worst kind, because
+     * a Gantt is trusted *because* it looks like a commitment.
+     *
+     * What is real is the other half. `taskCoverage` already knows which commits name which item, and first
+     * commit to last commit is an interval somebody can check. So the page answers *when was this actually
+     * worked on* instead of *when was this promised*, and it is called what it is in its id, its title and
+     * its opening sentence — the two of those three that a caption cannot reach.
+     *
+     * **`inflight` sits directly under the chart, and that adjacency is the argument.** The timeline can only
+     * see committed work; a change still in the working tree is on no bar and never will be until it lands.
+     * The panel that says what is uncommitted belongs against the chart that structurally cannot show it,
+     * exactly as it sits under the plan tiles it qualifies on the five views that carry those.
+     *
+     * `coverage` follows because it is the same reading as a headline: how many items any commit names at
+     * all. The chart shows which; the panel shows how many, and states the caveat about commit conventions
+     * that explains most of the gap.
+     *
+     * **Three cards and no fourth.** `viewPage` gives a view the full width when it has no more masonry cards
+     * than masonry has columns, and the chart is 1240 units wide — squeezed into a 360px column it would be
+     * unreadable at any zoom. A panel added here has to earn its place against that.
+     */
+    id: 'timeline', title: 'Timeline', nav: true,
+    blurb: 'When each item was actually worked on, from the first commit naming it to the last. This is the shape people ask for as a Gantt — but the plan holds no dates, so nothing here is a schedule, a baseline or a forecast.',
+    clusters: ['planning'],
+    panels: ['timeline', 'inflight', 'coverage', 'caveats'],
   },
   {
     /*
