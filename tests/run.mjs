@@ -10473,6 +10473,51 @@ test('public · the FAQ states the design record this repository actually has', 
     'the FAQ quotes a design record this repository does not have');
 });
 
+test('public · `atlas artifact` does not exist, and FEATURES says so on purpose', () => {
+  // `/atlas:artifact` shells out to `atlas publish --target export`, which already did the whole job. The
+  // absence of a command of its own is a decision, and an undocumented gap is indistinguishable from an
+  // oversight — the next person closes it and there are two names for one implementation. Established by
+  // running the CLI, because a claim about what a command does *not* do is only worth what it was checked
+  // against: the dispatch table could keep the name while the page kept the paragraph.
+  eq(dispatchedCommands().includes('artifact'), false,
+    'an `atlas artifact` command now dispatches — either it is the duplication FEATURES.md argues against, '
+    + 'or the argument has changed and §1 must be rewritten to match');
+
+  const r = spawnSync(process.execPath, [CLI, 'artifact', '--root', REPO_ROOT], { encoding: 'utf8' });
+  eq(r.status, 2, '`atlas artifact` must exit 2 with the usage block, as the page tells the reader it does');
+
+  // The skill has to still be the thing that fills the gap, and it has to still shell out to the target that
+  // makes the gap survivable. A skill quietly retargeted at a new command would pass every check above.
+  const skill = docText('skills/artifact/SKILL.md');
+  includes(skill, 'atlas publish --target export',
+    'skills/artifact/SKILL.md must run the export target — that reuse is the reason there is no command');
+  includes(docText('docs/FEATURES.md'), 'There is no `atlas artifact`',
+    'FEATURES.md §1 must record the deliberate absence, so it does not read as an oversight');
+});
+
+test('public · FEATURES counts the typed-only skills and the commands with no skill', () => {
+  // Two more counts stated in prose beside lists that grow, which is the whole shape of A-29. "Thirty-seven
+  // set disable-model-invocation" and "Seven table rows have no slash command" were both maintained by hand
+  // and both moved the moment a skill landed.
+  const typedOnly = shippedSkills().filter((s) => {
+    const fm = /^---\n([\s\S]*?)\n---/.exec(docText(`skills/${s}/SKILL.md`));
+    return fm ? /^disable-model-invocation:\s*true\s*$/m.test(fm[1]) : false;
+  }).length;
+  ok(typedOnly > 0, 'sanity: skill frontmatter was parsed');
+  eq(statedFigure('docs/FEATURES.md', /\*\*[A-Za-z-]+ `SKILL\.md` files under `skills\/`\*\*[^.]*\.\s*([A-Za-z-]+) set\s+`disable-model-invocation/, '§3 headline'),
+    typedOnly, 'FEATURES.md §3 states the wrong number of typed-only skills');
+
+  // The heading counts the rows of the table directly beneath it. Sliced to that section so a row added to
+  // any other table cannot make this pass.
+  const text = docText('docs/FEATURES.md');
+  const start = text.indexOf('### Seven table rows have no slash command');
+  ok(start !== -1, 'FEATURES.md §1: the "no slash command" heading was not found — do not delete this assertion');
+  const section = text.slice(start, text.indexOf('\n### ', start + 5));
+  const rows = section.split('\n').filter((l) => /^\| `atlas [a-z-]+/.test(l)).length;
+  eq(statedFigure('docs/FEATURES.md', /### ([A-Za-z-]+) table rows have no slash command/, 'the §1 subheading'),
+    rows, 'the heading states a number of rows the table beneath it does not have');
+});
+
 console.log(`\n${pass} passed, ${fail} failed${skipped ? `, ${skipped} skipped on ${process.platform}` : ''}\n`);
 if (fail) {
   console.log('Failures:');

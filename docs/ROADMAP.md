@@ -735,6 +735,12 @@ silently is not.*
 *Generate the self-contained page automatically. Sharing it stays manual, because a shared artifact is
 outward-facing.*
 
+*`/atlas:artifact` closes the second half without reopening the first.* The skill runs the `--target export`
+this item already shipped and then publishes the result, which is the step a CLI cannot take — only a session
+can reach claude.ai. **Sharing is still manual in the sense that mattered here:** it happens because somebody
+typed the command, and the artifact stays private to them until they choose to share it. There is deliberately
+no `atlas artifact` command; a second name over the same export would be the duplication this tool detects.
+
 **A-8 · The dashboard tracks work as it happens** — **P1 · High**
 *Shipped in 0.1.54 — by the escape hatch this item named, not by the mechanism it proposed.*
 The specified answer was a `PostToolUse` hook rebuilding the dashboard alone. This took the alternative the

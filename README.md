@@ -130,7 +130,7 @@ clone this repository and call your agent's own plugin command.
 claude plugin marketplace add rmaurya/project-atlas && claude plugin install atlas@project-atlas
 ```
 
-Skills arrive namespaced — **thirty-eight of them**, one per directory under `skills/`. `/atlas:help` prints
+Skills arrive namespaced — **thirty-nine of them**, one per directory under `skills/`. `/atlas:help` prints
 the map. The ones worth knowing on day one: `/atlas:build` `/atlas:status` `/atlas:health` `/atlas:changes`
 `/atlas:diff` `/atlas:ask` `/atlas:review` `/atlas:config` `/atlas:publish` `/atlas:dashboard` `/atlas:mcp`
 `/atlas:plan`. The full list, each with the command it shells out to, is
@@ -540,7 +540,7 @@ node tests/run.mjs               # integration tests against throwaway git repos
 node tests/run.mjs --filter H6   # or a subset
 ```
 
-**The suite holds 504 test cases.** That figure is not maintained by hand: a test reads it out of this
+**The suite holds 506 test cases.** That figure is not maintained by hand: a test reads it out of this
 sentence and compares it against the cases it can count in `tests/run.mjs`, so adding a test and forgetting
 this line fails the suite. A count stated in prose beside a list that grows is a defect waiting to happen,
 and this repository has proved that three times (A-29) — most recently across the four public pages, where

@@ -197,16 +197,23 @@ rendered as `—` rather than green (`scripts/lib/health.mjs:629-631`). H16 decl
 
 ## 3. Slash commands (Claude Code skills)
 
-**Thirty-eight `SKILL.md` files under `skills/`**, up from twenty-nine on 2026-08-12. Thirty-seven set
+**Thirty-nine `SKILL.md` files under `skills/`**, up from twenty-nine on 2026-08-12. Thirty-eight set
 `disable-model-invocation: true`, which makes them typed-only; `skills/build/SKILL.md` does not and is the one
 the model may invoke on its own. Every command below was run in this repository before its skill was written.
 
 **Nine of these rows were missing from this page until 2026-08-13** — the six `git-*` commands and
 `pause`/`resume`/`stop`. `tests/run.mjs` now compares this table against `skills/` on disk and fails on a
-skill with no row, or a row naming a skill that is not there.
+skill with no row, or a row naming a skill that is not there. Both counts in the paragraph above are read
+back out of it and compared against the directories and their frontmatter, so neither can drift from the
+other.
+
+**One row here shells out to a command that is not its own.** `/atlas:artifact` runs `atlas publish --target
+export`, because everything the CLI needed to do for it was already done for that target — see [§1's note on
+the deliberate absence of `atlas artifact`](#1-cli-commands).
 
 | Skill | Shells out to | Source |
 |---|---|---|
+| `/atlas:artifact` | `atlas publish --target export --page dashboard` — **network**, and the page leaves this machine | `skills/artifact/SKILL.md` |
 | `/atlas:ask` | `atlas ask $ARGUMENTS`, `atlas scan` | `skills/ask/SKILL.md` |
 | `/atlas:branch` | `atlas branch` | `skills/branch/SKILL.md` |
 | build (model-invoked) | nothing; instructions only | `skills/build/SKILL.md` |
@@ -269,8 +276,23 @@ and the reason is recorded here so the gap is not read as an oversight and close
 | `atlas init` | Step two of a first run, and `/atlas:build` does the whole run. A command that writes a config and stops ends adoption with no index, no site and no URL — the failure `skills/build/SKILL.md` exists to prevent. |
 | `atlas capabilities` | The alias for `caps`. One implementation, one skill. |
 | `atlas git-insight` | The alias for `git-insights`, and the same reasoning. Two entries describing one implementation is drift in miniature; the second copy is the one that goes stale. |
-| `atlas contention` | Read before a fan-out, by whoever is deciding how to split the work — a moment, not a routine. A thirty-ninth slash command would be paid for by every reader of the other thirty-eight, and `skills/build/SKILL.md` names the command where the decision is actually made. |
+| `atlas contention` | Read before a fan-out, by whoever is deciding how to split the work — a moment, not a routine. A fortieth slash command would be paid for by every reader of the other thirty-nine, and `skills/build/SKILL.md` names the command where the decision is actually made. |
 | `atlas spec --gate` | The commit hook's entry point. Bare `atlas spec` is not a command at all (it falls through to the usage block and exits 2), and `--gate` reads the commit message from **stdin** — with staged files and no stdin it would wait, and it prints nothing at all when it passes. |
+
+### And one slash command has no CLI command, for the same reason in reverse
+
+**There is no `atlas artifact`, deliberately.** `/atlas:artifact` runs
+`atlas publish --target export --page dashboard --out .atlas/artifact-page.html`, which already existed:
+`--target export` writes a self-contained page with every stylesheet and script inlined and no external
+request. A second command over that same code would be two names for one thing, which is the duplication
+this tool exists to detect. What the CLI **cannot** do is reach claude.ai — only a session can, and that gap
+is the whole of the skill. Typing `atlas artifact` exits 2 with *Unknown command*, and a test asserts it
+stays that way, so the absence reads as a decision rather than as something nobody got to.
+
+It is also a **fifth exit door** for `stripLocalOnly`. The export strips the machine-local panels and
+`assertNoLocalOnly` verifies its own output before the file exists, so the boundary is held in code rather
+than in the skill's instructions — worth recording, because A-45 was that stripper failing open through the
+other four doors and returning a document unchanged.
 
 ### `/atlas:ask` answers both kinds of question — fixed
 

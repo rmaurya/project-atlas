@@ -86,9 +86,12 @@ argues this properly, including naming the abandonment trigger in advance.
 ### Why is it reporting dozens of orphans? Is my documentation that bad?
 
 No. **Orphans (H4) and staleness (H6) fire in bulk on any real corpus and always will.** This repository's own
-report: **77 documents, 52 orphans** — and none of them is a defect. Session logs, work records and design
-scaffolds are found by search and by date, not by navigation. (The figures quoted here were *49 documents, 28
-orphans, 11 unclassified* until A-50, taken on a corpus that has since half again as many files in it.)
+report: **78 documents, 53 orphans** — and none of them is a defect. Session logs, work records and design
+scaffolds are found by search and by date, not by navigation. Most of the orphans are `skills/*/SKILL.md`:
+the pages that catalogue them cite the path in a code span rather than as a link, because a link is an
+invitation to read a file written for a model rather than for you. No count of those is quoted here, because
+it is not one this page derives. (The figures quoted here were *49 documents, 28 orphans, 11 unclassified*
+until A-50, taken on a corpus that has since half again as many files in it.)
 
 That is why they are advisory rather than blocking. **The first report is a survey, not a to-do list**: read
 the blocking findings, the two or three advisory signals that look like real problems, and the *Not checked*

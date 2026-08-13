@@ -19,7 +19,7 @@ disable-model-invocation: true
 
 ---
 
-Thirty-eight slash commands is too many to list. **Give the user the group their question belongs to, then the
+Thirty-nine slash commands is too many to list. **Give the user the group their question belongs to, then the
 one or two commands in it** — the failure with a surface this size is never a missing command, it is a person
 choosing between three they cannot tell apart.
 
@@ -66,7 +66,8 @@ refs** · `/atlas:resume` the re-spawn plan for a paused session, and writes not
 **Publishing**
 `/atlas:caps` which features the host has on — **makes one network request** · `/atlas:community` issue and PR
 scaffolding for the features that came back on · `/atlas:publish` wiki, pages or a single file, and never
-without confirmation
+without confirmation · `/atlas:artifact` the dashboard, health report or index to claude.ai as a shareable
+page — **it leaves this machine**, with every local-only panel stripped and the export asserting that itself
 
 **Agent surfaces**
 `/atlas:mcp` connect a client to the read-only tool surface · `/atlas:ask` answer a question from the corpus ·

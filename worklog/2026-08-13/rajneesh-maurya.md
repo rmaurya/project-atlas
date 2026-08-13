@@ -6,10 +6,10 @@ _Written by `atlas worklog`. Measured from git and the corpus; no prompt text, a
 
 | | |
 |---|---|
-| Commits | 22 |
-| Lines | +8,481 / −996 |
+| Commits | 23 |
+| Lines | +8,813 / −1,009 |
 | Desks | agent-ae7d19510a352c90f |
-| Rework rate | 80.7% — a file re-touched within 3 days |
+| Rework rate | 80.6% — a file re-touched within 3 days |
 | Reverts | 0 |
 | Documentation | 0 blocking finding(s) at end of day |
 
@@ -32,6 +32,8 @@ _Written by `atlas worklog`. Measured from git and the corpus; no prompt text, a
 - **C-11** Fan independent work out, one worktree per agent — 30%
 - **A-48** The skill argues for fan-out and nothing counts what it costs — 100%
 - **A-49** The dashboard servers outlive the directories they serve, and the registry says nothing is running — 100%
+- **A-50** The three public pages drifted again, and the stamps that were supposed to prevent it caused it — 100%
+- **A-6** Artifact publishing — 100%
 
 ## Commits
 
@@ -56,7 +58,8 @@ _Written by `atlas worklog`. Measured from git and the corpus; no prompt text, a
 - `aa3993b` feat(render,nav): grouped menus and a burger — fifteen links in a row is a list, not a menu (A-48)
 - `20d15ff` fix(serve,session): atlas manages its own dashboard servers (A-49)
 - `fe0394f` chore(release): 0.1.70 — the orphaned-server fix, and the mirror resynced with it (A-49)
-- `150e684` wip(atlas): parked by atlas pause at 2026-08-13T09:53:52Z
+- `e1c053a` docs(public,tests): the public pages state only what the code says (A-50, A-29)
+- `523b3e2` docs(public,skills,tests): account for the thirty-ninth skill, /atlas:artifact (A-6, A-50, A-29)
 
 ---
 
