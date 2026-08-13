@@ -5951,22 +5951,41 @@ test('Q-5 · a page is rendered from the repository it was given, not the one th
   // fallback at all but the only branch that ever ran: a build of one repository from inside another put the
   // *other* repository's in-flight files on the page, with its branch name, and looked entirely correct.
   //
-  // This runs the way that failure is actually reached: the process cwd is this checkout, the render is of a
-  // fixture somewhere else. Four `|| process.cwd()` fallbacks are still in `dashboard.mjs` and are dead only
-  // because the line asserted here keeps them dead.
-  const here = execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'],
-    { cwd: REPO_ROOT, encoding: 'utf8' }).trim();
+  // This runs the way that failure is actually reached: the process cwd is one repository, the render is of
+  // another. Four `|| process.cwd()` fallbacks are still in `dashboard.mjs` and are dead only because the
+  // line asserted here keeps them dead.
+  //
+  // The cwd is a *second fixture*, not this checkout. The first draft stood in this checkout and asserted
+  // that its branch name was absent from the page — and that assertion could not pass on `main`, because
+  // every page has a `<main>` element. So the whole suite was green in every agent worktree and red on the
+  // one branch a release is cut from, which is how 0.1.72 shipped with a failing test nobody could see. A
+  // test must not depend on the name of the branch the person running it happens to be standing on.
+  const elsewhere = fixture('q5-the-other-repository', { 'docs/OTHER.md': '# other\n' });
+  execFileSync('git', ['switch', '-qc', 'feat/never-on-the-page'], { cwd: elsewhere, stdio: 'ignore' });
+  fs.writeFileSync(path.join(elsewhere, 'docs/UNCOMMITTED.md'), '# uncommitted, and elsewhere\n');
+
   const dir = fixture('q5-elsewhere', { 'docs/A.md': '# A\n' });
   execFileSync('git', ['switch', '-qc', 'feat/only-in-the-fixture'], { cwd: dir, stdio: 'ignore' });
   fs.writeFileSync(path.join(dir, 'docs/B.md'), '# B\n');
 
-  const { cfg, index, health } = analyse(dir);
-  const { outDir } = renderSite(index, health, cfg, dir);
-  for (const page of ['index.html', 'dashboard.html']) {
-    const html = fs.readFileSync(path.join(outDir, page), 'utf8');
+  const was = process.cwd();
+  let pages;
+  try {
+    process.chdir(elsewhere);
+    const { cfg, index, health } = analyse(dir);
+    const { outDir } = renderSite(index, health, cfg, dir);
+    pages = ['index.html', 'dashboard.html']
+      .map((page) => [page, fs.readFileSync(path.join(outDir, page), 'utf8')]);
+  } finally {
+    process.chdir(was);
+  }
+
+  for (const [page, html] of pages) {
     includes(html, 'feat/only-in-the-fixture', `${page} must describe the repository it was asked to render`);
-    ok(here === 'feat/only-in-the-fixture' || !html.includes(here),
-       `${page} names the branch of the checkout the test runner happens to be in — that is the defect`);
+    ok(!html.includes('feat/never-on-the-page'),
+       `${page} names the branch of the repository the process was standing in — that is the defect`);
+    ok(!html.includes('UNCOMMITTED.md'),
+       `${page} lists a file in flight in the other repository — the same defect, seen through the panel`);
   }
 });
 
