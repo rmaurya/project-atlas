@@ -154,6 +154,40 @@ act on. Note it uses `??`, not `||`, so a configured `0` genuinely means zero.
 **Estimated versus measured is preserved everywhere** — estimated figures are drawn hatched, and an item with
 no figure is charted as **unknown, never as zero**, and excluded from means.
 
+### Two plan dialects, detected rather than declared
+
+You do not configure which dialect you wrote. The reader tries the id-and-percentage patterns above first;
+if they match nothing, it tries the status-tag shape; and it names the one it used in the notes the dashboard
+prints under *What this dashboard does not show*.
+
+| | **`ids-and-percentages`** (default) | **`status-tags`** |
+|---|---|---|
+| An item | `**A-38 · Title** — **P1 · High**` | `- **[open] P0 — Title.**` |
+| Identity | the id you wrote — `A-38` | **none in the document** |
+| Progress | `\| A-38 \| 60 \|`, `*` = estimated | none; `[open]`/`[done]` is a state |
+| Priority | from the item line | from the title if it says `P0`–`P4`, else from a `## P1 …` heading, else **absent** |
+| Status | which completion band the figure falls in | `[open]` · `[in-progress]` · `[blocked]` · `[deferred]` · `[done]`, with any trailing date or reason kept |
+
+The status tag may carry more than a state — `[blocked — owner decision]`, `[done 2026-07-27]` — and the
+remainder is read into `stateNote` rather than thrown away. A title may wrap onto the next line, and the
+description may begin on the title's own line, immediately after the closing `**`; both are read.
+
+**What the second dialect costs you, stated plainly.** A `status-tags` plan gives its items no identifier, and
+none is invented — no ordinal, no hash of the title, and never a spec id borrowed out of the prose, because a
+document an item *cites* is not the same thing as that item's name. The id shown is `L` plus the line the item
+starts on: it locates the item in the file today and changes the moment anything above it is edited. So:
+
+- **no commit can name one of these items.** Spec-to-build coverage, the Gantt and `atlas contention`'s
+  duplicate-id check all bind on an item id, and against this dialect they bind to nothing and report nothing.
+- **no completion figures.** `[open]` means not started; it does not mean 0% measured, so no percentage,
+  no mean and no progress bar is derived from a status. The charts show the states instead.
+- **no priority is invented** for an item under a heading that names none.
+
+If you want an item a commit can name, give it an id and the first dialect reads it. A document written in
+**both** dialects is ambiguous: the declared ids are read, the tagged bullets are left unread, and the notes
+say so rather than guessing. A document matching neither says what it looked for and did not find, instead of
+rendering an empty page that reads as a broken tool.
+
 ---
 
 ## Deck

@@ -11056,6 +11056,239 @@ test('A-27 · no id literal reaches the shipped wire, because the bundler rewrit
   includes(wire, ".querySelector('.stamp[data-built]')", 'by class, and only where a value was actually baked');
 });
 
+/* ================================================================== S-8 · the second plan dialect */
+
+/**
+ * **Synchronous, like everything appended below the drain.** `pendingAsync` is emptied thousands of lines
+ * above, so an `async` case here would be registered, never awaited, and reported as a pass it never earned.
+ *
+ * The fixture is a **verbatim slice** of a real 1,559-line backlog
+ * (`Storage-Studio-MacOS-App/docs/DEVELOPMENT-BACKLOG.md`), not a shape invented to match the parser. Every
+ * awkwardness it pins was found in that document and not before it: a title that wraps onto a second line,
+ * a description that begins mid-line right after the closing `**`, a status tag carrying a date or a reason,
+ * a priority that lives in the title for three items and in the heading for the rest, and a whole section
+ * under a heading that names no priority at all.
+ */
+const TAGGED_MD = [
+  '# DEVELOPMENT-BACKLOG.md — the active, prioritized backlog',
+  '',
+  '## How to use this doc (the convention)',
+  '',
+  '- **One item = one bullet** under a priority heading, with: what + why, the files',
+  "  to touch, why it's deferred (if it is), and a one-line **Done when** acceptance.",
+  '- **Priority:** P1 = do next · P2 = soon / quick win · P3 = when relevant · P4 =',
+  '  nice-to-have. Re-rank freely.',
+  '',
+  '## P1 — do next',
+  '',
+  '- **[open] P0 — single-file moves transfer nothing; AutoSync has never moved a file.**',
+  '  `RsyncSupport.arguments()` (`Common/RsyncSupport.swift:153-154`) appends the',
+  '  contents-of-source `/` to both paths unconditionally. Full detail:',
+  '  `docs/AUDIT-METADATA-20260809.md` P0-1; spec `srs/SRS-Metadata-Fidelity.md` `MET-F-1`.',
+  '  **Done when:** a single-file move exits 0 and the destination is a file.',
+  '',
+  '- **[blocked — owner decision] Should Quit unload the scheduled daemon?**',
+  '  The 2026-08-08 teardown work made Quit and Restart one path.',
+  '',
+  '- **[open] Quit, Restart and the single-instance guard shipped to every user without ever being',
+  '  exercised in a running app.** `Common/AppTeardown.swift` reaps every helper the app spawned.',
+  '',
+  '## P4 — nice-to-have',
+  '',
+  '- **[deferred] Release-notes hygiene.**',
+  '  Deliberately later, and this says why.',
+  '',
+  '- **[done 2026-07-27] Move `ManifestStore.loadAll()` decode off the `@MainActor`**',
+  '  Landed already.',
+  '',
+  '## Storage Inspector rebuild — SHIPPED in v4.14.6, verification still open',
+  '',
+  '- **[open] Cross-link the Trash row to Free Up Space.** The Inspector deliberately',
+  '  never makes `~/.Trash` actionable and says so inline.',
+  '',
+].join('\n');
+
+const taggedRepo = fixture('planning-tagged', { 'docs/DEVELOPMENT-BACKLOG.md': TAGGED_MD });
+const readTagged = () => {
+  const cfg = resolveConfig(taggedRepo);
+  cfg.planning = { source: 'docs/DEVELOPMENT-BACKLOG.md' };
+  return readPlanning(taggedRepo, cfg);
+};
+
+test('S-8 · a plan with no ids and no checkboxes is read, not reported as empty', () => {
+  // The defect: against this document `atlas tasks` reported 0 items and was *correct*, which is the worst
+  // kind of empty page. The owner read it twice as the tool being broken.
+  const plan = readTagged();
+  eq(plan.dialect, 'status-tags');
+  eq(plan.items.length, 6, 'six bullets carry a status tag; the convention prose above them carries none');
+
+  // `- **One item = one bullet**` and `- **Priority:** …` are bold bullets *about* the list. A parser that
+  // took every bold bullet would file two paragraphs of house style as engineering work.
+  eq(plan.items.some((i) => /One item = one bullet|P1 = do next/.test(i.title)), false,
+     'the convention section is prose, not items');
+});
+
+test('S-8 · status and priority are read from where the document actually puts them', () => {
+  const plan = readTagged();
+  const byLabel = (t) => plan.items.find((i) => i.title.startsWith(t));
+
+  const single = byLabel('single-file moves');
+  eq([single.state, single.priority], ['open', 'P0'], 'priority in the title wins, and is lifted out of it');
+  eq(single.title, 'single-file moves transfer nothing; AutoSync has never moved a file.',
+     'the `P0 — ` prefix is a field now, so it is not left duplicated in the title');
+
+  const daemon = byLabel('Should Quit unload');
+  eq([daemon.state, daemon.stateNote], ['blocked', 'owner decision'], 'the tag carries a reason as well as a state');
+  eq(daemon.priority, 'P1', 'no priority in the title, so the `## P1 — do next` heading supplies it');
+
+  const moved = byLabel('Move `ManifestStore');
+  eq([moved.state, moved.stateNote, moved.priority], ['done', '2026-07-27', 'P4'], 'the tag carries a date');
+
+  // Priority is real in this dialect, so it is used — and only where it exists.
+  const trash = byLabel('Cross-link the Trash row');
+  eq(trash.priority, null,
+     'the heading above it names no priority, and a default would put a rank on the page nobody wrote');
+  eq(trash.criticality, null, 'this dialect has no criticality field at all — null, not an empty string');
+  eq(plan.stats.byPriority.map((x) => [x.priority, x.count]),
+     [['P0', 1], ['P1', 2], ['P4', 2], [null, 1]]);
+});
+
+test('S-8 · a wrapped title is one title, and a description that starts mid-line is not lost', () => {
+  // 88 of the 156 items in the real document close their bold run on a later line, and many resume the prose
+  // on that same line. Reading only `lines[i]` takes half the title; starting the body at `i + 1` throws away
+  // the sentence that names the file to change.
+  const plan = readTagged();
+  const guard = plan.items.find((i) => i.title.startsWith('Quit, Restart'));
+  eq(guard.title,
+     'Quit, Restart and the single-instance guard shipped to every user without ever being exercised in a running app.',
+     'two source lines, one title, joined on a single space');
+  includes(guard.description, 'reaps every helper the app spawned');
+  eq(/single-instance guard shipped/.test(guard.description), false, 'the title is not repeated in the body');
+
+  const trash = plan.items.find((i) => i.title.startsWith('Cross-link'));
+  includes(trash.description, 'The Inspector deliberately',
+           'the body begins on the title line, right after the closing **');
+  includes(trash.summary, 'never makes ~/.Trash actionable');
+
+  // The next item and the next track heading both bound a body, or one item swallows the section after it.
+  const hygiene = plan.items.find((i) => i.title.startsWith('Release-notes'));
+  eq(/ManifestStore/.test(hygiene.description), false, 'the next item ends the previous one');
+  const moved = plan.items.find((i) => i.title.startsWith('Move `ManifestStore'));
+  eq(/Cross-link/.test(moved.description), false, 'a track heading ends the last item of a track');
+});
+
+test('S-8 · no progress is invented from a status, and unknown is still not zero', () => {
+  const plan = readTagged();
+  eq(plan.items.filter((i) => i.percent === null).length, 6,
+     '`[open]` means not started, not 0% measured; `[done]` is a state, not a figure');
+  eq(plan.items.some((i) => i.estimated), false);
+  eq(plan.stats.mean, null, 'there is nothing to average, so nothing is averaged');
+  eq(plan.tracks.every((t) => t.mean === null), true);
+
+  eq(plan.stats.byStatus.map((b) => [b.label, b.count]),
+     [['Not started', 3], ['In progress', 0], ['Blocked', 1], ['Deferred', 1], ['Done', 1]],
+     'the bands are the states the document wrote, and an empty one still shows');
+  eq(plan.stats.byStatus.reduce((n, b) => n + b.count, 0), plan.items.length,
+     'every item lands in exactly one band, so the chart totals the item count');
+
+  // `unknown` is the "somebody has not filled this in" bucket, and the status chart draws it beside the
+  // bands. Left at 6 here it would double the chart and call six items of known state unknown.
+  eq(plan.stats.unknown, 0);
+  eq(plan.bands.every((b) => ['none', 'mid', 'high', 'done', 'unknown'].includes(b.tone)), true,
+     'every tone must be one the renderer allow-lists, or the band silently loses its colour');
+});
+
+test('S-8 · ids are locators, and the plan says on the page that no commit can name one', () => {
+  const plan = readTagged();
+  const single = plan.items.find((i) => i.title.startsWith('single-file moves'));
+  eq(single.id, `L${single.line}`, 'the id is the line the item starts on — a place to look, not a name');
+  eq(single.idKind, 'locator');
+  eq(new Set(plan.items.map((i) => i.id)).size, plan.items.length, 'unique by construction');
+
+  // A cited spec id is a pointer to a specification, not the item's own identity, and this item cites two.
+  eq(/MET-F-1|P0-1/.test(single.id), false, 'a citation in the prose must never be adopted as the id');
+
+  const said = plan.notes.join(' ');
+  includes(said, 'cannot be named by a commit');
+  includes(said, 'status-tag dialect');
+  includes(said, 'status, not completion');
+  includes(said, 'left without one', 'the unprioritised item is declared, not defaulted');
+});
+
+test('S-8 · the id-and-percentage dialect is untouched by the second reader', () => {
+  // Every repository already writing `**A-38 · …**` with a `| A-38 | 100 |` table must parse identically.
+  //
+  // `PLAN_MD` is the same source the original planning cases read, re-laid because `made` is swept and every
+  // fixture directory made above the drain is gone by the time anything down here runs. Reusing `planRepo`
+  // here read a deleted path, and the case failed on `missing: true` rather than on anything it was testing.
+  const dir = fixture('planning-classic-unchanged', { 'docs/TASKS.md': PLAN_MD, 'docs/A.md': '# A\n' });
+  const cfg = resolveConfig(dir);
+  cfg.planning = { source: 'docs/TASKS.md' };
+  const plan = readPlanning(dir, cfg);
+  eq(plan.dialect, 'ids-and-percentages');
+  eq(plan.items.map((i) => i.id), ['A-1', 'A-2', 'B-1', 'B-2', 'B-3']);
+  eq(plan.items.every((i) => i.idKind === 'declared'), true);
+  eq(plan.items.every((i) => i.state === null), true, 'the classic dialect records no status tag');
+  eq(plan.items.map((i) => i.percent), [0, 45, 100, 30, null]);
+  eq(plan.items.find((i) => i.id === 'B-2').estimated, true);
+  eq([plan.stats.mean, plan.stats.unknown, plan.stats.estimated], [43.8, 1, 1]);
+  eq(plan.bands, DEFAULT_PLANNING.statusBands, 'the configured completion ramp, not the state bands');
+  eq(plan.stats.byStatus.map((b) => [b.label, b.count]),
+     [['Not started', 1], ['In progress', 2], ['Nearly done', 0], ['Done', 1]]);
+  includes(plan.notes.join(' '), 'not as zero');
+  eq(plan.notes.some((n) => /status-tag dialect|locator/.test(n)), false,
+     'a document with ids says nothing about the dialect it is not written in');
+});
+
+test('S-8 · both dialects in one document is ambiguous, and is said rather than guessed', () => {
+  const dir = fixture('planning-both-dialects', {
+    'docs/TASKS.md': [
+      '## Track 1 — Work', '',
+      '**X-1 · A declared item** — **P1 · High**',
+      '*It has an id a commit can name.*', '',
+      '- **[open] A tagged bullet in the same file.**',
+      '  It has no id at all.', '',
+    ].join('\n'),
+  });
+  const cfg = resolveConfig(dir);
+  cfg.planning = { source: 'docs/TASKS.md' };
+  const plan = readPlanning(dir, cfg);
+
+  // The declared id wins: it is the one a commit, the spec gate and contention can bind to, and trading it
+  // for a locator would be a strict downgrade. What is not acceptable is making that choice quietly.
+  eq(plan.dialect, 'ids-and-percentages');
+  eq(plan.items.map((i) => i.id), ['X-1']);
+  const said = plan.notes.join(' ');
+  includes(said, 'both** plan dialect');
+  includes(said, 'left unread');
+});
+
+test('S-8 · a plan matching neither dialect says what it looked for instead of showing an empty page', () => {
+  const dir = fixture('planning-neither-dialect', {
+    'docs/TASKS.md': '# Plan\n\n## Later\n\n- [ ] a checkbox nobody taught this tool to read\n- another bullet\n',
+  });
+  const cfg = resolveConfig(dir);
+  cfg.planning = { source: 'docs/TASKS.md' };
+  const plan = readPlanning(dir, cfg);
+  eq(plan.items, [], 'nothing parsed, so nothing is invented');
+  eq(plan.dialect, 'ids-and-percentages', 'no tagged bullet either, so the default reading stands');
+  const said = plan.notes.join(' ');
+  includes(said, 'Neither dialect matched');
+  includes(said, 'not because it has no work in it');
+});
+
+test('S-8 · a refused item pattern does not fall through to the second dialect', () => {
+  // A pattern that was declined never ran, so "the first dialect found nothing" is not true of it. Reading
+  // the file the other way there would answer a question nobody asked, and would contradict the note already
+  // saying the configured pattern was not applied.
+  const cfg = resolveConfig(taggedRepo);
+  cfg.planning = { source: 'docs/DEVELOPMENT-BACKLOG.md', itemPattern: '(a+)+$' };
+  const plan = readPlanning(taggedRepo, cfg);
+  eq(plan.items, []);
+  includes(plan.notes.join(' '), 'was NOT applied');
+  eq(plan.notes.some((n) => /status-tag dialect/.test(n)), false);
+});
+
 console.log(`\n${pass} passed, ${fail} failed${skipped ? `, ${skipped} skipped on ${process.platform}` : ''}\n`);
 if (fail) {
   console.log('Failures:');

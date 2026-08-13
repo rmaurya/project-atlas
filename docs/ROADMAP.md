@@ -48,7 +48,7 @@ measured against the code — the same distinction the tool preserves everywhere
 | A-45 | 100 | A-46 | 100 | A-48 | 100 |
 | M-5 | 100 | A-47 | 100 | A-49 | 100 |
 | A-50 | 100 | A-51 | 0 | A-52 | 100 |
-| A-53 | 100 | A-54 | 100 | | |
+| A-53 | 100 | A-54 | 100 | S-8 | 100 |
 
 ---
 
@@ -1730,6 +1730,20 @@ task carrying three things it does not have today:*
 
 *Derived from git and the corpus, never typed: an item's contributor list that someone has to maintain is a
 list that goes stale, which is the failure this whole tool exists to detect.*
+
+**S-8 · A second plan dialect: status and priority instead of ids** — **P1 · High**
+*The reader assumed every plan names its items. A real 1,559-line backlog — actively maintained, organised
+under `## P1 — do next` … `## P4`, with `- **[open] P0 — the thing is broken.**` bullets — has zero
+ID-prefixed rows and zero checkboxes, so `atlas tasks` reported **0 items and was correct**: the worst kind of
+empty page, right and useless, read twice by its owner as the tool being broken. `planning.mjs` now detects a
+second dialect rather than asking anyone to declare one, and reads status, priority, track, title, wrapped
+titles and mid-line descriptions out of it. **The identity question is answered rather than papered over:**
+these items have no id, none is fabricated — not an ordinal, not a hash, and never a spec id borrowed out of
+the prose — the id shown is a line locator, and the plan states on its own page that **no commit can name
+them**, so coverage, the Gantt and the contention check bind to nothing here and say so. No progress is
+invented from a status and no priority is invented for an item that has none. Detection is one-way: a
+document with declared ids parses exactly as before, and a document written in both is called ambiguous
+rather than guessed at.*
 
 **S-7 · The item model carries a description and its sources** — **P1 · High**
 *Prerequisite for S-6, and the reason the backlog has nothing to show. `planning.mjs` parses an id, title,
