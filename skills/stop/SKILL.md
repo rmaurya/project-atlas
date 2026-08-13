@@ -21,7 +21,8 @@ Say plainly:
 
 - which worktrees would be **removed**,
 - which would be **kept**, and why — "has uncommitted work" is the important one,
-- that **every branch and every `wip/agent-*` checkpoint survives**. Nothing that reached git is deleted here.
+- that **every branch and every `wip/agent-*` checkpoint survives**. Nothing that reached git is deleted here,
+- **which dashboard servers would be stopped**, if any line says so.
 
 Then stop. Run `atlas stop` for real only when the operator asks for it. Do not chain the two.
 
@@ -45,7 +46,24 @@ They are not two strengths of the same thing.
 
 If the operator says "stop for today", they almost certainly mean `atlas pause`. Ask.
 
+## The dashboard servers it stops
+
+A removed worktree's line may carry `· dashboard on port NNNN (pid N) stopped`. **Report that.** `stop` used
+to remove the worktrees and leave their servers running, and that omission manufactured four of the five
+orphaned dashboards found on one machine in a single session — each still listening, still rebuilding,
+serving a directory that no longer existed, so anyone who opened the port read another repository's branch
+believing it was their own (A-49).
+
+It also sweeps for the backlog those earlier runs left behind, and prints a `Stopped N orphaned dashboard
+server(s)` block naming every pid, port and deleted directory. Say it. Silence there is how the leak went
+unnoticed twice.
+
+A `left` line is the opposite: a process the tool refused to signal because it could not establish that it
+was an atlas server for a root that is gone. It is **still running**. Pass on the reason verbatim — deciding
+what that process is belongs to the operator, not to this skill.
+
 ## What it never touches
 
 Branches, commits, checkpoints, the journal, the corpus, and the operator's own working tree. `stop` clears
-*session state* — which worktrees existed and what was parked — and nothing else.
+*session state* — which worktrees existed, what was parked, and the dashboard servers of the worktrees it
+removed — and nothing else.

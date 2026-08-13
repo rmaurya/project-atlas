@@ -37,6 +37,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
+import { pidFile, discoverServers, terminateServer, deregisterServer, readRegistry } from './serve.mjs';
 
 export const PARKED_FILE = '.atlas/parked.json';
 export const WIP_PREFIX = 'wip/agent-';
@@ -304,17 +305,63 @@ export function verifyParked(root, parked) {
 }
 
 /**
+ * Which dashboard server, if any, is serving this worktree — asked **before** the worktree is removed. (A-49)
+ *
+ * Three records, because any one of them can be missing and the consequence of missing all three is a server
+ * that outlives the directory it serves:
+ *
+ *   - the worktree's own `.atlas/serve.pid`, which is *inside the directory about to be deleted* and so can
+ *     only be read now;
+ *   - the machine's process table, which knows about servers whose pidfile was never written or was pruned —
+ *     and that is the population the incident was made of;
+ *   - the cross-project registry, last, as a hint of final resort.
+ *
+ * Returns a claim, never an instruction. Nothing is signalled on the strength of this; `terminateServer`
+ * re-establishes the evidence itself at the moment of the signal.
+ */
+function serverClaimFor(dir, discovered) {
+  const abs = path.resolve(dir);
+  let claim = null;
+  try {
+    const raw = JSON.parse(fs.readFileSync(pidFile(abs), 'utf8'));
+    if (raw?.pid) claim = { pid: raw.pid, port: raw.port ?? null, from: 'pidfile' };
+  } catch { /* no pidfile is the common case for a server started before this change */ }
+  if (!claim && Array.isArray(discovered)) {
+    const hit = discovered.find((s) => s.root === abs);
+    if (hit) claim = { pid: hit.pid, port: hit.port, from: 'process table' };
+  }
+  if (!claim) {
+    const hit = readRegistry().find((e) => e.root && path.resolve(e.root) === abs);
+    if (hit?.pid) claim = { pid: hit.pid, port: hit.port ?? null, from: 'registry' };
+  }
+  return claim;
+}
+
+/**
  * Clear the session state. Branches and commits are never touched.
  *
  * Refuses on a dirty worktree unless forced, because "stop" means *finish cleanly* and deleting somebody's
  * uncommitted work on the way past is the opposite of that. The suggestion in the refusal is `atlas pause`,
  * which is the command that makes stopping safe.
+ *
+ * **It also stops the dashboard server of every worktree it removes.** (A-49) It did not, and that omission
+ * manufactured four of the five orphaned servers found on this machine in one session: `stop` deleted the
+ * worktrees, the servers went on listening and rebuilding against directories that no longer existed, and
+ * the owner opened one of those ports and read another repository's branch believing it was their own.
+ *
+ * The order is: identify the server, remove the worktree, and only then signal — so a removal that git
+ * refuses leaves a working worktree with a working server, rather than a live worktree somebody has just
+ * silently taken the dashboard away from.
  */
 export function stopSession(root, opts = {}) {
   const { force = false, dryRun = false } = opts;
   const trees = worktrees(root);
   const removed = [];
   const kept = [];
+  // One scan for the whole run rather than one per worktree: `ps` is cheap but not free, and a stop that
+  // shells out once per tree on a machine with a dozen of them is a noticeably slow teardown.
+  const discovered = discoverServers();
+  const servers = { stopped: [], failed: [], scanned: discovered !== null };
 
   // Same real-path comparison `pauseSession` uses. A raw string compare here meant `/tmp/…` and
   // `/private/tmp/…` read as different directories, so `stop` would try to remove its own root — and the
@@ -335,6 +382,10 @@ export function stopSession(root, opts = {}) {
       kept.push({ id, dir: w.dir, dirty, why: 'locked' });
       continue;
     }
+    // Read while the directory still exists. `.atlas/serve.pid` lives inside the tree about to be deleted,
+    // so a moment from now this question has no answer.
+    const claim = serverClaimFor(w.dir, discovered);
+
     if (!dryRun) {
       const args = ['worktree', 'remove', w.dir];
       if (force) args.push('--force');
@@ -342,7 +393,32 @@ export function stopSession(root, opts = {}) {
       const r = git(root, args, { allowFail: true });
       if (r === null) { kept.push({ id, dir: w.dir, dirty, why: 'git refused to remove it' }); continue; }
     }
-    removed.push({ id, dir: w.dir, dirty });
+    const rec = { id, dir: w.dir, dirty, server: claim };
+    removed.push(rec);
+
+    if (claim && !dryRun) {
+      // **A pid that is already dead is not a failure to report.** It is a stale pidfile, which is the
+      // ordinary residue of a server that exited on its own, and shouting about it every time would bury the
+      // one line that matters — a server still running that this could not confirm.
+      let alive = true;
+      try { process.kill(claim.pid, 0); } catch { alive = false; }
+      if (!alive) {
+        deregisterServer(w.dir);
+        rec.server = { ...claim, outcome: 'already gone' };
+        continue;
+      }
+      const t = terminateServer(claim.pid, { port: claim.port });
+      if (t.signalled) {
+        deregisterServer(w.dir);
+        rec.server = { ...claim, outcome: 'stopped', exited: t.exited };
+        servers.stopped.push({ id, dir: w.dir, pid: claim.pid, port: claim.port, from: claim.from, exited: t.exited });
+      } else {
+        // Named, never silent. A live process this could not confirm is still out there, and the operator is
+        // the only one who can decide what it is — which they cannot do if the refusal is swallowed.
+        rec.server = { ...claim, outcome: 'could not stop', reason: t.reason };
+        servers.failed.push({ id, dir: w.dir, pid: claim.pid, port: claim.port, from: claim.from, reason: t.reason });
+      }
+    }
   }
 
   const f = path.join(root, PARKED_FILE);
@@ -354,5 +430,5 @@ export function stopSession(root, opts = {}) {
   const wip = (git(root, ['branch', '--list', `${WIP_PREFIX}*`, '--format=%(refname:short)'], { allowFail: true }) || '')
     .split('\n').map((s) => s.trim()).filter(Boolean);
 
-  return { removed, kept, hadManifest, wipRefs: wip, dryRun, forced: force };
+  return { removed, kept, hadManifest, wipRefs: wip, dryRun, forced: force, servers };
 }
