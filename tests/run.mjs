@@ -8922,6 +8922,229 @@ test('inventory · the README quotes the real length of install.sh and the real 
     'add a test and this fails until the README says so — which is the whole point of this block');
 });
 
+/* ================================================================== the suite, on the QC page (A-47) */
+
+console.log('\nthe suite on the QC page');
+
+/**
+ * **The Quality view could tell you how often work is redone and not whether anything is tested.**
+ *
+ * The panel that was there answered half of it — a count and a grouping — and got the grouping from the
+ * wrong place: `testcases.mjs::sectionsOf` reads comment banners, and on this suite the largest banner is
+ * `done`, the one over the async drain. Seventy-four cases, the biggest bar on the page, filed under a label
+ * that names a point in a file rather than an area of the system.
+ *
+ * These cases pin the three things the panel now has to be right about: it groups by what the runner
+ * *announces*, it reconciles those groups against the inventory instead of quietly showing a smaller number,
+ * and it finds the drain rather than being told about it.
+ *
+ * **Every case here is synchronous.** `pendingAsync` is drained thousands of lines above, so an `async` case
+ * appended here would be constructed, never awaited, and reported as a pass it never earned — which is the
+ * very hazard the panel these cases cover exists to display.
+ */
+
+/** A view context whose `repo` is shaped the way `render.mjs` shapes it, over a fixture's own files. */
+function suiteCtx(name, files) {
+  const dir = fixture(name, { 'docs/A.md': '# A\n', ...files });
+  const cfg = { ...resolveConfig(dir), __root: dir };
+  const index = buildIndex(dir, cfg);
+  const tracked = execFileSync('git', ['-C', dir, 'ls-files'], { encoding: 'utf8' }).split('\n').filter(Boolean);
+  return {
+    dir, cfg, index, health: runHealth(index, cfg, dir), plan: null, contrib: null, nav: [],
+    repo: {
+      files: tracked,
+      code: tracked.filter((f) => /\.(m?[jt]sx?|py|go|rs|java|rb|swift|kt|c|h|cpp|cs|php|sh)$/i.test(f)),
+      tests: testInventory(dir, tracked),
+    },
+  };
+}
+
+const suiteHtml = (ctx, extra = {}) =>
+  viewPage({ id: 'qc', title: 'Quality', panels: ['testcases'] }, { ...ctx, ...extra }, (o) => o.body);
+
+test('testcases · the panel groups by what the runner announces, not by its comment banners', () => {
+  // The banner grouping is not merely coarser, it is wrong: `done` is the marker over the drain and every
+  // case below it inherited that label. What a runner prints is the grouping its author stands behind, and
+  // it is the label a reader has already seen scroll past.
+  const ctx = suiteCtx('qc-groups', {
+    'tests/run.mjs': [
+      "const pending = [];",
+      "/* ===== done */",
+      "console.log('\\nglob');",
+      "test('glob spans directories', () => {});",
+      "test('glob never crosses a boundary', () => {});",
+      "console.log('\\ntaxonomy');",
+      "test('a filename rule wins', () => {});",
+      '',
+    ].join('\n'),
+  });
+  const html = suiteHtml(ctx);
+
+  includes(html, '>glob<', 'the announced group is the bar label');
+  includes(html, '>taxonomy<', 'and so is the second one');
+  eq(/<span class="bl">done<\/span>/.test(html), false,
+    'the banner over the drain must not be a group — it names a point in the file, not an area');
+  includes(html, 'label that names a point in the file rather than an area of the system',
+    'and the panel says which grouping it chose, so the reader is not left to guess');
+  // The counts come from `casesInFile`, the same extractor `testInventory` uses. Two answers to "how many
+  // cases" is the fork this whole tool exists to detect, committed in code rather than in prose.
+  includes(html, 'Every one of the 3 cases is accounted for below.');
+});
+
+test('testcases · a group total that does not reconcile is reported, not quietly shown', () => {
+  // The failure mode this replaces: a panel that sums to less than the headline and says nothing, so a
+  // reader takes the bars for the whole suite. A file the runner never announces is grouped under its own
+  // path rather than dropped — the reconciliation line then has to still read "every one".
+  const ctx = suiteCtx('qc-reconcile', {
+    'tests/loud.test.js': "console.log('\\nalpha');\ntest('a', () => {});\n",
+    'tests/quiet.test.js': "test('b', () => {});\ntest('c', () => {});\n",
+  });
+  const html = suiteHtml(ctx);
+
+  eq(ctx.repo.tests.cases.length, 3, 'the fixture holds three cases across two files');
+  includes(html, 'Every one of the 3 cases is accounted for below.',
+    'a file whose runner announces nothing is grouped under its path, not left out of the bars');
+  includes(html, '>tests/quiet.test.js<', 'and that path is the group label');
+  includes(html, '>alpha<');
+});
+
+test('testcases · a case registered below the async drain is found, counted and named', () => {
+  // The suite queues any case returning a promise and awaits the queue partway through the file. A case
+  // appended below that point is registered after the only thing that would await it: nothing inspects its
+  // assertions and the runner prints a pass it did not earn. Silent, and identical to a real pass.
+  const ctx = suiteCtx('qc-drain', {
+    'tests/run.mjs': [
+      "const pendingAsync = [];",
+      "function test(name, fn) { const r = fn(); if (r && r.then) pendingAsync.push({ name, p: r }); }",
+      "console.log('\\nbefore');",
+      "test('a synchronous case above the drain', () => {});",
+      "for (const { name, p } of pendingAsync) { await p; }",
+      "console.log('\\nafter');",
+      "test('a synchronous case below the drain', () => {});",
+      "test('an async case below the drain', async () => {});",
+      '',
+    ].join('\n'),
+  });
+  const html = suiteHtml(ctx);
+
+  includes(html, '<code>pendingAsync</code>', 'the queue is found by structure, and named');
+  includes(html, '<strong>2</strong> of its cases are registered', 'both cases below the drain are counted');
+  includes(html, '1 case(s) below the drain are declared <code>async</code>',
+    'and the one that is actually broken is separated from the exposure');
+  // **Asserted as the whole element, not as a substring.** The first implementation matched the name with a
+  // lazy `[\s\S]*?`, which on a case that is not `async` backtracks past its own closing quote and runs on
+  // until it finds a later one — so the page quoted an eleven-thousand-character "test name" made of every
+  // case in between. `includes(html, 'an async case below the drain')` was true of that blob too. The count
+  // was right and only the name was absurd, which is why this was found by looking at the page and not here.
+  includes(html, '<q>an async case below the drain</q>',
+    'a case name cannot span two cases — the quoted name must be exactly the name');
+  includes(html, 'reports a pass it did not earn');
+});
+
+test('testcases · a suite with no drain is not warned about one', () => {
+  // A fabricated hazard is worse than a missing one: it teaches a reader to skip the paragraph. This fixture
+  // clears every other condition on purpose — an array declared empty, pushed to, and then iterated — so the
+  // only thing standing between it and a false warning is the rule that a drain has to await something. A
+  // `for … of` that awaits nothing is a loop.
+  const ctx = suiteCtx('qc-nodrain', {
+    'tests/run.mjs': [
+      "const names = [];",
+      "names.push('a');",
+      "for (const n of names) { console.log(n); }",
+      "console.log('\\nalpha');",
+      "test('one', () => {});",
+      "test('two', () => {});",
+      '',
+    ].join('\n'),
+  });
+  const html = suiteHtml(ctx);
+  eq(/Structural hazard/.test(html), false, 'a loop that awaits nothing is not a drain');
+  includes(html, '>alpha<', 'and the rest of the panel still renders');
+});
+
+test('testcases · tests are plotted against code churn on one axis, with prose excluded', () => {
+  // "Is the suite growing with the code" is the question QC exists to ask, and a stock — 450 cases — cannot
+  // answer it. Both series are lines changed, so they share one y-axis; a second scale can be drawn to say
+  // anything. Prose is excluded because a rewritten changelog is not the code outrunning the suite.
+  const ctx = suiteCtx('qc-churn', {
+    'tests/run.mjs': "console.log('\\nalpha');\ntest('one', () => {});\n",
+    'src/app.js': 'export const a = 1;\n',
+    'CHANGELOG.md': 'x\n',
+  });
+  // One line of code at init and three more here; three hundred and one in a changelog nobody tests.
+  commitAt(ctx.dir, '2026-01-05T10:00:00Z', 'src/app.js',
+    'export const a = 1;\nexport const b = 2;\nexport const c = 3;\nexport const d = 4;\n');
+  commitAt(ctx.dir, '2026-01-06T10:00:00Z', 'CHANGELOG.md', `${'entry\n'.repeat(300)}`);
+  const html = suiteHtml(ctx, { contrib: readContrib(ctx.dir, ctx.cfg) });
+
+  includes(html, 'Lines changed per week: tests against code');
+  includes(html, 'Both series are lines changed, so they share one y-axis');
+  includes(html, '>test files<');
+  includes(html, '>code, excluding tests<');
+  eq((html.match(/viewBox="0 0 460 170"/g) || []).length, 2, 'two small multiples, never one chart with two scales');
+  // Two lines changed under `tests/`, four under `src/`, and three hundred and one in a changelog nobody
+  // tests. Asserted as the sentence the panel prints, because the tooltips vanish past fourteen points and a
+  // check that silently stops looking is worse than none: counting prose would read "against 305 in code"
+  // here and make a suite that is keeping up look two orders of magnitude behind.
+  includes(html, '2 line(s) changed in tests against 4 in code',
+    'the changelog must not reach the code series');
+  includes(html, 'because a rewritten changelog is not the code outrunning the suite');
+});
+
+test('testcases · under four weeks of history the churn chart falls to a daily axis and says which', () => {
+  // Two dots and a straight segment between them is a shape, not a trend. Both axes come from contrib.mjs —
+  // `weeklyAxis`, or `fillAxis` at a one-day step — because a third derivation of "which bucket is this" is
+  // exactly the fork this tool exists to detect, committed in code instead of in prose.
+  const ctx = suiteCtx('qc-churn-daily', {
+    'tests/run.mjs': "console.log('\\nalpha');\ntest('one', () => {});\n",
+    'src/app.js': 'export const a = 1;\n',
+  });
+  // The fixture's own initial commit is dated now, which would put months of real silence in the range and
+  // make this assert on the calendar instead of on the rule. Moved onto the first day of the window.
+  execFileSync('git', ['-c', 'user.email=t@example.com', '-c', 'user.name=Test',
+    'commit', '-q', '--amend', '--no-edit', '--date=2026-01-05T09:00:00Z'],
+  { cwd: ctx.dir, stdio: 'ignore', env: { ...process.env, GIT_COMMITTER_DATE: '2026-01-05T09:00:00Z' } });
+  commitAt(ctx.dir, '2026-01-06T10:00:00Z', 'src/app.js', 'export const a=1;\nexport const b=2;\n');
+  commitAt(ctx.dir, '2026-01-07T10:00:00Z', 'tests/run.mjs', "console.log('\\nalpha');\ntest('one', () => {});\ntest('two', () => {});\n");
+  const html = suiteHtml(ctx, { contrib: readContrib(ctx.dir, ctx.cfg) });
+
+  includes(html, 'Lines changed per day: tests against code', 'one week of history is plotted by day');
+  eq(/Lines changed per week/.test(html), false, 'and never by week as well — two answers to one question');
+  includes(html, 'Share of change landing in tests, per day');
+});
+
+test('testcases · the panel is publishable, because nothing on it is machine-local', () => {
+  // `data-local-only` strips an element at publish. Every figure here comes from tracked files and committed
+  // history, so it is identical on any checkout of the same commit; marking it would delete the panel from
+  // the published site in exchange for no protection at all. The marker is for what a *machine* holds.
+  const ctx = suiteCtx('qc-publishable', {
+    'tests/run.mjs': "console.log('\\nalpha');\ntest('one', () => {});\n",
+  });
+  const html = suiteHtml(ctx);
+  const start = html.indexOf('id="testcases"');
+  ok(start !== -1, 'the panel rendered');
+  eq(/data-local-only/.test(html.slice(start, html.indexOf('</section>', start))), false,
+    'a derived count is not machine-local and must survive a publish');
+});
+
+test('testcases · the panel spans, and the view declares it where it renders', () => {
+  // It grew two charts, and `.chart-wall` is `auto-fit minmax(260px, 1fr)` — in a 389px masonry column that
+  // is one chart per row and a card tall enough to break the balance, which is the defect the Executive view
+  // already paid for. Spanning panels are hoisted above the cards, so the declared order has to match.
+  const ctx = suiteCtx('qc-spans', {
+    'tests/run.mjs': "console.log('\\nalpha');\ntest('one', () => {});\n",
+  });
+  includes(suiteHtml(ctx), 'class="card wall" id="testcases"', 'the panel takes the full width');
+
+  const qc = DEFAULT_VIEWS.find((v) => v.id === 'qc');
+  const at = (id) => qc.panels.indexOf(id);
+  ok(at('testcases') !== -1, 'the QC view still carries the suite');
+  ok(at('testcases') < at('health') && at('testcases') < at('signals'),
+    'a spanning panel is hoisted above the cards, so declaring it after them makes this array a lie');
+  ok(at('deliveryTiles') < at('testcases'),
+    'the tile strip is the page summary and leads, as it does on every other view');
+});
+
 console.log(`\n${pass} passed, ${fail} failed${skipped ? `, ${skipped} skipped on ${process.platform}` : ''}\n`);
 if (fail) {
   console.log('Failures:');

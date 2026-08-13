@@ -45,7 +45,7 @@ measured against the code — the same distinction the tool preserves everywhere
 | A-36 | 0 | A-37 | 100 | A-38 | 100 |
 | A-39 | 100 | A-40 | 100 | A-41 | 100 |
 | A-42 | 100 | A-43 | 100 | A-44 | 100 |
-| A-45 | 100 | A-46 | 100 | | |
+| A-45 | 100 | A-46 | 100 | A-47 | 100 |
 
 ---
 
@@ -1273,6 +1273,44 @@ been corrected in place. A-25's shape, recurring inside the coverage claim for a
 rewrote `*.html` only, so of 197 staged files **104 went to the public branch without being read**. Every
 file is now checked, whatever its extension — a marker cannot legitimately appear in the other 104, which is
 precisely why nobody would notice one that did.
+
+**A-47 · The Quality view could not say whether anything was tested** — **P1 · High**
+*Shipped.* The page reported a rework rate, a signal catalogue and a document list, and answered none of
+*is this suite healthy, and is it growing with the code*. The `testcases` panel that was there answered the
+first half — a count and a grouping — and took the grouping from the wrong place.
+
+***The largest bar on the panel was an artifact of a comment.*** `testcases.mjs::sectionsOf` groups by
+`/* === title */` banners, and the biggest banner in `tests/run.mjs` is `done`, the one over the async drain.
+Seventy-four cases — more than any real area — were filed under a label that names a point in a file. The
+panel now groups by what the runner **announces** (`console.log('\n<name>')`), which is the grouping its
+author stands behind and the one a reader has already watched scroll past: 64 real groups instead of 54, and
+every case reconciled against `testInventory`'s own total on the page rather than assumed.
+
+*Three things it can now answer.* **Where the suite is thin** — both ends of the distribution are drawn
+against one scale, because the twelve largest groups show a reader exactly the areas they have least reason
+to worry about. **Whether it is keeping pace** — lines changed in test files against lines changed in code,
+on `contrib.mjs`'s own weekly axis (daily under four weeks), with prose excluded, because a rewritten
+changelog is not the code outrunning the suite. **The structural hazard, stated with a number**: 185 of 458
+cases sit below the point where `pendingAsync` is drained and must therefore be synchronous, since an `async`
+case appended after the drain is never awaited and reports a pass it never earned. None is currently `async`,
+so that is exposure rather than a live defect — and the panel says which.
+
+*Not `data-local-only`.* Every figure comes from tracked files and committed history, so it is identical on
+any checkout of the same commit and the published copy stays true. The marker is for what a machine holds.
+
+*Two defects this created and one it leaves open.* The first cut of the async-case matcher wrote the name as
+a lazy `[\s\S]*?`, which backtracks past its own closing quote on a case that is not `async` and runs on to
+the next one — the page quoted an eleven-thousand-character "test name" made of every case in between. It
+was found by looking at the page, not by an assertion, because the count it produced was the plausible answer
+and only the name was absurd; the matcher is now structurally incapable of spanning a line and a test asserts
+the whole `<q>` element rather than a substring. The second: filtering to the files that announce groups
+dropped a silent file's cases out of every bar while the headline still counted them.
+
+***Left open: the extractor for the runner's groups and the drain lives in `dashboard.mjs`, and it should
+live in `testcases.mjs`.*** It reuses `casesInFile` for every count, so there is no second answer to "how
+many cases" — but `kb.mjs` is growing the same panel as markdown in parallel, and the moment it needs the
+group split there will be two derivations of it. The hoist was out of scope for the change that found this
+and is filed here rather than left to be discovered twice.
 
 **A-40 · A build claim copied from another repository authorised deleting this one** — **P0 · Critical**
 *Shipped.* The claim (A-34) is the only thing that lets the build delete a directory it cannot otherwise
