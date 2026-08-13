@@ -47,7 +47,8 @@ measured against the code — the same distinction the tool preserves everywhere
 | A-42 | 100 | A-43 | 100 | A-44 | 100 |
 | A-45 | 100 | A-46 | 100 | A-48 | 100 |
 | M-5 | 100 | A-47 | 100 | A-49 | 100 |
-| A-50 | 100 | A-51 | 0 | | |
+| A-50 | 100 | A-51 | 0 | A-52 | 100 |
+| A-53 | 100 | A-54 | 100 | | |
 
 ---
 
@@ -1335,7 +1336,7 @@ rewrote `*.html` only, so of 197 staged files **104 went to the public branch wi
 file is now checked, whatever its extension — a marker cannot legitimately appear in the other 104, which is
 precisely why nobody would notice one that did.
 
-**A-47 · The Quality view could not say whether anything was tested** — **P1 · High**
+**A-53 · The Quality view could not say whether anything was tested** — **P1 · High**
 *Shipped.* The page reported a rework rate, a signal catalogue and a document list, and answered none of
 *is this suite healthy, and is it growing with the code*. The `testcases` panel that was there answered the
 first half — a count and a grouping — and took the grouping from the wrong place.
@@ -1612,6 +1613,56 @@ dashboard, which is the page people actually leave open, does not.
 already in `render.mjs` argues that the footer is where a build mark belongs, and `buildDate` is already
 computed once per build — so this is threading an existing value through one more call, not new machinery. It
 must stay reproducible: the commit timestamp, never `new Date()`.
+**A-52 · A cheatsheet of forty-five commands, and not one of them typed out by hand** — **P2 · Medium**
+*Shipped.* *`scripts/gen-cheatsheet.mjs` writes `docs/assets/cheatsheet.svg` (embedded in the README) and
+`docs/assets/cheatsheet.pdf` (a download, A4 landscape) from the command surface itself. One command
+regenerates both, running it twice writes byte-identical files, and `tests/run.mjs` fails the moment either
+asset stops being what regenerating would write.*
+
+***The thing being asked for was the defect this repository has already filed three times, in picture form.***
+A count stated in prose beside a list that grows is [A-35](#track-6--autonomy) in `usage()`, the "thirty-six
+against thirty-eight" arithmetic in `FEATURES.md`, and the nine commands the map in `skills/help/SKILL.md`
+once promised were missing. A hand-drawn card is the same failure with the diff removed: **nobody reads an
+image in a pull request**, so it would be wrong within a release and stay wrong until a user wrote in.
+
+*So the card is derived from the three places that already are the surface, and from nothing else.*
+**`usage()` in `scripts/atlas.mjs`**, sliced out of the source rather than out of `atlas help`'s stdout —
+hermetic, needs no subprocess, and cannot be fooled by a stale install on `PATH`; it gives the arguments, the
+sub-flags, the global flags, the aliases and the tagline. **The `cmd === '…'` dispatch table**, by the same
+regex A-35's tests use, deliberately: two definitions of "a command" is the drift in miniature. **`skills/`**
+for which slash commands exist, and **the intent map in `skills/help/SKILL.md`** for the grouping and the
+gloss — grouping by intent is a judgement, this repository made it once, in prose, where a person maintains
+it. The forty-five rows are thirty with both surfaces, eight Claude Code only, seven shell only; a marker
+carries the exception and the masthead states the two prefixes once, which is what buys the description
+column its width.
+
+***The staleness test is the feature.*** Without it this is two more files that drift, so it is checked in
+both directions and one case exists purely to stop the other being vacuous: a throwaway root with one extra
+dispatched command must produce different bytes and must name the command it was given. Determinism is
+asserted rather than hoped for — two renders compared byte for byte, and the assets grepped for a date, an
+absolute path and a home directory. **No version string on the card**, which is the one judgement call here:
+stamping it would make every release bump fail the staleness test for a reason nobody could act on, and the
+card genuinely does not change when the version does.
+
+*The PDF is written directly rather than printed from a headless browser, and that was a reversal.* Chrome is
+what this project has used before and was the obvious route. It cannot be, because a browser-printed PDF
+carries a `/CreationDate` and its bytes are a function of the Chrome build on the machine — so the staleness
+test would go red on a Chrome upgrade and on any machine without Chrome, and a check that fails for reasons
+nobody can act on is one everybody learns to ignore. Written out here it is a pure function of the source,
+needs nothing installed, and the three faces are base-14 Type 1, so nothing is embedded and no font can drift
+either. The cost is a hand-rolled cross-reference table, which is exactly the part that rots silently — a test
+walks every offset and asserts it lands on the object it claims.
+
+*One layout, two backends, and the palettes differ on purpose.* The SVG is a dark card because **GitHub renders
+a README image through its proxy in an `<img>`, where a `prefers-color-scheme` query is answered by the
+browser's scheme and not by the theme the reader is actually looking at** — a switching card is wrong for
+everyone whose OS and GitHub disagree, and the SVG cannot find out which they are. A card that paints its own
+background is right on both because it never inherits one. The PDF is ink on white, with the three text roles
+ordered by luminance so a black-and-white print keeps the hierarchy the colour one has.
+
+*The generator refuses rather than overflowing.* One page is a constraint, not an aspiration, so when the
+content stops fitting A4 the layout throws with the numbers and says not to shrink the type. That is the right
+failure: the next person is told the card is full and asked to decide what leaves it.
 
 ## Track 7 — Specification and consistency
 
@@ -1807,7 +1858,7 @@ which would end the sentence the whole safety argument rests on, that you can de
 the **reverse citation index**: code file → the documents that cite it, which is the direction of the
 question an agent about to change a file actually has.*
 
-**A-48 · The skill argues for fan-out and nothing counts what it costs** — **P1 · High**
+**A-54 · The skill argues for fan-out and nothing counts what it costs** — **P1 · High**
 *`atlas contention` — which files a set of branches would all touch, and which plan-item ids more than one of
 them defines.*
 

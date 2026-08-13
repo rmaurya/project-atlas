@@ -484,8 +484,8 @@ here"*, and `docs/ROADMAP.md` carries M-3 at 40%. No orchestrator, session drive
 exists in `scripts/`. `scripts/lib/mcp.mjs:31-34` states the read-only boundary as a construction rather than
 a promise, and `scripts/lib/task.mjs:15-20` states that driving a session is out of scope.
 
-**M-3 is not the only item below 100%.** The plan holds **104 items** at a mean completion of **95.2%**, and
-**nine** of them are not at 100% — of which **two** carry no figure at all and are reported as unknown rather
+**M-3 is not the only item below 100%.** The plan holds **105 items** at a mean completion of **95.4%**, and
+**seven** of them are not at 100% — of which **zero** carry no figure at all and are reported as unknown rather
 than as zero. This paragraph twice claimed a smaller number than was true, most recently *"reports six … mean
 completion 94.4%"* while the real figures were eight and 96.2%, so all four are now read out of this sentence
 by `tests/run.mjs` and compared against `readPlanning`. Filing A-50 and A-51 moved every one of them in the
