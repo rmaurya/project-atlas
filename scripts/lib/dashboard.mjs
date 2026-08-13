@@ -34,6 +34,9 @@ import { PANELS } from './views.mjs';
 import { readChanges } from './changes.mjs';
 import { readInflight, inflightSentence } from './inflight.mjs';
 import { flatName } from './render-shared.mjs';
+// One extractor for "what is a test case", shared with `testInventory` — see `runtimeGroups`. A second
+// definition here would let the panel and the inventory disagree about the size of the same suite.
+import { casesInFile } from './testcases.mjs';
 import { donut, lineChart, stackedArea, sparkbars, catTokens } from './charts.mjs';
 // A namespace import, on purpose — `readTokenEconomics` is landing separately and a named import of an export
 // that does not exist yet is a module-load error that would take the whole build down. See `readEconomics`.
@@ -274,7 +277,7 @@ function panel(id, { index, health, plan, cfg, contrib, view, nameFor, repo, fli
     case 'changes': return changesPanel(cfg, index, pageOf);
     case 'documents': return documentsPanel(index, health, view, pageOf);
     case 'recent': return hasContrib ? recentPanel(contrib, plan) : null;
-    case 'testcases': return testcasesPanel(repo);
+    case 'testcases': return testcasesPanel(repo, contrib, cfg.__root);
     case 'designRecord': return designRecordPanel(index, pageOf);
     case 'blueprint': return blueprintPanel(index, pageOf);
     case 'undesigned': return undesignedPanel(repo, index);
@@ -2559,6 +2562,9 @@ const DASH_CSS = `
 @media (max-width:640px) { .grid2 { grid-template-columns:1fr; } }
 .card { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:16px 20px; margin:0 0 16px; }
 .card h2 { margin:0 0 4px; font-size:16px; }
+/* A second heading inside one card, for a panel that answers more than one question about the same subject.
+ * Set below the h2 and above .cap so the hierarchy survives being read at 390px, where the card is the page. */
+.sub-h { margin:22px 0 4px; font-size:14px; }
 .cap { color:var(--muted); font-size:13px; margin:0 0 14px; }
 figcaption { display:block; }
 .bars { display:grid; gap:9px; }
@@ -3269,38 +3275,338 @@ const TABLE_JS = `
 `;
 
 
-/* ------------------------------------------------------------------ quality: the test inventory */
+/* ------------------------------------------------------------------ quality: the test suite */
 
 /**
- * What is covered, not how often it broke.
+ * The suite's own grouping is the one it **prints while it runs**, not the one in its comment banners.
+ *
+ * `testcases.mjs::sectionsOf` groups by `/* === title * /` banners, and on this repository that put **74
+ * cases — the largest bar on the panel — under a group called `done`**: the banner over the async drain, which
+ * names a point in the file's execution and not an area of the system. Every case appended below it inherited
+ * a label that describes nothing, and the panel's headline answer to "which area is thickest" was an artifact
+ * of a comment.
+ *
+ * A runner that announces its groups is stating the grouping it believes in. `console.log('\n<name>')` is what
+ * a reader sees scroll past when they run the suite, so it is the label they already associate with a block of
+ * cases, and it survives a banner being moved or forgotten. On this suite it recovers a distinct group for
+ * every heading the runner prints, where the banners had collapsed the whole tail of the file into `done`.
+ * No count is quoted here on purpose: it changes with every section anyone adds, and a figure in a comment
+ * that nothing checks is the defect A-29 was filed for.
+ *
+ * **Counted with `casesInFile`, never with a second extractor.** The slices are cut at group boundaries and
+ * handed back to the same function `testInventory` uses, so "how many cases" has exactly one definition in
+ * this codebase. The panel asserts the reconciliation rather than trusting it: if the group counts do not sum
+ * to the inventory total, it says so on the page instead of quietly showing a different number.
+ */
+const RUNTIME_GROUP = /^[ \t]*console\.log\(\s*(['"])\\n(.+?)\1\s*\)\s*;?[ \t]*$/gm;
+
+function runtimeGroups(rel, text) {
+  // `${` excludes the summary line a runner prints at the end — `console.log(`\n${pass} passed…`)` is a
+  // result, not a heading, and rendering an uninterpolated template as a group title would put source code
+  // in a chart label.
+  const marks = [...text.matchAll(RUNTIME_GROUP)]
+    .filter((m) => !m[2].includes('${'))
+    .map((m) => ({ at: m.index, title: m[2].trim() }))
+    .filter((m) => m.title);
+  if (!marks.length) return null;
+
+  const groups = marks.map((m, i) => {
+    const end = i + 1 < marks.length ? marks[i + 1].at : text.length;
+    const cases = casesInFile(rel, text.slice(m.at, end));
+    return { title: m.title, count: cases.length, regressions: cases.filter((c) => c.regression).length };
+  }).filter((g) => g.count);
+
+  // Cases sitting above the first announced group belong to no group. Counted rather than dropped — a suite
+  // that registers work before it says what it is testing is a thing a reader should be told.
+  const ungrouped = casesInFile(rel, text.slice(0, marks[0].at)).length;
+  return { groups, ungrouped };
+}
+
+/**
+ * **The structural hazard, found rather than described.**
+ *
+ * This suite queues any case whose function returns a promise and awaits the queue *partway through the
+ * file*. A case appended below that point is registered after the only thing that would await it, so its
+ * promise is never resolved, nothing ever inspects its assertions, and the runner counts it as a pass it did
+ * not earn. Silent, and indistinguishable from a real pass in the output.
+ *
+ * The drain is recognised structurally, not by name: an array declared empty, pushed to earlier in the file,
+ * and later consumed inside something that awaits. A repository whose harness has no such queue returns
+ * `null` here and the panel simply does not raise a hazard it cannot see — a fabricated warning is worse than
+ * a missing one.
+ */
+const DRAIN_SITE = /for\s*\([^;)]*\bof\s+([A-Za-z_$][\w$]*)\s*\)|await\s+Promise\.all\(\s*([A-Za-z_$][\w$]*)\s*[,)]/g;
+
+/**
+ * **A case name cannot contain a newline, and saying so is what stops this reading half the file.**
+ *
+ * The first version wrote the name as `(['"`])([\s\S]*?)\1` — lazy, but lazy only decides where the engine
+ * *starts* looking. On a case that is not `async` the whole match fails, the engine backtracks, extends the
+ * name past its own closing quote, and keeps going until it finds some later quote followed by `, async`.
+ * The Quality page rendered the finding with a "test name" eleven thousand characters long: every case
+ * between the two, quoted verbatim into the panel as though it were one name.
+ *
+ * It was found by looking at the page. No assertion here would have caught it, because the count it produced
+ * — one — was the plausible answer; only the name was absurd. Anchoring each alternative to a quote class
+ * that excludes its own delimiter *and* the newline makes the match structurally incapable of spanning a
+ * case, which is a stronger guarantee than any length check.
+ *
+ * A name carrying an escaped quote is missed rather than over-matched. That is the right way round: a
+ * missing row is visible against a count that does not add up, and a fabricated one is trusted.
+ */
+const ASYNC_CASE = /^[ \t]*test\s*\(\s*(?:'([^'\n]*)'|"([^"\n]*)"|`([^`\n]*)`)\s*,\s*async\b/gm;
+
+function asyncDrain(rel, text) {
+  for (const m of text.matchAll(DRAIN_SITE)) {
+    const name = m[1] || m[2];
+    const decl = new RegExp(`\\b(?:const|let|var)\\s+${name}\\s*=\\s*\\[\\s*\\]`).exec(text);
+    const push = new RegExp(`\\b${name}\\.push\\s*\\(`).exec(text);
+    if (!decl || !push || push.index > m.index) continue;
+    // A `for … of` that never awaits is not a drain, it is a loop. The window is the loop head plus a short
+    // body; a drain that awaits further away than that is not one this can honestly claim to have found.
+    if (!/\bawait\b/.test(text.slice(m.index, m.index + 400))) continue;
+    const below = text.slice(m.index);
+    return {
+      queue: name,
+      // Same extractor as everywhere else, applied to the text below the drain.
+      after: casesInFile(rel, below).length,
+      // The realised defect, as opposed to the exposure: a case below the drain written `async`. Syntax only
+      // — a synchronous function that returns a promise from a helper is equally broken and invisible here,
+      // which is why the exposure is reported beside it rather than replaced by it.
+      offending: [...below.matchAll(ASYNC_CASE)].map((x) => x[1] ?? x[2] ?? x[3]),
+    };
+  }
+  return null;
+}
+
+/**
+ * Churn in the test files against churn in the code they cover, on the axis `contrib.mjs` already publishes.
+ *
+ * A suite's case count is a stock and tells you nothing about whether it is keeping up; the question QC
+ * exists to ask is whether the code is outrunning it. Both series are **lines changed**, so they share one
+ * y-axis honestly — a second scale here could be drawn to say anything.
+ *
+ * `code` is `repo.code` minus the test files themselves, not "everything that is not a test". This
+ * repository's `CHANGELOG.md` is 98KB and rewritten constantly; counting prose as code would have buried the
+ * signal under documentation churn and made the suite look far further behind than it is.
+ *
+ * **Weekly where there are weeks to show, daily otherwise, and it says which.** Under four filled weeks a
+ * weekly line is two dots and a straight segment between them, which is a shape, not a trend. Both axes come
+ * from `contrib.mjs` — `weeklyAxis`, or `fillAxis` at a one-day step, the same call `dayAxis` above makes.
+ */
+const MIN_WEEKS_TO_PLOT = 4;
+
+function testChurn(repo, contrib) {
+  if (!contrib?.available || !repo?.tests?.files?.length) return null;
+  const testFiles = new Set(repo.tests.files);
+  const codeFiles = new Set((repo.code || []).filter((f) => !testFiles.has(f)));
+  if (!codeFiles.size) return null;
+
+  // Weekly buckets are found by lookup against the axis `contrib.mjs` produced rather than by recomputing a
+  // week boundary here. There is one definition of "which week is this" in this codebase and it is not this
+  // function's to hold.
+  const weekAxis = weeklyAxis(contrib.weeks);
+  const weekKeys = weekAxis.map((w) => w.week);
+  const weekOf = (day) => {
+    let lo = 0, hi = weekKeys.length - 1, found = -1;
+    while (lo <= hi) { const mid = (lo + hi) >> 1; if (weekKeys[mid] <= day) { found = mid; lo = mid + 1; } else hi = mid - 1; }
+    return found === -1 ? null : weekKeys[found];
+  };
+
+  const daily = weekAxis.length < MIN_WEEKS_TO_PLOT;
+  const bucket = new Map();
+  let tested = 0, coded = 0;
+  for (const cm of contrib.commits) {
+    const day = cm.date.slice(0, 10);
+    const key = daily ? day : weekOf(day);
+    if (!key) continue;
+    if (!bucket.has(key)) bucket.set(key, { at: key, test: 0, code: 0 });
+    const b = bucket.get(key);
+    for (const f of cm.files) {
+      const churn = f.added + f.removed;
+      if (testFiles.has(f.path)) { b.test += churn; tested += churn; }
+      else if (codeFiles.has(f.path)) { b.code += churn; coded += churn; }
+    }
+  }
+
+  const rows = [...bucket.values()].sort((a, b) => a.at.localeCompare(b.at));
+  const axis = fillAxis(rows, { key: 'at', stepDays: daily ? 1 : 7, blank: { test: 0, code: 0 } });
+  return { axis, daily, tested, coded, share: tested + coded ? (tested / (tested + coded)) * 100 : null };
+}
+
+/**
+ * What is covered, whether it is keeping up, and the one way this suite can lie to itself.
  *
  * The Quality view reported a rework rate and never said what the suite actually tests. A rate is a symptom;
- * this is the thing a QC reader came for. Grouped by the suite's own section headings where it has them,
- * because that grouping is the author's and is better than any this could invent.
+ * this is the thing a QC reader came for. Three questions, in the order a reader asks them: how much is
+ * there and where is it thin, is it growing with the code, and is there anything structurally wrong with it.
+ *
+ * **Deliberately not `data-local-only`.** Every figure here comes from tracked files and committed history —
+ * `git ls-files`, the contents of those files, and `git log` — so it is identical on any checkout of the same
+ * commit and a published copy stays true. The marker exists for figures a *machine* holds (a local
+ * transcript store, branch names that leak client identity, a working tree), and applying it to a number
+ * anyone with the repository can recompute would strip the panel from the published site for no protection
+ * at all.
  */
-function testcasesPanel(repo) {
+function testcasesPanel(repo, contrib, root) {
   const k = repo?.tests;
   if (!k) return null;
   if (!k.cases.length) {
-    return `<section class="card"><h2>Test cases</h2>
+    return `<section class="card"><h2>Test suite</h2>
       <p class="empty">No test cases were found in ${k.candidates} candidate file(s). That is a finding, not a
       blank — a panel that disappears when the answer is "none" hides the answer worth seeing most.</p></section>`;
   }
+
+  // Read once, here, and reused by both the grouping and the hazard. `testInventory` has already read these
+  // files; a third read per panel would buy nothing.
+  const sources = [];
+  for (const rel of k.files) {
+    try { sources.push({ rel, text: fs.readFileSync(path.join(root || '.', rel), 'utf8') }); } catch { /* unreadable now, indexed earlier */ }
+  }
+
+  /*
+   * The suite's announced groups, across every test file that announces any.
+   *
+   * **A file that announces nothing is grouped under its own path, not dropped.** Filtering to the announcing
+   * files and summing only those was the first shape of this, and on a suite where one file prints headings
+   * and another does not it silently left the second file's cases out of every bar while the headline still
+   * counted them. `testInventory` already falls back to the file path when a file has no grouping; doing the
+   * same here keeps one file's silence from erasing it. The reconciliation below would have *reported* the
+   * gap — but a panel that only confesses is worse than one that answers.
+   */
+  const byTitle = new Map();
+  let ungrouped = 0;
+  const add = (title, count, regressions) => {
+    const cur = byTitle.get(title) || { title, count: 0, regressions: 0 };
+    cur.count += count; cur.regressions += regressions;
+    byTitle.set(title, cur);
+  };
+  let announcing = 0;
+  for (const s of sources) {
+    const g = runtimeGroups(s.rel, s.text);
+    if (g) {
+      announcing++;
+      ungrouped += g.ungrouped;
+      for (const x of g.groups) add(x.title, x.count, x.regressions);
+    } else {
+      const cases = casesInFile(s.rel, s.text);
+      if (cases.length) add(s.rel, cases.length, cases.filter((c) => c.regression).length);
+    }
+  }
+  // Count descending, then title ascending — a tie broken by insertion order would reorder the page when an
+  // unrelated group is added above it, and byte-identical rebuild is the property this whole tool asserts.
+  const runtime = [...byTitle.values()].sort((a, b) => b.count - a.count || a.title.localeCompare(b.title));
+  const useRuntime = announcing > 0;
+  const groups = useRuntime ? runtime : k.sections;
+  const covered = useRuntime ? runtime.reduce((n, g) => n + g.count, 0) + ungrouped : k.cases.length;
+
   const pct = Math.round((k.regressions / k.cases.length) * 100);
-  return `<section class="card">
-  <h2>Test cases <span class="count">${k.cases.length}</span></h2>
-  <p class="cap">Read from source, never from a run — this is what is written, not what passed.
-  <strong>${k.regressions}</strong> of them (${pct}%) are named for a defect rather than a capability, which
-  is the share that exists because something broke. That is inferred from wording, not recorded anywhere.</p>
-  <div class="bars">
-    ${k.sections.slice(0, 12).map((sec) => `
+  const drains = sources.map((s) => ({ rel: s.rel, d: asyncDrain(s.rel, s.text) })).filter((s) => s.d);
+  const churn = testChurn(repo, contrib);
+
+  /*
+   * **Both ends, not the top of the list.** A suite with dozens of groups will not fit in a card, and the
+   * obvious cut — the twelve largest — shows a reader exactly the areas they have least reason to worry
+   * about. The question this panel was asked is *which areas are thin*, and that answer lives at the bottom
+   * of the sort.
+   *
+   * So the head and the tail are both drawn, against the same maximum, with the count in between stated
+   * rather than elided silently. Every bar is scaled to the largest group on the page, so a two-case group at
+   * the bottom renders as the sliver it is instead of being rescaled into looking substantial.
+   */
+  const HEAD = 12, TAIL = 6;
+  const head = groups.slice(0, HEAD);
+  const tail = groups.length > HEAD + TAIL ? groups.slice(-TAIL) : groups.slice(HEAD);
+  const hidden = groups.slice(head.length, groups.length - tail.length);
+  const max = groups[0]?.count || 1;
+  // How many groups sit at or below the largest count in the tail. The tail is a deterministic slice of the
+  // thin tier and not the whole of it, so calling those six bars "the thinnest" when a dozen groups are
+  // equally thin would understate the very finding this section exists to surface.
+  const thinTier = tail.length ? groups.filter((g) => g.count <= tail[0].count).length : 0;
+  const bars = (rows) => `<div class="bars">${rows.map((g) => `
     <div class="bar">
-      <span class="bl">${escapeHtml(sec.title)}</span>
-      <span class="bt"><span class="bf t-high" style="width:${Math.max(2, Math.round((sec.count / k.sections[0].count) * 100))}%"></span></span>
-      <span class="bv">${sec.count}<span class="bh">${sec.regressions} regression(s)</span></span>
-    </div>`).join('')}
-  </div>
-  ${k.sections.length > 12 ? `<p class="hint">${k.sections.length - 12} more group(s) not shown.</p>` : ''}
+      <span class="bl">${escapeHtml(g.title)}</span>
+      <span class="bt"><span class="bf t-high" style="width:${Math.max(2, Math.round((g.count / max) * 100))}%"></span></span>
+      <span class="bv">${num(g.count)}<span class="bh">${num(g.regressions)} regression(s)</span></span>
+    </div>`).join('')}</div>`;
+
+  const figs = [];
+  if (churn && churn.axis.length >= 2) {
+    const labels = churn.axis.map((r) => r.at.slice(5));
+    const period = churn.daily ? 'day' : 'week';
+    const quiet = churn.axis.filter((r) => r.silent).length;
+    const silence = quiet
+      ? ` ${quiet} ${period}(s) in this range contain no commit and are drawn as zero, not as a gap — git history is complete over its own span.`
+      : '';
+    figs.push(lineChart({
+      title: `Lines changed per ${period}: tests against code`, labels, unit: ' lines',
+      series: [
+        { label: 'test files', values: churn.axis.map((r) => r.test) },
+        { label: 'code, excluding tests', values: churn.axis.map((r) => r.code) },
+      ],
+      note: `Both series are lines changed, so they share one y-axis. Prose is excluded: only the ` +
+            `${num(repo.code?.length || 0)} source file(s) this build classed as code are counted against the ` +
+            `${k.files.length} test file(s), because a rewritten changelog is not the code outrunning the suite.` + silence,
+    }));
+    figs.push(lineChart({
+      title: `Share of change landing in tests, per ${period}`, labels, unit: '%',
+      series: [{
+        label: 'test share',
+        // A period with no change at all has no share — a gap, not a zero. `lineChart` breaks the line there
+        // rather than drawing through it, which is the difference between "nothing happened" and "no tests".
+        //
+        // **Whole percent, not one decimal.** `gridValues` drops a gridline below 1000 whose label would name
+        // a height it is not at, so a maximum of 52.1 loses its top line entirely and the axis reads 0, 26
+        // with the highest point floating unlabelled above both. The precise figure is in the note under the
+        // chart and in every tooltip; the axis is worth more than a decimal place here.
+        values: churn.axis.map((r) => (r.test + r.code ? Math.round((r.test / (r.test + r.code)) * 100) : null)),
+      }],
+      note: `Over the whole history the share is ${churn.share === null ? '—' : `${Math.round(churn.share * 10) / 10}%`} ` +
+            `— ${num(churn.tested)} line(s) changed in tests against ${num(churn.coded)} in code. A share ` +
+            `falling while the code series climbs is the suite being left behind, which is the thing this ` +
+            `panel exists to make visible.`,
+    }));
+  }
+
+  return `<section class="card wall" id="testcases">
+  <h2>Test suite <span class="count">${num(k.cases.length)}</span></h2>
+  <p class="cap">Read from source, never from a run — this is what is written, not what passed.
+  <strong>${num(k.regressions)}</strong> of them (${pct}%) are named for a defect rather than a capability,
+  which is the share that exists because something broke; that is inferred from wording, not recorded
+  anywhere. Across ${num(k.files.length)} test file(s) and ${num(groups.length)} group(s).</p>
+  ${drains.length ? drains.map((s) => `
+  <p class="cap"><strong>Structural hazard.</strong> <code>${escapeHtml(s.rel)}</code> awaits its queue of
+  asynchronous cases (<code>${escapeHtml(s.d.queue)}</code>) partway through the file.
+  <strong>${num(s.d.after)}</strong> of its cases are registered <em>below</em> that point and must therefore
+  be synchronous: an <code>async</code> case appended after the drain is never awaited, its assertions are
+  never inspected, and the runner reports a pass it did not earn.
+  ${s.d.offending.length
+    ? `<span class="bad">${num(s.d.offending.length)} case(s) below the drain are declared <code>async</code></span>
+       — ${s.d.offending.slice(0, 3).map((n) => `<q>${escapeHtml(n)}</q>`).join(', ')}${s.d.offending.length > 3 ? ', and others' : ''}.
+       Each is a green tick over an assertion nobody ran.`
+    : `None is currently declared <code>async</code>, so the hazard is exposure rather than a live defect.`}
+  Syntax only: a synchronous case that returns a promise from a helper is equally broken and invisible to
+  this check.</p>`).join('') : ''}
+  ${figs.length ? `<div class="chart-wall">${figs.join('')}</div>` : ''}
+  <h3 class="sub-h">Cases by ${useRuntime ? 'the group the runner announces' : 'section heading'}</h3>
+  <p class="cap">${useRuntime
+    ? `Taken from what the suite prints as it runs, not from its comment banners. Banners had put
+       ${num(k.sections[0]?.count || 0)} cases under <code>${escapeHtml(k.sections[0]?.title || '')}</code>, a
+       label that names a point in the file rather than an area of the system.`
+    : `This suite announces no groups as it runs, so its comment banners are the only grouping it has.`}
+  ${covered === k.cases.length
+    ? `Every one of the ${num(k.cases.length)} cases is accounted for below.`
+    : `<span class="bad">${num(covered)} of ${num(k.cases.length)} cases fall into a group</span> — the
+       remainder were counted by the inventory and not placed here, which is a defect in this panel rather
+       than in the suite.`}
+  ${ungrouped ? ` ${num(ungrouped)} case(s) run before any group is announced.` : ''}</p>
+  ${bars(head)}
+  ${hidden.length ? `<p class="hint">${num(hidden.length)} group(s) between these two ends are not drawn,
+  holding ${num(hidden.reduce((n, g) => n + g.count, 0))} case(s) between them.
+  ${thinTier ? `<strong>${num(thinTier)} group(s) hold ${num(tail[0].count)} case(s) or
+  fewer</strong>, of which the last ${num(tail.length)} are drawn below` : 'The thinnest are drawn below'} —
+  scaled to the largest group on the page, so a thin area renders as the sliver it is.</p>` : ''}
+  ${tail.length ? bars(tail) : ''}
 </section>`;
 }
 

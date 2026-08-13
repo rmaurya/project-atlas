@@ -41,7 +41,7 @@ export const PANELS = {
   documents: 'The documents this role owns, with dates, status and signals',
   recent: 'Recent commits — what changed, and when',
   changes: 'What changed, and which documents cite the files you touched',
-  testcases: 'The test inventory — cases by area, and how many exist because something broke',
+  testcases: 'The test suite — cases by the area the runner announces, whether it is keeping pace with the code, and where it can report a pass it did not earn',
   decisions: 'Decision records, and how many decisions have not reached them',
   signals: 'Every rot signal this tool checks for, including the ones that found nothing',
   charts: 'Contribution, effort and plan composition, derived from git and the plan',
@@ -84,10 +84,19 @@ export const DEFAULT_VIEWS = [
     panels: ['inflight', 'backlog', 'caveats'],
   },
   {
+    /*
+     * **`testcases` is declared where it renders.** It became a full-width panel when it grew its charts, and
+     * `viewPage` hoists every spanning panel above the masonry cards — so leaving it third in this list would
+     * have made the declaration disagree with the page, and this array is meant to be read as the argument
+     * the page makes. Written in rendered order instead: the two strips that span, then the cards.
+     *
+     * It sits under the delivery tiles rather than over them because the tiles are the page's summary row, as
+     * they are on every other view, and the suite is the first piece of detail a QC reader wants under them.
+     */
     id: 'qc', title: 'Quality', nav: true,
-    blurb: 'Where the corpus is wrong, how often work has to be redone, and what has just landed.',
+    blurb: 'Where the corpus is wrong, whether the suite is keeping up with the code, how often work has to be redone, and what has just landed.',
     clusters: ['procedures', 'planning', 'manuals'],
-    panels: ['health', 'signals', 'testcases', 'deliveryTiles', 'recent', 'documents', 'coverage', 'caveats'],
+    panels: ['deliveryTiles', 'testcases', 'health', 'signals', 'recent', 'documents', 'coverage', 'caveats'],
   },
   {
     id: 'product', title: 'Product', nav: true,
