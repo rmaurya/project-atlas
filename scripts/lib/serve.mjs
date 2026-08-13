@@ -575,7 +575,7 @@ export function serverStatus(root) {
  * process cannot be read, because "cannot tell" must not be reported as "stale" — that would restart a
  * healthy server on every invocation on any platform where `ps` says nothing.
  */
-export function serverBuild(pid, { self = null } = {}) {
+export function serverBuild(pid, { self = null, startedAt = null } = {}) {
   const mine = path.resolve(self || process.argv[1] || '');
   let line = null;
   try {
@@ -584,9 +584,32 @@ export function serverBuild(pid, { self = null } = {}) {
     line = out.split('\n').map((s) => s.trim()).filter(Boolean).pop() || null;
   } catch { /* no evidence — handled below */ }
   const facts = line ? serverArgvFacts(line) : null;
-  if (!facts?.script) return { script: null, mine, same: null };
+  if (!facts?.script) return { script: null, mine, same: null, why: null };
   const script = path.resolve(facts.script);
-  return { script, mine, same: script === mine };
+  if (script !== mine) return { script, mine, same: false, why: 'a different installation' };
+
+  /*
+   * **Same path is not same code, and that is the case this was first shipped blind to.**
+   *
+   * An installed plugin carries its version in its path, so a path comparison catches an upgrade. A
+   * development checkout does not: `…/project-atlas/scripts/atlas.mjs` is the same string before and after
+   * every edit, so a server started from a checkout went on serving whatever that file said an hour ago
+   * while the comparison reported a match. The half-fix looked like it worked, because the *other* half of
+   * the machine — the installed plugin — was the one being tested.
+   *
+   * So the second question is whether the file has changed since the process began reading it. A module
+   * loaded at start-up cannot see an edit made afterwards, whatever its path. `startedAt` comes from the
+   * pidfile; without one there is nothing to compare and this stays quiet rather than guessing.
+   */
+  if (startedAt) {
+    const began = Date.parse(startedAt);
+    let changed = 0;
+    try { changed = fs.statSync(script).mtimeMs; } catch { return { script, mine, same: null, why: null }; }
+    if (Number.isFinite(began) && changed > began) {
+      return { script, mine, same: false, why: 'the same file, edited since that process started' };
+    }
+  }
+  return { script, mine, same: true, why: null };
 }
 
 export function writePid(root, { pid, port }) {

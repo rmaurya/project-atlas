@@ -81,3 +81,5 @@
 {"at":"2026-08-13T19:52:05.756Z","agent":"main","kind":"progress","text":"work landed on main — now at ed274e7","refs":["main@ed274e7"]}
 {"at":"2026-08-13T20:11:59.234Z","agent":"subagent","kind":"progress","text":"a subagent finished on main at ed274e7","refs":["main@ed274e7"]}
 {"at":"2026-08-13T20:15:00.464Z","agent":"subagent","kind":"progress","text":"a subagent finished on main at ed274e7","refs":["main@ed274e7"]}
+{"at":"2026-08-13T20:49:08.420Z","agent":"main","kind":"progress","text":"work landed on main — now at fe6d367","refs":["main@fe6d367"]}
+{"at":"2026-08-13T20:53:23.760Z","agent":"subagent","kind":"progress","text":"a subagent finished on main at fe6d367","refs":["main@fe6d367"]}

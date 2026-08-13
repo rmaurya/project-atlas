@@ -52,7 +52,7 @@ measured against the code — the same distinction the tool preserves everywhere
 | A-56 | 100 | P-9 | 100 | A-57 | 100 |
 | I-4 | 100 | S-8 | 100 | A-58 | 100 |
 | A-59 | 100 | A-60 | 100 | A-61 | 100 |
-| A-62 | 100 | A-63 | 100 |
+| A-62 | 100 | A-63 | 100 | A-64 | 100 |
 
 ---
 
@@ -2472,3 +2472,27 @@ evidence. A running process cannot be upgraded, so a stale one is now replaced r
 by executing script path, not version string, because a checkout and an installed plugin of equal version are
 different builds. A process whose argv cannot be read is left alone: "cannot tell" reported as "stale" would
 restart a healthy server on every invocation.
+
+**A-64 · `atlas serve` opened a stale page and called it the dashboard** — **P1 · High**
+
+Two causes with one symptom, both reached from the branch that runs when a server is already up.
+
+A-63 compared the executing script *path*, which catches an installed plugin — its version is in its path —
+and misses a development checkout entirely, where the path is the same string before and after every edit.
+The fix appeared to work because the half of the machine under test was the installed half. `serverBuild`
+now also asks whether the file changed after the process started: a module loaded at start-up cannot see a
+later edit, whatever its path. With no recorded start time it stays quiet rather than guessing.
+
+The larger half is that `serve` never rebuilt at all on that branch. The server it hands you is a
+`watch --serve` loop, which rebuilds when a watched *source* changes and never for any other reason — so a
+new plugin version, a config edit, a plan document only just pointed at, or a commit that changed what the
+git panels read all left the page as it was. The one command a person runs when the page looks wrong did the
+one thing that could not fix it. It now runs a full build first, spawned rather than inlined, because the
+build writes the site, the worklog, the knowledge graph and the stamp together and half that set on disk
+breaks the byte-identical guarantee.
+
+`/atlas:ask` with no argument was reported in the same session and is *not* this: `atlas ask` exits 2 on a
+missing task, which is correct — a pipeline calling it with an empty variable must not be told the corpus is
+clean. The skill's shell block cannot use `|| true` either, because Claude Code refuses to auto-approve a
+compound command and the skill would prompt on every run. The block is unchanged and the skill now says what
+the usage text means when it appears.

@@ -10366,6 +10366,52 @@ test('A-63 · a dashboard left running by an older build is named as one, not ad
   eq(serverBuild(2 ** 30).same, null, 'a pid that is not running is not evidence that a build is old');
 });
 
+test('A-64 · the same script path is not the same code, once somebody has edited it', () => {
+  // The first version of A-63 compared paths and stopped there. That catches an installed plugin, whose
+  // version is *in* its path — and misses a development checkout entirely, where
+  // `…/project-atlas/scripts/atlas.mjs` is the same string before and after every edit. The fix looked like
+  // it worked because the half of the machine being tested was the installed half; the checkout went on
+  // serving hour-old code with the comparison reporting a match.
+  //
+  // A module loaded at start-up cannot see an edit made afterwards, whatever its path. So the second
+  // question is whether the file changed after the process began, and `startedAt` from the pidfile is what
+  // it is asked against.
+  // A *real process* whose argv parses as a detached server, so the mtime branch is genuinely reached. It
+  // has to be named `atlas.mjs` and carry the server tokens — anything less and `serverArgvFacts` returns
+  // null, the function answers "cannot tell", and the case passes without testing what it claims to.
+  const dir = fixture('a64-mtime', { 'x.md': '# x\n' });
+  const script = path.join(dir, 'atlas.mjs');
+  fs.writeFileSync(script, 'setTimeout(() => {}, 30000);\n');
+  const child = spawn(process.execPath, [script, 'watch', '--serve', '--detached',
+    `--serve-root=${dir}`], { stdio: 'ignore' });
+  try {
+    // Give `ps` a moment to have the child in it at all; without this the test races the process table and
+    // gets `same: null` for a reason that has nothing to do with the code under test.
+    const deadline = Date.now() + 5000;
+    let seen = serverBuild(child.pid, { self: script });
+    while (seen.script === null && Date.now() < deadline) seen = serverBuild(child.pid, { self: script });
+    eq(seen.script, script, 'sanity: the child is visible in the process table and parses as a server');
+
+    const m = fs.statSync(script).mtimeMs;
+
+    // Started after the file was last written: it is running that file, and there is nothing to replace.
+    eq(serverBuild(child.pid, { self: script, startedAt: new Date(m + 60_000).toISOString() }).same, true,
+       'a server younger than the script it runs is current');
+
+    // Started before it: a module loaded at start-up cannot have seen the edit. Same path, different code.
+    const stale = serverBuild(child.pid, { self: script, startedAt: new Date(m - 60_000).toISOString() });
+    eq(stale.same, false, 'a server older than the script it runs is stale, whatever the paths say');
+    includes(stale.why, 'edited since', 'and the reason names the edit rather than an installation');
+
+    // No pidfile, no start time, nothing to compare — and silence rather than a guess. Guessing "stale"
+    // here would restart a healthy server on every invocation for want of a timestamp.
+    eq(serverBuild(child.pid, { self: script }).same, true,
+       'with no recorded start time the path comparison stands on its own and does not invent a verdict');
+  } finally {
+    child.kill();
+  }
+});
+
 test('A-62 · an orphan that rebuilt its own root is still an orphan', () => {
   // The reap shipped in 0.1.70, passed its suite for three releases, and leaked nine servers on this machine
   // anyway. `existsSync` was the whole test, and a detached server is a `watch --serve` loop that rebuilds on

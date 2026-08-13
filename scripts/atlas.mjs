@@ -28,7 +28,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { resolveConfig, DEFAULT_CONFIG, DEFAULT_CLUSTERS, CONFIG_NAME , automationAllows } from './lib/config.mjs';
 import { buildIndex, discover } from './lib/scan.mjs';
@@ -1474,9 +1474,9 @@ async function main() {
        * defect. `same === null` means the process could not be read, and an unreadable process is left alone
        * — restarting on "cannot tell" would kill and respawn a healthy server on every single invocation.
        */
-      const build = serverBuild(st.pid);
+      const build = serverBuild(st.pid, { startedAt: st.startedAt });
       if (build.same === false) {
-        say(`The server on ${st.url} (pid ${st.pid}) is running a different build:`);
+        say(`The server on ${st.url} (pid ${st.pid}) is running ${build.why}:`);
         say(`  it is    ${build.script}`);
         say(`  this is  ${build.mine}`);
         say('A running process cannot be upgraded, so it is being replaced. Restarting…');
@@ -1488,6 +1488,31 @@ async function main() {
     }
 
     if (st.running) {
+      /*
+       * **Rebuild before opening, because "the dashboard" is the pages and not the process (A-64).**
+       *
+       * This branch used to open the browser and return. The server it hands you is a `watch --serve` loop,
+       * which rebuilds when a *watched source file* changes — and nothing else. So every reason a page can
+       * be out of date without the corpus moving left it out of date: a new plugin version, a config edit,
+       * a plan document that was only just pointed at, a commit that changed what the git panels read. The
+       * command a person runs when the page looks wrong did the one thing that could not fix it.
+       *
+       * A full `build`, spawned rather than inlined, because a partial rebuild is worse than none: the build
+       * writes the site, the worklog, the knowledge graph and the stamp together, and half of that set on
+       * disk breaks the byte-identical guarantee the whole design rests on. Spawning the same script this
+       * process is running gets exactly the build any other caller would get.
+       */
+      const rebuilt = spawnSync(process.execPath, [process.argv[1], 'build', '--quiet', '--root', path.resolve(root)],
+        { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+      if (rebuilt.status === 0) {
+        say('Rebuilt the site before opening it — a running server only watches sources, so a change in');
+        say('  anything else (a new version, the config, the plan it points at) would not have reached it.');
+      } else {
+        say('The site could not be rebuilt, so what opens is whatever was last written:');
+        for (const line of String(rebuilt.stderr || rebuilt.stdout || '').split('\n').filter(Boolean).slice(0, 3)) {
+          say(`  ${line}`);
+        }
+      }
       say(`Already running on ${st.url} (pid ${st.pid}).`);
       // **Re-assert the record on the idempotent path, or the registry never heals.** Registration used to
       // happen on exactly one branch — the cold start at the bottom of this block. Every "already running"

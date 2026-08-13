@@ -107,7 +107,7 @@ while this page said thirty-two commands, and nothing noticed.
 | `atlas serve` | Start (or adopt) the live dashboard server and open it. | `scripts/atlas.mjs:1340` | `/atlas:dashboard` | shipped |
 | `atlas serve --stop \| --status \| --list \| --launcher` | Stop it, report it, list every dashboard on the machine, or write a launcher page. | `scripts/atlas.mjs:1340`, then `--stop`, `--status`, `--list`, `--launcher` | `/atlas:dashboard` (`--list`) | shipped |
 | `atlas product [--product DIR] [--deep]` | One page across sibling repositories under a directory that is **not** a repository. Members discovered, unadopted ones stated; written outside every checkout so it can never be committed. | `scripts/atlas.mjs:388` | `/atlas:product` | shipped |
-| `atlas watch [--serve]` | Rebuild on change; `--serve` hosts the output on loopback. | `scripts/atlas.mjs:1649` | — | shipped |
+| `atlas watch [--serve]` | Rebuild on change; `--serve` hosts the output on loopback. | `scripts/atlas.mjs:1674` | — | shipped |
 
 An unrecognised command prints the usage block and exits 2 (`scripts/atlas.mjs:1691`).
 
@@ -488,7 +488,7 @@ here"*, and `docs/ROADMAP.md` carries M-3 at 40%. No orchestrator, session drive
 exists in `scripts/`. `scripts/lib/mcp.mjs:31-34` states the read-only boundary as a construction rather than
 a promise, and `scripts/lib/task.mjs:15-20` states that driving a session is out of scope.
 
-**M-3 is not the only item below 100%.** The plan holds **117 items** at a mean completion of **96.9%**, and
+**M-3 is not the only item below 100%.** The plan holds **118 items** at a mean completion of **96.9%**, and
 **seven** of them are not at 100% — of which **zero** carry no figure at all and are reported as unknown rather
 than as zero. This paragraph twice claimed a smaller number than was true, most recently *"reports six … mean
 completion 94.4%"* while the real figures were eight and 96.2%, so all four are now read out of this sentence

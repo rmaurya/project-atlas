@@ -13,6 +13,10 @@ $ARGUMENTS
 
 > **If the block above is empty**, `atlas` is not on `PATH` — the plugin is not installed where this is
 > running. Say so; do not read an empty section as "nothing to report".
+>
+> **If it shows `atlas ask <task>` usage rather than documents**, no question was given. Ask for one — that
+> is the last line of this file, and it is the whole answer in that case. Do not read the usage text as a
+> failure: a person typing `/atlas:ask` with nothing after it is asking what the command does.
 
 # Corpus
 
