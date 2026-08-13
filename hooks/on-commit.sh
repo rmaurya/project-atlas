@@ -34,14 +34,42 @@ command -v jq >/dev/null 2>&1 || \
 
 ATLAS="${CLAUDE_PLUGIN_ROOT:-.}/bin/atlas"
 
-"$ATLAS" branch >&2
+# **Judge the repository being committed in, not the one the session happens to be sitting in.**
+#
+# Every check below ran against the process cwd, which is the session's directory. Committing in a *second*
+# repository — a sibling checkout, a worktree, anything reached with `cd` — therefore evaluated the wrong tree.
+# Observed twice in one session: a commit in another project was refused because *this* repository was on a
+# protected branch, and later because *this* repository had a blocking finding. Neither had anything to do
+# with the commit being made, and the only way past it was to change branch in an unrelated project.
+#
+# The target comes from an explicit `cd <dir>` in the command when there is one, and otherwise from the
+# payload's own `cwd`. Both are what the shell will actually use, so the guard and the commit agree on the
+# subject. A directory that is not a repository, or one that never adopted this tool, leaves the guard inert —
+# which it already promised to be, and now is across repository boundaries too.
+target=$(printf '%s' "$cmd" | awk '
+  match($0, /(^|[;&|][[:space:]]*)cd[[:space:]]+/) {
+    s = substr($0, RSTART + RLENGTH)
+    if (substr(s,1,1) == "\"")     { sub(/^"/,"",s);  sub(/".*/,"",s) }
+    else if (substr(s,1,1) == "'"'"'") { sub(/^'"'"'/,"",s); sub(/'"'"'.*/,"",s) }
+    else                            { sub(/[[:space:];&|].*/,"",s) }
+    print s; exit
+  }')
+if [ -z "$target" ] && command -v jq >/dev/null 2>&1; then
+  target=$(printf '%s' "$payload" | jq -r '.cwd // ""')
+fi
+ROOTARG=""
+if [ -n "$target" ] && [ -d "$target" ]; then
+  ROOTARG="--root $target"
+fi
+
+"$ATLAS" branch $ROOTARG >&2
 st=$?
 if [ $st -ne 0 ]; then
   [ $st -ne 1 ] && echo "project-atlas: the branch guard could not run (exit $st). This commit was NOT checked." >&2
   exit 2
 fi
 
-"$ATLAS" health --gate >&2
+"$ATLAS" health --gate $ROOTARG >&2
 st=$?
 if [ $st -ne 0 ]; then
   [ $st -ne 1 ] && echo "project-atlas: the health gate could not run (exit $st). This commit was NOT checked." >&2
@@ -72,7 +100,7 @@ if [ -z "$msg" ]; then
   fi
 fi
 
-printf '%s' "$msg" | "$ATLAS" spec --gate --why "$why" >&2
+printf '%s' "$msg" | "$ATLAS" spec --gate $ROOTARG --why "$why" >&2
 st=$?
 [ $st -eq 0 ] && exit 0
 [ $st -ne 1 ] && echo "project-atlas: the plan gate could not run (exit $st). This commit was NOT checked." >&2
