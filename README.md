@@ -93,12 +93,12 @@ None of that needed judgment to find. All of it needed someone to look.
 
 project-atlas reads the markdown in a repository and produces four things from it: an **index** with a cluster
 taxonomy and backlinks, a **health report** of sixteen mechanical rot signals, a **static site** with
-client-side search and nine role-specific views, and a **structured API** — an MCP server and a JSON command
+client-side search and eleven role-specific views, and a **structured API** — an MCP server and a JSON command
 with CI-shaped exit codes — so an agent or a build can ask the same questions without a terminal.
 
 It does not write your documentation, move it, or keep a copy of it. Everything it generates lands in one
-directory that is cleared and rewritten on every build, which is what makes it unable to drift from the
-documents it describes.
+directory that is cleared and rewritten on every build — after the build has proved the directory is its own
+to clear — which is what makes it unable to drift from the documents it describes.
 
 Three pages cover this in full, and they are kept honest by the same rule the tool enforces on everything
 else — every claim in them cites the code, `path:line`:
@@ -118,7 +118,7 @@ curl -fsSL https://raw.githubusercontent.com/rmaurya/project-atlas/main/install.
 ```
 
 It detects Claude Code, Codex or Antigravity and installs accordingly; with none of them it installs the
-standalone CLI. Read it first if you would rather not pipe a script — it is 40 lines and does nothing but
+standalone CLI. Read it first if you would rather not pipe a script — it is 120 lines and does nothing but
 clone this repository and call your agent's own plugin command.
 
 <details>
@@ -130,10 +130,11 @@ clone this repository and call your agent's own plugin command.
 claude plugin marketplace add rmaurya/project-atlas && claude plugin install atlas@project-atlas
 ```
 
-Skills arrive namespaced: `/atlas:help` `/atlas:status` `/atlas:health` `/atlas:changes` `/atlas:diff`
-`/atlas:ask` `/atlas:review` `/atlas:config` `/atlas:publish` `/atlas:dashboard` `/atlas:mcp` `/atlas:plan`.
-`/atlas:ask` is currently broken and is documented as such in
-[`docs/FEATURES.md`](docs/FEATURES.md#atlasask-is-currently-broken--defect).
+Skills arrive namespaced — **thirty-eight of them**, one per directory under `skills/`. `/atlas:help` prints
+the map. The ones worth knowing on day one: `/atlas:build` `/atlas:status` `/atlas:health` `/atlas:changes`
+`/atlas:diff` `/atlas:ask` `/atlas:review` `/atlas:config` `/atlas:publish` `/atlas:dashboard` `/atlas:mcp`
+`/atlas:plan`. The full list, each with the command it shells out to, is
+[§3 of the feature inventory](docs/FEATURES.md#3-slash-commands-claude-code-skills).
 
 **OpenAI Codex:**
 
@@ -225,12 +226,18 @@ at any time.
 | `atlas ownership` | Areas by author, and where the bus factor is one. |
 | `atlas surviving` | Surviving lines by file — what of the work is still standing. |
 | `atlas worklog` | Write the day's log to `worklog/` — commits, rework rate, items closed. |
+| `atlas git-insights [section]` | What git history says that nothing else here reads: hotspots, coupling, branches, cadence, hygiene, change. Read-only. |
 | `atlas tokens` | Where the tokens went — local transcripts, opt-in, never published. |
 | `atlas sessions` | How sessions went — turns, interruptions, friction, rework. |
+| `atlas prompt` | A system prompt assembled from this repository's own rules and state, for an agent that cannot load the plugin. |
+| `atlas pause` / `atlas resume` / `atlas stop` | The state of the *work*: checkpoint every agent worktree to a `wip/agent-*` ref, print the re-spawn plan, or clear session state. Every branch and checkpoint survives a `stop`. |
 | `atlas build` | Generate the site: index, dashboard, deck, health. |
 | `atlas watch` | Rebuild on change; the open page reloads itself. |
 | `atlas all` | scan + health + build. |
 | `atlas publish` | Stage a wiki, pages branch, or single-file export — nothing is pushed without `--push`. |
+
+`atlas help` prints the same list from the CLI, and **that list is complete** — a test derives the dispatch
+table from the source and fails when a command is missing from it, or when it names one that does not exist.
 
 `atlas status` and `atlas review` are not CLI commands — they exist only as the `/atlas:status` and
 `/atlas:review` slash commands, which read the same index and add the judgement a table cannot.
@@ -250,9 +257,10 @@ same as `./bin/atlas <command>` or `node scripts/atlas.mjs <command>`.
 
 ## How the documentation health check works
 
-`atlas health` runs sixteen mechanical checks over the indexed corpus and exits 1 if any **blocking** signal
-fires. Every signal is a fact about the repository — "this link points at a file that does not exist" — never
-a judgement about writing quality, because a tool that mixes the two teaches people to distrust both.
+`atlas health` runs **sixteen mechanical checks over the indexed corpus**, and reports one more — H17 — that
+is about how the session was run rather than about the repository. It exits 1 if any **blocking** signal
+fires. Every corpus signal is a fact about the repository — "this link points at a file that does not exist"
+— never a judgement about writing quality, because a tool that mixes the two teaches people to distrust both.
 
 | | Signal | Default |
 |---|---|---|
@@ -272,6 +280,15 @@ a judgement about writing quality, because a tool that mixes the two teaches peo
 | H14 | Design document cites code that has moved — stricter than H6, with no grace period | advisory |
 | H15 | An expected design artifact is absent, or is still a scaffold | advisory |
 | H16 | A code area no design document cites | advisory |
+| H17 | Large session, no subagent — **measures the operator, not the corpus** | advisory, and can never block |
+
+**Five of the seventeen block by default: H1, H3, H8, H10 and H12.** H10 and H12 join them because an SOP that
+has drifted is not out of date, it is incorrect instructions somebody is following.
+
+**H17 is a different kind of claim, and the table says so.** H1–H16 are statements about the repository,
+settled by reading the files. H17 reads local session transcripts and observes a working method — a lot of
+editing in one thread with nothing delegated — which is legitimate and often right. It is advisory
+**in code**, not by configuration: `"blocking": ["H17"]` loads without error and still does nothing.
 
 **Blocking versus advisory is the design's load-bearing compromise.** Blocking signals have no legitimate
 cause. Advisory ones do — an archived record *should* cite code that has since moved, and a historical spec
@@ -325,10 +342,18 @@ Typed: `/atlas:changes` and `/atlas:diff <path>`. Both summarise rather than pas
 atlas tokens               # the split; --out FILE to save, --json for the raw model
 ```
 
-**The only command that reads session transcripts**, and nothing else in the tool touches them. They are not
-part of the repository — machine-local, unversioned, and holding every prompt and file read of every session.
-So the report aggregates only, never publishes, and **refuses to write into the output directory**, which is
-pushed to wikis and Pages branches.
+**Transcripts are read by exactly two surfaces, and only when they are asked for**: `atlas tokens` and
+`atlas sessions` on the command line, and a build that renders the **Economics** view — which reads the same
+store to put the attribution on a page, and which `atlas watch` therefore triggers on every save. Nothing
+else opens it: not `scan`, not `health`, not a hook, not `serve`, and not a build whose views do not include
+Economics. This sentence used to say "the only command that reads session transcripts", which stopped being
+true when the Economics view shipped; the rule is stated where it is enforced, `scripts/lib/tokens.mjs:14`.
+
+Transcripts are not part of the repository — machine-local, unversioned, and holding every prompt and file
+read of every session. So the read is one-way and counts-only, the report aggregates only, never publishes,
+and **refuses to write into the output directory**, which is pushed to wikis and Pages branches. The
+Economics panels carry `data-local-only` and are stripped at both publish doors. Full detail, with the line
+of code for each claim: [`docs/legal/PRIVACY.md`](docs/legal/PRIVACY.md).
 
 The split is the point. On one real project: **11.9 billion tokens, 98.7% of them cache reads** — context
 re-read each turn, charged at a fraction of fresh input. A single "tokens used" figure would treat those as
@@ -499,7 +524,10 @@ node tests/run.mjs               # integration tests against throwaway git repos
 node tests/run.mjs --filter H6   # or a subset
 ```
 
-341 tests passed on 2026-08-11. The suite builds real git repositories and runs the real pipeline.
+**The suite holds 450 test cases.** That figure is not maintained by hand: a test reads it out of this
+sentence and compares it against the cases it can count in `tests/run.mjs`, so adding a test and forgetting
+this line fails the suite. A count stated in prose beside a list that grows is a defect waiting to happen,
+and this repository has proved that twice (A-29).
 
 No mocks — the tests build real git repos and run the real pipeline, because every bug this tool has shipped
 lived in the seam between the code and git. Several tests exist because a bug shipped once and must not

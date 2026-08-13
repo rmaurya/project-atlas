@@ -1,8 +1,13 @@
 # Privacy and data handling
 
-**Last verified: 2026-08-11.** Every claim on this page was read out of the source in the session that wrote
-it, and cites `path:line`. Where something could not be established, it says `UNKNOWN` rather than a plausible
-answer.
+**Last verified: 2026-08-13**, against `HEAD = 714d202`. Every claim on this page was read out of the source
+in the session that wrote it, and cites `path:line`. Where something could not be established, it says
+`UNKNOWN` rather than a plausible answer.
+
+**One claim on this page had gone false and is corrected below** — see *Local session transcripts*. The
+statement that nothing but `atlas tokens` reads your session transcripts stopped being true when the
+Economics view shipped, and it stayed on this page for two releases. Every `path:line` above and below was
+re-resolved on the date above; sixteen of them had drifted and now land on what they name.
 
 **The short version: project-atlas is a local tool. It reads your repository, writes into it, and — apart from
 two named HTTP requests and the git operations you ask for — nothing leaves your machine.** There is no
@@ -19,25 +24,49 @@ to `include: ['**/*.md']` (`scripts/lib/config.mjs:230`). `trackedOnly` defaults
 uncommitted draft in your working tree cannot reach a wiki.
 
 That boundary can degrade, and it says so when it does. If git cannot answer, discovery falls back to walking
-the filesystem and pushes a note into the report's "Not checked" section (`scripts/lib/scan.mjs:55-62`) rather
+the filesystem and pushes a note into the report's "Not checked" section (`scripts/lib/scan.mjs:69-78`) rather
 than switching mode silently.
 
 **Git metadata.** Authors, dates, commit messages and trailers, via `git log` and friends —
-`scripts/lib/scan.mjs:277` for document history, `scripts/lib/health.mjs:33` for the author list H11 checks
+`scripts/lib/scan.mjs:289-290` for document history, `scripts/lib/health.mjs:38` for the author list H11 checks
 against. `atlas contrib`, `atlas ownership` and `atlas surviving` are built from git history and nothing else.
 
 **Source files, only to check citations.** `allFiles()` lists every tracked path so a `path:line` citation can
-be resolved (`scripts/lib/scan.mjs:43-47`), and H2 reads a cited file to count its lines
-(`scripts/lib/health.mjs:61`). It never executes anything it finds.
+be resolved (`scripts/lib/scan.mjs:60-62`), and H2 reads a cited file to count its lines
+(`scripts/lib/health.mjs:228`). It never executes anything it finds.
 
-**Local session transcripts — but only if you run one of two commands.** `atlas tokens` and `atlas sessions`
-read `~/.claude/projects/<slug>` (`scripts/lib/tokens.mjs:52-55`). This is **opt-in by construction**: nothing
-else in the tool touches that directory (`scripts/lib/tokens.mjs:14`), and the reports are aggregate only —
+**Local session transcripts — read by three surfaces, and only when each is asked for.** The store is
+`~/.claude/projects/<slug>`, resolved at `scripts/lib/tokens.mjs:115` and overridable with
+`tokens.transcriptRoot`. What opens it:
+
+| Surface | When it reads | Why |
+|---|---|---|
+| `atlas tokens` | Only when you run it. | The token report. |
+| `atlas sessions` | Only when you run it. | Turns, interruptions, friction, rework. |
+| `atlas build` / `atlas watch` | **Only when a view being rendered includes the Economics panels.** | The Economics view puts the attribution on a page, so the build calls `readTokenEconomics` (`scripts/lib/tokens.mjs:766`). `atlas watch` builds on every save, so under a watcher this is a read per save. |
+
+**This page previously said the opposite, and it was wrong.** It stated that nothing but `atlas tokens`
+touched that directory, and cited `scripts/lib/tokens.mjs:14` — a line which, since C-10 shipped the
+Economics view, is *the sentence recording that the rule changed*. The rule now reads "read only by the
+surfaces that show them, and only when they are asked for", and it is stated where it is enforced rather than
+only here.
+
+**Nothing else opens the store**, and that is the part the table above is for: not `scan`, not `health` (H17
+is handed an aggregate by its caller and reads nothing itself), not a hook, not `serve`, and **not a build of
+a site whose views do not include Economics** — `dashboard.mjs` resolves the reader only when a panel on the
+page asks for it (`scripts/lib/dashboard.mjs:1815`). The default view set does include Economics, so on a
+default configuration a build reads the store; remove the view and it does not.
+
+**What that read can carry out of the file is unchanged, and is the reason the widened surface is still
+safe.** It is **one-way and counts-only**: `classifyWrite` is the only function that sees a path and it
+returns one of five words, so no path, prompt or message text survives it. The reports are aggregate only —
 counts, sums and model names, never prompt text, never a file path that was read
-(`scripts/lib/tokens.mjs:17-18`).
+(`scripts/lib/tokens.mjs:36-38`). The Economics panels carry `data-local-only` and are removed by
+`stripLocalOnly` at both publish doors. **Nothing reaches disk** unless you run `atlas tokens --snapshot`
+with `tokens.snapshot` set: no build writes the snapshot, and a test asserts it.
 
 **Plugin registrations**, to work out which build is answering you: `${CLAUDE_CONFIG_DIR:-~/.claude}`
-(`scripts/atlas.mjs:128`).
+(`scripts/atlas.mjs:133`).
 
 ## What it writes, and where
 
@@ -47,7 +76,7 @@ counts, sums and model names, never prompt text, never a file path that was read
 |---|---|---|
 | `docs/_wiki/` (configurable) | `atlas build` | The whole generated site. Default at `scripts/lib/config.mjs:236`. Delete it and rebuild; you get the same bytes. |
 | `project-atlas.config.json` | `atlas init` | Nothing existing is modified. |
-| `worklog/<day>/<slug>.md` | `atlas worklog` | `scripts/lib/worklog.mjs:132-137`. Derived from git. |
+| `worklog/<day>/<slug>.md` | `atlas worklog` | `scripts/lib/worklog.mjs:133-138`. Derived from git. |
 | `.atlas/journal/<slug>.jsonl` | `atlas note` and the hooks | `scripts/lib/journal.mjs:46`, appended one line at a time at `scripts/lib/journal.mjs:170`. |
 | `.git/project-atlas-capabilities.json` | `atlas caps` | The one-hour capability cache, `scripts/lib/host.mjs:80`. Never committed. |
 | `.atlas/serve.pid`, `.atlas/serve-announced`, `.atlas/tasks-live.jsonl`, `.atlas/build.lock` | `atlas serve`, the hooks | Machine-local churn, all git-ignored — see `.gitignore`. |
@@ -58,7 +87,7 @@ counts, sums and model names, never prompt text, never a file path that was read
 |---|---|---|
 | `${XDG_CACHE_HOME:-~/.cache}/project-atlas/update-check.json` | the update check | `scripts/lib/update.mjs:28-31`. Outside the repo on purpose, so a check never appears in anyone's diff. |
 | `${CLAUDE_CONFIG_DIR:-~/.claude}/atlas-servers.json` | `atlas serve` | The cross-project server registry, `scripts/lib/serve.mjs:66-68`. Project name, root path, port, pid. |
-| `$TMPDIR/atlas-wiki-*`, `$TMPDIR/atlas-pages-*` | `atlas publish` | Staging directories, `scripts/lib/publish.mjs:231`, `:305`, `:373`. Staging is the default; nothing is pushed from them without `--push`. |
+| `$TMPDIR/atlas-wiki-*`, `$TMPDIR/atlas-pages-*` | `atlas publish` | Staging directories, `scripts/lib/publish.mjs:232`, `:306`, `:374`. Staging is the default; nothing is pushed from them without `--push`. |
 
 ### The journal: what it holds, and what it does not
 
@@ -105,8 +134,8 @@ a `null` result is cached too, so an offline machine does not retry every sessio
 
 **Turn it off with `ATLAS_UPDATE_CHECK=0`.** The hook exits before doing anything
 (`hooks/on-session-start.sh:22`), and the per-command stale banner is suppressed too
-(`scripts/atlas.mjs:266`). That banner never makes a request in any case — it reads the cache and nothing else
-(`scripts/atlas.mjs:262-263`).
+(`scripts/atlas.mjs:271`). That banner never makes a request in any case — it reads the cache and nothing else
+(`scripts/atlas.mjs:292`).
 
 **Beyond those two, git subprocesses also reach the network — and only when you invoke the command that needs
 them.** This is worth stating precisely, because "two network requests" counts HTTP calls made by this code
@@ -116,9 +145,9 @@ and not the git processes it starts:
   API's `has_wiki` flag (`scripts/lib/host.mjs:179`). Runs under `atlas caps` and in the publish gate.
 - `git clone --depth 1` of the wiki, during `atlas publish --target wiki` — **including without `--push`**,
   because the drift check that protects hand-edited pages has to read what is there
-  (`scripts/lib/publish.mjs:241`).
-- `git push`, only under an explicit `--push` (`scripts/lib/publish.mjs:342` for the wiki,
-  `scripts/lib/publish.mjs:387` for a Pages branch). This is the one operation that sends repository content
+  (`scripts/lib/publish.mjs:242`).
+- `git push`, only under an explicit `--push` (`scripts/lib/publish.mjs:343` for the wiki,
+  `scripts/lib/publish.mjs:404` for a Pages branch). This is the one operation that sends repository content
   anywhere, and it is the one that is never implicit.
 
 **Every other command — `scan`, `health`, `build`, `tasks`, `changes`, `diff`, `branch`, `contrib`, `tokens`,
@@ -141,9 +170,9 @@ are none. Typefaces are system stacks (`ui-monospace`, `Menlo`, and so on), not 
 made in [`SECURITY.md`](../../SECURITY.md).
 
 The one exception is same-origin and only alive under a server: the live dashboard polls `build-stamp.txt` and
-re-fetches its own URL to patch itself in place (`scripts/lib/dashboard.mjs:1902`, `:1921`). Nothing else is
+re-fetches its own URL to patch itself in place (`scripts/lib/dashboard.mjs:3217`, `:3198`). Nothing else is
 contacted. In the single-file export that poller is switched off, because a detached file could never reach it
-and a snapshot that looks live is worse than one that admits it (`scripts/lib/publish.mjs:546`).
+and a snapshot that looks live is worse than one that admits it (`scripts/lib/publish.mjs:984`).
 
 ## What is not claimed here
 

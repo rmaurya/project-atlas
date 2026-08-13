@@ -19,7 +19,7 @@ disable-model-invocation: true
 
 ---
 
-Twenty-nine slash commands is too many to list. **Give the user the group their question belongs to, then the
+Thirty-eight slash commands is too many to list. **Give the user the group their question belongs to, then the
 one or two commands in it** — the failure with a surface this size is never a missing command, it is a person
 choosing between three they cannot tell apart.
 
@@ -51,6 +51,18 @@ that writes to the repository**
 `/atlas:sessions` and `/atlas:tokens` — **both read local session transcripts from outside the repository**,
 aggregate only, and never publish
 
+**What git history says, and nothing else here reads**
+`/atlas:git-insights` all of it at once · `/atlas:git-hotspots` the files change keeps returning to, what
+changes together, and who knows each area · `/atlas:git-history` cadence and commit hygiene ·
+`/atlas:git-branch` branch state and the branch inventory · `/atlas:git-status` where you are, what is
+uncommitted, and what this change touches · `/atlas:git-diff <path>` one file, with the history around it.
+All six are **strictly read-only**.
+
+**Stopping and picking back up**
+`/atlas:pause` checkpoint every agent worktree to a `wip/agent-*` ref before the session ends — **writes git
+refs** · `/atlas:resume` the re-spawn plan for a paused session, and writes nothing ·
+`/atlas:stop` clear session state and agent worktrees; every branch and checkpoint survives
+
 **Publishing**
 `/atlas:caps` which features the host has on — **makes one network request** · `/atlas:community` issue and PR
 scaffolding for the features that came back on · `/atlas:publish` wiki, pages or a single file, and never
@@ -67,9 +79,9 @@ out ends a first run with a config file and no index. `atlas spec --gate` is the
 reads the message from stdin and prints nothing when it passes.
 
 **This map is hand-written and the `skills/` directory is the authority.** If a command listed here does not
-exist in this install, or one exists and is missing below, that is a defect in this file — say so rather than
-working around it. **An `/atlas:git-*` family is being added on another branch and is deliberately not listed
-here yet**; if this install has those commands, this map is behind and their own descriptions are the source.
+exist in this install, or one exists and is missing above, that is a defect in this file — say so rather than
+working around it. In this repository a test compares the two and fails on either kind of gap; in an install
+of a different version it may not, so the directory still wins over the map.
 
 ## Then answer the actual question
 
@@ -83,7 +95,10 @@ Otherwise say what to run first, from the state above:
 - **Configured but never built** → `/atlas:health`, then `/atlas:build`.
 - **Built already** → point at the delta. What changed since the last run is the only interesting part.
 
-**One caveat about the first block.** `atlas help` prints the CLI usage, and that list is *not* complete —
-several dispatched commands are missing from it, including `tasks`, `plan`, `config`, `ownership`,
-`surviving`, `worklog` and `serve`. Do not tell the user a command does not exist because the block above
-omits it; the map here and `skills/` are the better answer, and `atlas --help` covers flags.
+**One note about the first block, and it is the opposite of what it used to say.** This section warned that
+`atlas help` prints an incomplete list and named seven commands missing from it. **That is no longer true**,
+and repeating it was worse than saying nothing: it told a reader to distrust correct output, which nothing in
+the block itself can refute. A-35 completed the list, and a test derives the dispatch table from the source
+and fails in both directions — a command that dispatches and is unlisted, and a line promising a command the
+CLI would reject. **Treat the block above as the CLI's own inventory.** The map here adds grouping and
+judgement, not coverage.
