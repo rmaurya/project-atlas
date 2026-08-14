@@ -5592,10 +5592,17 @@ test('ask · a question reaches the document search, and a task reaches the stru
      'a question was rejected as an unknown task — the two handlers are shadowed again');
   includes(question.stdout, 'PUBLISHING.md');
 
-  // **No argument is "could not answer", not "answered and clean".** Printing usage and falling out left the
+  // **An argument that is present and empty is "could not answer".** Printing usage and falling out left the
   // exit code at 0, so a pipeline calling `atlas ask "$TASK"` with an empty variable was told the corpus was
   // sound when nothing had been asked — the exact confusion the command's own help text warns about.
-  eq(run().status, 2, 'no argument must exit 2, not 0');
+  //
+  // This assertion used to be `run()` — *no* argument — justified by that same sentence about a pipeline,
+  // and the two are not the same call. Conflating them is what produced a defect on both sides at once: the
+  // real pipeline case (`ask ""`) fell past the guard into the search path and exited 0, while a person
+  // typing `/atlas:ask` with nothing got a 2 that Claude Code renders as an error, killing the skill before
+  // it began. The split is A-65; the case that pins both directions is beside it.
+  eq(run('').status, 2, 'an empty argument must exit 2, not 0');
+  eq(run().status, 0, 'and no argument at all is a person reading the menu');
 });
 
 test('ask · exit 1 is a finding, exit 2 is "I could not answer", and they are never confused', () => {
@@ -5621,6 +5628,46 @@ test('ask · exit 1 is a finding, exit 2 is "I could not answer", and they are n
   eq(none.ok, false);
   eq(none.exitCode, 2);
   includes(none.error, 'adopted the tool');
+});
+
+test('A-65 · a person who asked nothing gets the menu; a caller who lost its question gets exit 2', () => {
+  // Two failures on one line, pulling opposite ways.
+  //
+  // `/atlas:ask` typed with nothing after it expands to a bare `atlas ask`, which exited 2. Claude Code runs
+  // a skill's `!` block as a shell command and renders a non-zero exit as an *error*, so the skill died
+  // before the model read a word of it — the reader got a wall of usage text under `Error` instead of being
+  // asked what they wanted to know. Prose in the skill cannot fix that, because the prose is never reached,
+  // and `|| true` cannot either: the case above forbids operators in those blocks.
+  //
+  // Meanwhile `atlas ask "$TASK"` with an unset variable — the thing the exit 2 was written for — was
+  // exiting **0**. One empty positional is not a known task name, so it fell past the guard into the human
+  // search path and reported "answered and clean" for a question nobody asked. The comment describing the
+  // danger and the code creating it were forty lines apart in the same file.
+  //
+  // The shell already separates them: `atlas ask` passes no arguments, `atlas ask "$EMPTY"` passes one that
+  // is empty. Nothing is inferred from shape or intent.
+  // Adopted, deliberately. Without a config every `ask` exits 2 for "this repository never adopted the
+  // tool", which would have made the assertion below pass for a reason that has nothing to do with the
+  // empty argument — a green test proving something else entirely.
+  const dir = fixture('a65-ask-empty', {
+    'project-atlas.config.json': '{}',
+    'docs/A.md': '# A\n\nSomething to find.\n',
+  });
+
+  const none = cli(dir, ['ask']);
+  eq(none.code, 0, 'a bare `atlas ask` is a person reading the menu, and a skill block dies on any non-zero');
+  includes(none.stdout, 'atlas ask <task>', 'and the menu is what they get');
+
+  const empty = cli(dir, ['ask', '']);
+  eq(empty.code, 2, 'an argument that is present and empty is a caller that lost its question');
+
+  eq(cli(dir, ['ask', '', '--json']).code, 2, 'and --json does not soften it');
+
+  // Neither change may touch the paths that work. A question still searches, a task still answers.
+  const asked = cli(dir, ['ask', 'Something']);
+  eq(asked.code, 0);
+  const task = cli(dir, ['ask', 'atlas_health', '--json']);
+  ok(task.code === 0 || task.code === 1, `a real task still answers, got ${task.code}`);
 });
 
 test('ask · the batch surface and the MCP surface answer from the same handlers', () => {
@@ -10387,9 +10434,16 @@ test('A-64 · the same script path is not the same code, once somebody has edite
   try {
     // Give `ps` a moment to have the child in it at all; without this the test races the process table and
     // gets `same: null` for a reason that has nothing to do with the code under test.
+    //
+    // With a pause between attempts, because the first draft did not have one: it spun on `ps -axo` as fast
+    // as the loop would go for up to five seconds, which saturated the machine and pushed
+    // `serve · a server that cannot bind exits` past its own 20-second timeout. A test that makes a
+    // *different* test fail is worse than a slow one, and it took a full-suite run to see it because the
+    // case passes in isolation on an idle machine.
+    const nap = () => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50);
     const deadline = Date.now() + 5000;
     let seen = serverBuild(child.pid, { self: script });
-    while (seen.script === null && Date.now() < deadline) seen = serverBuild(child.pid, { self: script });
+    while (seen.script === null && Date.now() < deadline) { nap(); seen = serverBuild(child.pid, { self: script }); }
     eq(seen.script, script, 'sanity: the child is visible in the process table and parses as a server');
 
     const m = fs.statSync(script).mtimeMs;

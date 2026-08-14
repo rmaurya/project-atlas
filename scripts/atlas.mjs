@@ -728,11 +728,27 @@ async function main() {
       say('  Exit 0 answered and clean · 1 answered and something blocking · 2 could not answer.');
       say('  The 1/2 split is the point: a build should fail on findings, not on a tool that could not run.');
       say('');
-      // **Exit 2, not 0.** Printing usage and falling out left the exit code at 0 — "answered and clean" —
-      // so a pipeline calling `atlas ask "$TASK"` with an empty variable was told the documentation was
-      // sound when nothing had been asked. That is the exact 1-versus-2 confusion this command's own help
-      // text warns about, two lines above where it was happening.
-      process.exitCode = 2;
+      /*
+       * **Exit 2 when something was passed and it was empty; exit 0 when nothing was passed at all (A-65).**
+       *
+       * The 2 exists for a real failure: a pipeline running `atlas ask "$TASK"` with an unset variable was
+       * told the documentation was sound when nothing had been asked — the exact 1-versus-2 confusion the
+       * two lines above warn about. That must keep failing.
+       *
+       * But it also fired for `/atlas:ask` typed with nothing after it, and there the 2 was the whole bug.
+       * Claude Code runs a skill's `!` block as a shell command and reports a non-zero exit as an error, so
+       * the skill died before the model read one word of it — the reader got a stack of usage text under the
+       * word `Error` instead of being asked what they wanted to know. Prose in the skill cannot fix that; the
+       * prose is never reached. `|| true` cannot either: a case in this suite forbids operators in those
+       * blocks, because Claude Code refuses to auto-approve a compound command and the skill would prompt on
+       * every run.
+       *
+       * The shell already draws the line, and draws it exactly where it is needed. `atlas ask "$TASK"` with
+       * an empty variable passes one empty argument — `['']`. `atlas ask` with nothing, which is what
+       * `atlas ask $ARGUMENTS` expands to when a person typed no question, passes none — `[]`. One is a
+       * caller that meant to ask something and lost it; the other is a person reading the menu.
+       */
+      if (positionals.length) process.exitCode = 2;
       return;
     }
     const args = {};
@@ -813,6 +829,21 @@ async function main() {
     const index = buildIndex(root, cfg, { withGit: false });
     if (!q) {
       say(`No question given. ${index.stats.documents} document(s) are indexed; ask about any of them.`);
+      /*
+       * **This is where the empty variable actually lands, and it was exiting 0 (A-65).**
+       *
+       * The guard written for it sits in the structured branch above, and `atlas ask ""` never reaches that
+       * branch: one empty positional is not a known task name, so it falls through to here — the human
+       * search path — and returned "answered and clean" for a question nobody asked. The comment describing
+       * the danger and the code creating it were forty lines apart in the same file.
+       *
+       * The distinction is the same one drawn above and it is the shell's, not a guess. Arguments present
+       * but empty is a caller that meant to ask something and lost it: exit 2. No arguments at all — which
+       * is what `atlas ask $ARGUMENTS` expands to when a person typed no question — is somebody reading the
+       * menu: exit 0, because Claude Code renders a non-zero exit from a skill's `!` block as an error and
+       * that error is all the reader would see.
+       */
+      if (positionals.length) process.exitCode = 2;
       return;
     }
     const needle = q.toLowerCase();

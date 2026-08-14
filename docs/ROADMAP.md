@@ -53,6 +53,7 @@ measured against the code — the same distinction the tool preserves everywhere
 | I-4 | 100 | S-8 | 100 | A-58 | 100 |
 | A-59 | 100 | A-60 | 100 | A-61 | 100 |
 | A-62 | 100 | A-63 | 100 | A-64 | 100 |
+| A-65 | 100 |
 
 ---
 
@@ -2496,3 +2497,24 @@ missing task, which is correct — a pipeline calling it with an empty variable 
 clean. The skill's shell block cannot use `|| true` either, because Claude Code refuses to auto-approve a
 compound command and the skill would prompt on every run. The block is unchanged and the skill now says what
 the usage text means when it appears.
+
+**A-65 · `/atlas:ask` died on its own exit code, and the pipeline it was protecting exited 0** — **P1 · High**
+
+Two failures on one line, pulling opposite ways, and one test that asserted the wrong one.
+
+`atlas ask` with no argument exited 2. Claude Code runs a skill's `!` block as a shell command and renders a
+non-zero exit as an **error**, so `/atlas:ask` typed with nothing after it died before the model read a word
+of the skill — the reader got a wall of usage text under `Error` instead of being asked what they wanted to
+know. Prose in the skill cannot fix it, because the prose is never reached, and `|| true` cannot either: an
+existing case forbids operators in those blocks, since Claude Code refuses to auto-approve a compound command
+and the skill would prompt on every run.
+
+Meanwhile the case that exit 2 was *written for* — `atlas ask "$TASK"` with an unset variable — was exiting
+**0**. One empty positional is not a known task name, so it fell past the guard into the human search path
+and reported "answered and clean" for a question nobody asked. The comment describing the danger and the code
+creating it were forty lines apart in the same file, and the test asserting the rule tested `ask` with no
+argument while justifying itself with the pipeline case. Conflating them is what let a defect sit on both
+sides at once.
+
+The shell already separates the two: `atlas ask` passes no arguments, `atlas ask "$EMPTY"` passes one that is
+empty. Nothing is inferred from shape or intent.

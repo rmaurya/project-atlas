@@ -6,8 +6,8 @@ _Written by `atlas worklog`. Measured from git and the corpus; no prompt text, a
 
 | | |
 |---|---|
-| Commits | 5 |
-| Lines | +1,952 / −226 |
+| Commits | 6 |
+| Lines | +2,100 / −243 |
 | Rework rate | 81.6% — a file re-touched within 3 days |
 | Reverts | 0 |
 | Documentation | 0 blocking finding(s) at end of day |
@@ -18,6 +18,7 @@ _Written by `atlas worklog`. Measured from git and the corpus; no prompt text, a
 - **A-61** A product is several repositories, and the directory holding them is not one — 100%
 - **A-62** An orphaned dashboard made itself unreapable by rebuilding its own root — 100%
 - **A-63** `atlas serve` adopted a dashboard running an older build and called it current — 100%
+- **A-64** `atlas serve` opened a stale page and called it the dashboard — 100%
 
 ## Commits
 
@@ -26,6 +27,7 @@ _Written by `atlas worklog`. Measured from git and the corpus; no prompt text, a
 - `11830f8` chore(release): 0.1.73 — four workstreams, and two tests that were lying about themselves
 - `ed274e7` chore(record): the session's journal and worklog
 - `fe6d367` fix(serve): an orphan outlived the reaper by rebuilding its own root, and a stale build was adopted as current (A-62, A-63)
+- `a2431c2` fix(serve,ask): the dashboard command did the one thing that could not refresh the dashboard (A-64)
 
 ---
 
