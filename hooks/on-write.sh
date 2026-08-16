@@ -2,7 +2,14 @@
 # project-atlas · rebuild after a markdown write
 #
 # The wiki is derived, so it should never be something anyone remembers to regenerate. This runs after a
-# session writes a `.md` file and rebuilds the site — roughly half a second on a 27-document corpus.
+# session writes a `.md` file and rebuilds the site.
+#
+# **What that costs is a function of the corpus, and this comment used to state one corpus as if it were the
+# rule** — "roughly half a second", measured at 27 documents. At 411 documents, 76,853 lines and 2,045
+# citations it is **36.8 seconds**, once per markdown write. The hook was doing exactly what it was designed
+# to do; what was missing is that nothing measured the assumption or restated it as the corpus grew. So the
+# build now times itself and says so on the way past (A-67), and `automation.buildOnWriteMaxSeconds` is there
+# for a repository that decides the trade is no longer worth paying on every edit.
 #
 # **It always exits 0.** This is a refresh, not a check: failing the edit that triggered it would punish the
 # author for a problem in the generator. A build that fails still says so on stderr, which reaches Claude — the
@@ -89,5 +96,13 @@ st=$?
 if [ $st -ne 0 ]; then
   echo "project-atlas: the site did not rebuild after $p (exit $st). It is now older than the markdown." >&2
   [ -n "$out" ] && echo "$out" >&2
+else
+  # **A successful build is not always a silent one.** (A-67) `--quiet` suppresses the summary, which is
+  # right: nobody asked for this build and nobody is reading a page count. What it must not suppress is the
+  # build saying what it cost, or saying it skipped itself — those are addressed to the session, they are
+  # rate-limited at the source, and until this line existed they were captured into `$out` and thrown away on
+  # the successful path, which is every path that matters. Anything the tool prefixes with its own name is
+  # meant to be read; everything else stays swallowed.
+  printf '%s\n' "$out" | grep '^project-atlas:' >&2
 fi
 exit 0

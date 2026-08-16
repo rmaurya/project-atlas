@@ -18,14 +18,15 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { globToRegExp, resolveConfig, DEFAULT_CLUSTERS, DEFAULT_CONFIG, clusterFor, unsafeRegexReason, AUTOMATION_KEYS,
          PLAN_GLOB_SELECTORS, PLAN_DOCUMENT_GLOBS } from '../scripts/lib/config.mjs';
-import { buildIndex } from '../scripts/lib/scan.mjs';
-import { runHealth, formatReport, SIGNALS, OPERATOR_SIGNALS, readParallelism,
+import { buildIndex, discover } from '../scripts/lib/scan.mjs';
+import { runHealth, formatReport, SIGNALS, OPERATOR_SIGNALS, readParallelism, setupNotes,
          DEFAULT_PARALLELISM_EDITS, PARALLELISM_SAMPLE, parallelismEvidence,
          CORPUS_SIGNALS as HEALTH_CORPUS_SIGNALS } from '../scripts/lib/health.mjs';
 import { readSessionParallelism } from '../scripts/lib/parallelism.mjs';
 import { readContention, formatContention, definedIds } from '../scripts/lib/contention.mjs';
 import { SIGNALS as CORPUS_SIGNALS } from '../scripts/lib/signals.mjs';
-import { renderSite, writeBuildStamp, BUILD_CLAIM, BUILD_MARKERS, groupNav, NAV_GROUPS, generatedPaths } from '../scripts/lib/render.mjs';
+import { renderSite, writeBuildStamp, BUILD_CLAIM, BUILD_INFO, BUILD_MARKERS,
+         groupNav, NAV_GROUPS, generatedPaths } from '../scripts/lib/render.mjs';
 import { renderMarkdown, inline } from '../scripts/lib/markdown.mjs';
 import { readPlanning, DEFAULT_PLANNING, planCandidates, planSetupNotice } from '../scripts/lib/planning.mjs';
 import { writeDay, contributorSlug } from '../scripts/lib/worklog.mjs';
@@ -67,6 +68,7 @@ import { survivingLines } from '../scripts/lib/surviving.mjs';
 import { setItemPercent, itemFromBranch, contradictsPlan, STARTED_PERCENT } from '../scripts/lib/progress.mjs';
 import { handoffAge, handoffsIn, formatHandoffPrompt } from '../scripts/lib/handoff.mjs';
 import { acquire as acquireLock, foreignBuildWarning, STALE_AFTER_MS } from '../scripts/lib/lock.mjs';
+import { costNotice, budgetSkip, duration } from '../scripts/lib/cost.mjs';
 import { readObligations, evaluate as evaluateSop, parseInterval, DEFAULT_SOP_MATCH } from '../scripts/lib/sop.mjs';
 import { note as journalNote, read as journalRead, MAX_TEXT, slugCollisions } from '../scripts/lib/journal.mjs';
 import { testInventory, casesInFile } from '../scripts/lib/testcases.mjs';
@@ -8520,6 +8522,207 @@ test('build · a claim from some other directory does not authorise deleting thi
   eq(fs.readFileSync(path.join(dir, 'docs', 'handwritten.txt'), 'utf8'), 'months of work\n');
 });
 
+/* =============================== two builds over one output directory (A-66, A-67, A-68) */
+
+console.log('\ntwo builds over one output directory');
+
+/** Build once as `version`, and hand back the output directory it wrote. */
+function buildAs(dir, version, extra = {}) {
+  const { cfg, index, health } = analyse(dir, {});
+  return renderSite(index, health, { ...cfg, __build: { version, path: `/plugins/${version}`, ...extra } }, dir);
+}
+
+test('build · an older build refuses to restructure output a newer one wrote', () => {
+  // The incident. A session had loaded 0.1.67; the installed plugin and its detached watcher were 0.1.76, and
+  // the two emit different layouts — 0.1.76 writes no per-document `kb/nodes/**` tree. Consecutive builds
+  // alternated between two structures and one attempted commit captured a mid-wipe state showing 449 files
+  // deleted and 203,276 lines removed. Claude Code reads plugin code once at session start, so an update
+  // never reaches a running session and no amount of restarting the *daemon* fixes the older half.
+  const dir = fixture('build-version-older', { 'docs/A.md': '# A\n' });
+  const { outDir } = buildAs(dir, '0.1.76');
+  ok(fs.existsSync(path.join(outDir, 'index.html')), 'the newer build wrote a site');
+
+  let threw = null;
+  try { buildAs(dir, '0.1.67'); } catch (e) { threw = e; }
+  ok(threw, 'the older build must not clear a directory the newer one wrote');
+  includes(threw.message, '0.1.76', 'the message names the version that wrote it');
+  includes(threw.message, '0.1.67', 'and the version trying to');
+  includes(threw.message, 'Restart Claude Code', 'and the move that actually fixes it');
+  includes(threw.message, '--allow-downgrade', 'and the way to override it deliberately');
+  // Refusing is only worth anything if it refuses *before* deleting: the whole point is that the newer
+  // site survives intact rather than being half-replaced.
+  ok(fs.existsSync(path.join(outDir, 'index.html')), 'and nothing was deleted on the way to refusing');
+});
+
+test('build · a newer build adopts older output rather than refusing it', () => {
+  // The direction that must never be guarded. This is what every `/plugin update` looks like from the next
+  // build's point of view, and a version check that blocked it would leave the tool unbuildable until
+  // somebody deleted the output directory by hand — a far worse failure than the one being fixed.
+  const dir = fixture('build-version-newer', { 'docs/A.md': '# A\n' });
+  buildAs(dir, '0.1.67');
+  const r = buildAs(dir, '0.1.76');
+  ok(fs.existsSync(path.join(r.outDir, 'index.html')), 'the upgrade builds');
+  eq(r.notice.level, 'info', 'and says which version it replaced, rather than warning about it');
+  includes(r.notice.text, '0.1.67');
+  eq(JSON.parse(fs.readFileSync(path.join(r.outDir, BUILD_INFO), 'utf8')).version, '0.1.76',
+     'the directory now records the build that actually wrote it');
+});
+
+test('build · an output directory built before provenance existed is not a conflict', () => {
+  // "Some earlier version" is not a direction. Every repository upgrading into this release has a directory
+  // with no provenance file, and refusing on a fact this vague would fire once everywhere for no reason it
+  // could state.
+  const dir = fixture('build-version-unknown', { 'docs/A.md': '# A\n' });
+  const first = buildAs(dir, '0.1.76');
+  fs.rmSync(path.join(first.outDir, BUILD_INFO));
+  const r = buildAs(dir, '0.1.10');
+  eq(r.notice, null, 'nothing to compare means nothing to say');
+  ok(fs.existsSync(path.join(r.outDir, 'index.html')));
+});
+
+test('build · an anonymous build records no version, rather than inventing one', () => {
+  // A caller that did not identify itself is every direct `renderSite` in this suite and any embedder. A
+  // version invented for it is exactly the confident wrong answer the next build would refuse on.
+  const dir = fixture('build-version-anon', { 'docs/A.md': '# A\n' });
+  const { cfg, index, health } = analyse(dir, {});
+  const r = renderSite(index, health, cfg, dir);
+  eq(fs.existsSync(path.join(r.outDir, BUILD_INFO)), false);
+});
+
+test('build · --allow-downgrade overrides the refusal and says that it did', () => {
+  // An override that is silent is an override nobody remembers using. The layout still changed underneath
+  // whatever wrote it; the only thing the flag changes is who decided.
+  const dir = fixture('build-version-override', { 'docs/A.md': '# A\n' });
+  buildAs(dir, '0.1.76');
+  const r = buildAs(dir, '0.1.67', { allowDowngrade: true });
+  eq(r.notice.level, 'warn');
+  includes(r.notice.text, '--allow-downgrade');
+  includes(r.notice.text, "now in 0.1.67's layout");
+});
+
+test('build · a version neither side can parse is a warning, never a silent pass', () => {
+  const dir = fixture('build-version-garbled', { 'docs/A.md': '# A\n' });
+  buildAs(dir, 'built-from-source');
+  const r = buildAs(dir, '0.1.76');
+  eq(r.notice.level, 'warn', 'unparseable is "could not be checked", which is not the same as "no conflict"');
+  includes(r.notice.text, 'could not be checked');
+});
+
+test('build · the provenance file is checked, not merely counted', () => {
+  // Same rule as the build claim beside it: a file with the right name and the wrong contents proves nothing,
+  // and the guard must not fold to a filename. Anything unreadable means "not established" — which is the
+  // permissive answer here, and the safe one, because the refusal it feeds is the destructive branch.
+  const dir = fixture('build-version-forged', { 'docs/A.md': '# A\n' });
+  const { outDir } = buildAs(dir, '0.1.76');
+  fs.writeFileSync(path.join(outDir, BUILD_INFO), JSON.stringify({ tool: 'somebody-else', version: '9.9.9' }), 'utf8');
+  const r = buildAs(dir, '0.1.67');
+  eq(r.notice, null, 'a provenance file this tool did not write answers for nothing');
+});
+
+test('build · the build times itself, and the automatic one says what it cost', () => {
+  // The number the hook's own comment guessed at: "roughly half a second on a 27-document corpus", measured
+  // at 36.8 seconds on a 411-document one, and printed nowhere. A tool that measures a repository's health
+  // measures its own.
+  eq(duration(840), '840ms');
+  eq(duration(36_800), '36.8s');
+  eq(duration(64_000), '1m 04s');
+
+  eq(costNotice(900), null, 'half a second is not news');
+  const notice = costNotice(36_800, { configPath: 'project-atlas.config.json' });
+  includes(notice, '36.8s');
+  includes(notice, 'after every markdown write', 'the cost is only meaningful beside how often it is paid');
+  includes(notice, 'buildOnWrite', 'and the sentence names the switch that stops it');
+
+  // Not on every write. A message printed after every edit is one people learn to scroll past, which costs
+  // it the one moment it needed to be read.
+  const now = Date.now();
+  eq(costNotice(36_800, { now, lastNoticedAt: now - 60_000 }), null, 'said again a minute later: no');
+  ok(costNotice(36_800, { now, lastNoticedAt: now - 60 * 60_000 }), 'said again an hour later: yes');
+});
+
+test('build · the cost budget skips loudly, is off by default, and never guesses', () => {
+  eq(budgetSkip({}, { ms: 60_000 }), null, 'unset means never skip — the default must not change behaviour');
+  eq(budgetSkip({ automation: { buildOnWriteMaxSeconds: 10 } }, null), null,
+     'nothing measured here yet is not a reason to skip; "unknown" is not "expensive"');
+  eq(budgetSkip({ automation: { buildOnWriteMaxSeconds: 10 } }, { ms: 4_000 }), null, 'inside the budget builds');
+  const skip = budgetSkip({ automation: { buildOnWriteMaxSeconds: 10 } }, { ms: 36_800 });
+  includes(skip, '36.8s');
+  includes(skip, 'older than the markdown', 'a derived surface that quietly stopped refreshing is the failure this tool detects');
+});
+
+test('build · the automatic build honours the budget and the typed one ignores it', () => {
+  // A person who typed `atlas build` has already decided to wait for it. The budget is about the build
+  // nobody asked for.
+  const dir = fixture('build-budget-cli', { 'docs/A.md': '# A\n' });
+  fs.writeFileSync(path.join(dir, 'project-atlas.config.json'),
+    JSON.stringify({ automation: { buildOnWriteMaxSeconds: 0 } }), 'utf8');
+  const run = (args) => spawnSync('node', [CLI, ...args, '--no-color', '--root', dir],
+    { encoding: 'utf8', cwd: dir });
+
+  const first = run(['build']);
+  eq(first.status, 0);
+  ok(fs.existsSync(path.join(dir, 'docs', '_wiki', 'index.html')), 'the typed build runs whatever the budget says');
+
+  fs.rmSync(path.join(dir, 'docs', '_wiki'), { recursive: true, force: true });
+  const auto = run(['build', '--auto', '--quiet']);
+  eq(auto.status, 0, 'a skipped rebuild must never fail the edit that triggered it');
+  includes(auto.stderr, 'skipped the automatic rebuild');
+  eq(fs.existsSync(path.join(dir, 'docs', '_wiki', 'index.html')), false, 'and it really did not build');
+});
+
+test('health · the report names the loop between committed output and a git-defined corpus', () => {
+  // Neither a finding nor a gap: a property of the setup that decides what the reader should expect. The
+  // symptom it explains is a session that cannot get `docs/_wiki` to hold still, because its own commits
+  // keep re-triggering the rebuild it is waiting on. `exclude` does not close this — the git *index* is the
+  // input here, and a commit necessarily modifies it.
+  const note = setupNotes({ output: 'docs/_wiki', trackedOnly: true }, { trackedOutput: 851 })[0];
+  includes(note, 'docs/_wiki is committed (851 tracked file(s))');
+  includes(note, 'does not take it out of git');
+  eq(setupNotes({ output: 'docs/_wiki', trackedOnly: true }, { trackedOutput: 0 }).length, 0,
+     'an uncommitted output directory has no loop to name');
+  eq(setupNotes({ output: 'docs/_wiki', trackedOnly: true }, { trackedOutput: null }).length, 0,
+     'and git failing to answer is never reported as a property that was established');
+});
+
+test('health · the loop is reported from what git actually tracks, not from the config alone', () => {
+  const dir = fixture('setup-loop', { 'docs/A.md': '# A\n' });
+  const clean = analyse(dir, {});
+  eq(clean.health.setup.length, 0, 'nothing is committed under the output directory yet');
+
+  cli(dir, ['build']);
+  execFileSync('git', ['add', '-Af', 'docs/_wiki'], { cwd: dir, stdio: 'ignore' });
+  execFileSync('git', ['-c', 'user.email=t@example.com', '-c', 'user.name=Test', 'commit', '-qm', 'site'],
+    { cwd: dir, stdio: 'ignore' });
+  const after = analyse(dir, {});
+  eq(after.health.setup.length, 1, 'once the output is tracked, the report says so once');
+  includes(formatReport(after.health, after.index, { color: false }), 'Setup');
+});
+
+test('watch · staging a file the corpus already holds is not a corpus change', () => {
+  // The open question this fix was asked to settle: does a `git add` re-trigger the watcher? Under
+  // `trackedOnly` the corpus is `git ls-files`, so the answer turns on whether the *tracked set* moved.
+  // Staging an edit to a document already in it does not move it, and the file's own mtime — which is what
+  // the watcher fingerprints — is untouched by staging. So there is nothing here to fix, and this test is
+  // what stops that becoming untrue quietly.
+  const dir = fixture('watch-index-only', { 'docs/A.md': '# A\n' });
+  const cfg = resolveConfig(dir);
+  const fingerprint = () => discover(dir, cfg).map((f) => {
+    const s = fs.statSync(path.join(dir, f));
+    return `${f}:${s.size}:${s.mtimeMs}`;
+  }).join('|');
+
+  fs.writeFileSync(path.join(dir, 'docs', 'A.md'), '# A\n\nmore\n', 'utf8');
+  const edited = fingerprint();
+  execFileSync('git', ['add', 'docs/A.md'], { cwd: dir, stdio: 'ignore' });
+  eq(fingerprint(), edited, 'staging changes nothing the watcher reads — the rebuild already happened on the edit');
+
+  // The other half, and the reason "ignore index-only changes" would be the wrong fix: staging a file that
+  // was never tracked genuinely enlarges the corpus, and that build is one the watcher owes the user.
+  fs.writeFileSync(path.join(dir, 'docs', 'B.md'), '# B\n', 'utf8');
+  execFileSync('git', ['add', 'docs/B.md'], { cwd: dir, stdio: 'ignore' });
+  ok(fingerprint() !== edited, 'a document entering the tracked set is a corpus change, index-only or not');
+});
+
 /* ============================================ discovery during a merge (A-37) */
 
 console.log('\ndiscovery during a merge');
@@ -13060,7 +13263,7 @@ console.log('\nwhich repository a hook is talking about');
  * of these cases is about *which* repository was chosen, and a suite that leaves a build running per case is
  * a suite that races itself. The one case that asserts the rebuild turns it on.
  */
-function multiRepo(name, { buildOnWrite = false } = {}) {
+function multiRepo(name, { buildOnWrite = false, automation = {} } = {}) {
   const parent = path.join(tmpRoot, name);
   const state = path.join(tmpRoot, `${name}-state`);
   fs.mkdirSync(parent, { recursive: true });
@@ -13082,7 +13285,7 @@ function multiRepo(name, { buildOnWrite = false } = {}) {
   const adopted = child('adopted', {
     'docs/A.md': '# A\n',
     'src/x.ts': 'export const x = 1;\n',
-    'project-atlas.config.json': JSON.stringify({ automation: { buildOnWrite } }),
+    'project-atlas.config.json': JSON.stringify({ automation: { buildOnWrite, ...automation } }),
   });
   const plain = child('plain', { 'docs/B.md': '# B\n' });
   // A pidfile naming this test process: alive, so `atlas serve` finds a running server and returns rather
@@ -13176,6 +13379,30 @@ test('A-59 · the notice is said once a session, and never in a repository that 
   eq(quiet.status, 0);
   eq(quiet.stdout.trim(), '', 'an unadopted repository must not be announced at');
   eq(quiet.stderr.trim(), '');
+}, { needsPosixShell: true, needsJq: true });
+
+test('A-67 · what the automatic rebuild says on a successful build still reaches the session', () => {
+  // The half that was thrown away. The hook captures the build's output into `$out` and printed it only when
+  // the build *failed* — so every sentence the build addressed to the session on the way past, including the
+  // one saying it had skipped itself, was collected and dropped on the only path that ever runs. Anything the
+  // tool prefixes with its own name is meant to be read; everything else stays swallowed, because `--quiet`
+  // is right about page counts.
+  const w = multiRepo('hookroot-cost', { buildOnWrite: true, automation: { buildOnWriteMaxSeconds: 0 } });
+  fs.writeFileSync(path.join(w.adopted, 'docs', 'D.md'), '# D\n', 'utf8');
+  const fire = () => fireHook('on-write.sh', {
+    cwd: w.parent, state: w.state,
+    payload: { session_id: 'sess-cost', tool_name: 'Write', cwd: w.parent,
+               tool_input: { file_path: path.join(w.adopted, 'docs', 'D.md') } },
+  });
+
+  // The first write measures the build; the budget can only be judged against a measurement, so the skip is
+  // the write after it. "Not measured yet" is never treated as "expensive".
+  fire();
+  ok(fs.existsSync(path.join(w.adopted, 'docs', '_wiki', 'index.html')), 'the first rebuild ran and was timed');
+  const second = fire();
+  eq(second.status, 0, 'a hook that says something must still never fail the edit that triggered it');
+  includes(second.stderr, 'skipped the automatic rebuild');
+  includes(second.stderr, 'older than the markdown');
 }, { needsPosixShell: true, needsJq: true });
 
 test('A-59 · the write hook rebuilds the repository the file is in, not the one the process stands in', () => {

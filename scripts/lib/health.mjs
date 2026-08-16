@@ -583,7 +583,51 @@ export function runHealth(index, cfg, root, opts = {}) {
     blockingCount: findings.filter((f) => f.blocking).length,
     unevaluated: [...unevaluated],
     notChecked: notChecked(index, cfg, refusedPatterns, unreadable),
+    setup: setupNotes(cfg, { trackedOutput: trackedOutputFiles(root, cfg) }),
   };
+}
+
+/**
+ * How many files of the build's own output directory git is tracking. `null` when git could not answer —
+ * which is not zero, and the caller says nothing rather than reporting a property it did not establish.
+ */
+function trackedOutputFiles(root, cfg) {
+  if (!root || !cfg?.output) return null;
+  try {
+    const out = execFileSync('git', ['-C', root, 'ls-files', '--', String(cfg.output)],
+                             { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+    return new Set(out.split('\n').filter(Boolean)).size;
+  } catch { return null; }
+}
+
+/**
+ * **Properties of the setup, not of the corpus.** (A-68)
+ *
+ * Kept apart from "Not checked" on purpose: that section lists work this run could not do, and these are
+ * things it did establish. Neither is a finding — nothing here has a document to point at, and none of it is
+ * wrong. It is the class of fact each user otherwise rediscovers by watching something behave oddly.
+ *
+ * The first one is the loop. `output` is committed and `trackedOnly` is on, so the build's own output is
+ * inside the set that *defines* the corpus: a rebuild rewrites those tracked files, committing them changes
+ * the tracked set, and the tracked set is what the watcher watches. Excluding `**\/_wiki/**` from the index
+ * keeps the output's *content* out of the corpus and does nothing about this — the git index is the input
+ * here, and a commit necessarily modifies it. Measured on a 411-document corpus: 851 tracked files rewritten
+ * per build, and a session that was committing could not get the directory to hold still, because its own
+ * commits kept re-triggering the rebuild it was waiting on.
+ *
+ * **It is named, not forbidden.** Committing a generated wiki is a deliberate and common choice — it is how
+ * the site gets published from the repository — and the tool has no business overruling it. What it owes the
+ * user is that the property be stated once, in the report they already read, rather than learned by waiting.
+ */
+export function setupNotes(cfg, { trackedOutput = null } = {}) {
+  const out = [];
+  if (trackedOutput && cfg?.trackedOnly !== false) {
+    out.push(`${cfg.output} is committed (${num(trackedOutput)} tracked file(s)) and trackedOnly is on, so this ` +
+      `tool's own output is part of what defines its corpus. Every build rewrites those files, and committing ` +
+      `them changes the tracked set a watcher rebuilds on — excluding the path from the index does not take it ` +
+      `out of git. Deliberate for a published wiki; worth knowing before you wait for the directory to settle.`);
+  }
+  return out;
 }
 
 /**
@@ -645,6 +689,14 @@ export function formatReport(health, index, { verbose = false, color = true } = 
     L.push('');
     L.push(c.bold('  Not checked'));
     for (const n of health.notChecked) L.push(c.dim(`    · ${n}`));
+  }
+
+  // Below "Not checked", because these are not findings and not gaps: they are properties of how this
+  // repository is set up that change what the reader should expect. (A-68)
+  if (health.setup?.length) {
+    L.push('');
+    L.push(c.bold('  Setup'));
+    for (const n of health.setup) L.push(c.dim(`    · ${n}`));
   }
 
   if (verbose) {

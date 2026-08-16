@@ -36,6 +36,7 @@ import { readPlanning, planCandidates, planSetupNotice } from './lib/planning.mj
 import { runHealth, formatReport } from './lib/health.mjs';
 import { readSessionParallelism } from './lib/parallelism.mjs';
 import { renderSite, writeBuildStamp } from './lib/render.mjs';
+import { readCost, noteCost, costNotice, budgetSkip, duration } from './lib/cost.mjs';
 import { buildPrompt } from './lib/prompt.mjs';
 import { confine } from './lib/paths.mjs';
 import { buildWikiPages, stageWiki, stagePages, exportSingleFile, exportBundle, gitlabPagesJob } from './lib/publish.mjs';
@@ -1198,7 +1199,7 @@ async function main() {
     const health = runHealth(index, cfg, root, healthOpts(root, cfg));
     const verbose = flag('verbose');
     say(formatReport(health, index, { verbose: verbose === 'all' ? 'all' : !!verbose, color }));
-    if (flag('json')) console.log(JSON.stringify({ counts: health.counts, blockingCount: health.blockingCount, findings: health.findings.map(({ ...f }) => f) }, null, 2));
+    if (flag('json')) console.log(JSON.stringify({ counts: health.counts, blockingCount: health.blockingCount, setup: health.setup, findings: health.findings.map(({ ...f }) => f) }, null, 2));
     process.exitCode = health.blockingCount ? 1 : 0;
     return;
   }
@@ -1209,7 +1210,29 @@ async function main() {
     // No config file means this repository never opted in. The plugin is installed user-wide, so without this
     // every markdown edit in every unrelated repository would generate a docs/_wiki nobody asked for.
     if (flag('auto') && (!cfg.__configPath || !automationAllows(cfg, 'buildOnWrite'))) return;
+    /*
+     * **What the automatic rebuild costs, and the one way to stop paying it.** (A-67)
+     *
+     * Both of these are on the `--auto` path only, and both write to stderr. A build somebody typed is a
+     * build somebody is watching; this one runs after an edit nobody asked it to run after, so the only
+     * place a sentence about it can land is the session's own output — which is what stderr is here.
+     *
+     * The skip is opt-in and never silent. `atlas build` in a terminal is untouched by the budget: a person
+     * asking for a build has already decided to wait for it.
+     */
+    if (flag('auto')) {
+      const skip = budgetSkip(cfg, readCost(root));
+      if (skip) { console.error(skip); return; }
+    }
     const r = doBuild(root, cfg, withGit, cmd === 'all', { stamp: flag('stamp') });
+    if (flag('auto') && !r.skipped) {
+      const last = readCost(root);
+      const notice = costNotice(r.ms, {
+        lastNoticedAt: last?.noticedAt ?? null,
+        configPath: cfg.__configPath ? path.relative(root, cfg.__configPath) : CONFIG_NAME,
+      });
+      if (notice) { console.error(notice); noteCost(root, { ...last, noticedAt: Date.now() }); }
+    }
     // `--verify` audits what was just written. The tool checked other people's markdown and never its own
     // HTML; six defects shipped in one afternoon and a person found every one of them.
     if (flag('verify')) {
@@ -2011,6 +2034,18 @@ function doBuild(root, cfg, withGit, withReport, { stamp = false, autoDerived = 
                                       path.resolve(root, cfg.output)));
   }
   try {
+  // **The build times itself.** (A-67) The hook that triggers one after every markdown write describes the
+  // cost in its own comment as *"roughly half a second"*, measured on a 27-document corpus; on a 411-document
+  // one it is 36.8 seconds. Nothing said so, on either corpus, so the assumption stayed invisible until it
+  // was a complaint. A tool that measures a repository's health measures its own. See cost.mjs.
+  const startedAt = Date.now();
+  // Which build is writing this directory, carried into the renderer so the output records it and the next
+  // build can refuse to be restructured by an older one. (A-66)
+  cfg = { ...cfg, __build: {
+    version: running.version,
+    path: running.pluginRoot,
+    allowDowngrade: !!flag('allow-downgrade') || process.env.ATLAS_ALLOW_DOWNGRADE === '1',
+  } };
   const index = buildIndex(root, cfg, { withGit });
   const health = runHealth(index, cfg, root, healthOpts(root, cfg));
   if (withReport) say(formatReport(health, index, { verbose: !!flag('verbose'), color }), '\n');
@@ -2027,8 +2062,13 @@ function doBuild(root, cfg, withGit, withReport, { stamp = false, autoDerived = 
   const stampValue = flag('watch') ? now.slice(11, 19) : now.replace('T', ' ').slice(0, 19) + ' UTC';
   if (stamping) cfg = { ...cfg, __stamp: stampValue };
 
-  const { outDir, pages, truncated, plan, deck, collisions, kb } = renderSite(index, health, cfg, root);
+  const { outDir, pages, truncated, plan, deck, collisions, kb, notice } = renderSite(index, health, cfg, root);
   if (stamping) writeBuildStamp(root, cfg, stampValue);
+  // A version disagreement that did not stop the build still gets said. `warn` goes to stderr and ignores
+  // --quiet for the same reason the foreign-build warning does: a quiet build is still a build whose layout
+  // just changed underneath somebody. (A-66)
+  if (notice?.level === 'warn') console.error(notice.text);
+  else if (notice) say(notice.text);
 
   /*
    * A-2 · derived output maintains itself. A-6 · the artifact is generated, never shared.
@@ -2062,8 +2102,13 @@ function doBuild(root, cfg, withGit, withReport, { stamp = false, autoDerived = 
   }
 
   // `pages` is counted from the files actually written, not from the index — see render.mjs. A collision that
-  // had to be renamed is stated rather than left to look like an ordinary build.
-  say(`Built ${pages} page(s) → ${path.relative(root, outDir) || outDir}`);
+  // had to be renamed is stated rather than left to look like an ordinary build. The elapsed time is on this
+  // line and not behind a flag: it is the number that decides whether `buildOnWrite` is a good trade here,
+  // and it was the one number this tool never printed about itself. (A-67)
+  const elapsedMs = Date.now() - startedAt;
+  noteCost(root, { ms: elapsedMs, at: Date.now(), version: running.version,
+                   noticedAt: readCost(root)?.noticedAt ?? null });
+  say(`Built ${pages} page(s) in ${duration(elapsedMs)} → ${path.relative(root, outDir) || outDir}`);
   if (collisions?.length) {
     say(`  ${collisions.length} page-name collision(s) resolved by suffixing; both documents are written:`);
     for (const c of collisions.slice(0, 5)) say(`    ${c.renamed} → ${c.to}`);
@@ -2098,7 +2143,7 @@ function doBuild(root, cfg, withGit, withReport, { stamp = false, autoDerived = 
   // uses. It is the half of the output meant for something that will never look at a browser.
   if (kb?.files) say(`  Knowledge graph: ${kb.files} markdown file(s) for agents → ${path.relative(root, kb.dir)}/README.md`);
   say(`  Open: file://${path.join(outDir, 'index.html')}`);
-  return { index, health, pages, outDir };
+  return { index, health, pages, outDir, ms: elapsedMs };
   } finally {
     lock.release();
   }
@@ -2317,6 +2362,8 @@ Flags
   --offline          skip the capability probe; assume features exist and say so
   --quiet            suppress progress output
   --force            (init) overwrite an existing config
+  --allow-downgrade  (build) rewrite output that a NEWER build wrote — refused by default, because an older
+                     build restructures the site into its own layout and the diff looks like data loss
 
 The markdown is the source of truth. Everything this tool writes is derived and safe to delete.`);
 }

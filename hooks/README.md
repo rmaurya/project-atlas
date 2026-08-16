@@ -255,6 +255,24 @@ An unknown key under `automation` is refused rather than ignored, and so is a no
 truthy string, and a switch that fails open leaves you believing you turned something off that is still
 running.
 
+### What the write hook costs
+
+Its own comment used to price the rebuild at *"roughly half a second"*, measured on a 27-document corpus. On a
+411-document one — 76,853 lines, 2,045 citations — it is **36.8 seconds**, once per markdown write. Nothing
+was wrong with the hook; what was missing is that a corpus-size assumption sat inside a default and nothing
+measured it as the corpus grew.
+
+So every build now says how long it took, and this hook forwards that sentence to the session rather than
+swallowing it on the successful path. If the trade stops being worth it in your repository:
+
+```json
+{ "automation": { "buildOnWriteMaxSeconds": 10 } }
+```
+
+The automatic rebuild is then skipped once the last build here cost more than ten seconds — **and says so
+every time, including that the site is now older than the markdown**. A build you type is never skipped.
+Nothing here turns itself off quietly.
+
 ## Requirements
 
 `jq`, which ships with macOS and most Linux distributions. **Without it the guard still runs**, matching the

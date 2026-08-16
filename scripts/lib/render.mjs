@@ -10,6 +10,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { renderMarkdown, escapeHtml, escapeAttr } from './markdown.mjs';
 import { confine } from './paths.mjs';
+import { compare as compareVersions } from './version.mjs';
 import { SIGNALS } from './health.mjs';
 import { readPlanning } from './planning.mjs';
 import { viewPage } from './dashboard.mjs';
@@ -35,6 +36,70 @@ import { num } from './format.mjs';
  * exactly why they cannot be the only proof: see `BUILD_CLAIM`.
  */
 export const BUILD_MARKERS = ['README.md', '.gitattributes'];
+
+/**
+ * **Which version of this tool wrote the directory a build is about to clear.** (A-66)
+ *
+ * Claude Code reads plugin code once at session start, so an update never reaches a running session: a
+ * session that loaded 0.1.67 keeps building with 0.1.67 while the installed plugin and its `watch --serve`
+ * daemon are 0.1.76. Both write the same output directory and **they emit different layouts** — 0.1.76 does
+ * not produce the per-document `kb/nodes/**` tree 0.1.67 does. Measured on a 411-document corpus: consecutive
+ * builds alternated between two structures, and two attempted commits captured mid-wipe states, one of them
+ * showing *449 files deleted, 203,276 lines removed* — a diff that looks like data loss and is not.
+ *
+ * Nothing on disk said so. `build-stamp.txt` was already read back and already written on every stamped
+ * build, and it carries only a timestamp; the obvious fix is to put the version on that line. **It is not
+ * done there**, because that file is a parsed contract in three places — the footer wire's `parse()`, the
+ * live-reload poll, and the single-file export — and every one of them would read `0.1.76` as part of a time
+ * and report the site as unstamped. So provenance gets a file of its own, and the stamp stays a stamp.
+ *
+ * Two fields, both stable across rebuilds: this directory is compared byte-for-byte between builds, and an
+ * absolute path or a timestamp here would break that guarantee — and `publish --target pages` copies the
+ * directory into a branch, where a machine-local path would be committed for everyone to read.
+ */
+export const BUILD_INFO = '.atlas-build.json';
+
+/**
+ * What the previous build's provenance means for this one. Pure, so the rule is testable without a build.
+ *
+ * **Newer over older is an upgrade and must never be refused** — that is what happens after every
+ * `/plugin update`, and a guard that blocks it would make the tool unbuildable until someone deleted the
+ * directory by hand. **Older over newer is the defect**: an out-of-date session restructuring the site a
+ * current build just wrote. That one refuses, because refusing costs a rebuild and the alternative costs a
+ * diff nobody can read.
+ *
+ * An unknown previous version — a directory built before this file existed — is *not* treated as a conflict.
+ * "Some earlier version" is not a direction, and refusing on a fact this vague would fire once on every
+ * repository that upgrades into this release for no reason it could state.
+ */
+export function buildConflict(previous, current) {
+  if (!previous || !current) return null;
+  const order = compareVersions(current.version, previous.version);
+  if (order === null) {
+    return { level: 'warn', text:
+      `project-atlas: this output directory was last written by ${previous.version} and this build calls itself ` +
+      `${current.version}; neither reads as a version, so it could not be checked which is newer. Two builds ` +
+      `writing one directory overwrite each other's layout.` };
+  }
+  if (order === 0) return null;
+  if (order === 1) {
+    return { level: 'info', text:
+      `  Output here was written by ${previous.version}; this build is ${current.version} and rewrites it.` };
+  }
+  return { level: 'refuse', text:
+    `Refusing to rebuild: this output directory was written by project-atlas ${previous.version}, and this ` +
+    `build is ${current.version} — older.\n` +
+    `  A build clears the directory and writes its own layout, so the older build restructures the newer ` +
+    `one's site. On a large corpus that lands as a commit showing hundreds of files deleted, which looks ` +
+    `exactly like data loss and is not.\n` +
+    `  Claude Code reads plugin code once at session start, so a session that began before an update keeps ` +
+    `building with the version it loaded${current.path ? ` — this one is running from ${current.path}` : ''}.\n` +
+    `  Do one of these:\n` +
+    `    • Restart Claude Code, so the session runs the installed build.\n` +
+    `    • Run the newer build directly, if you know where it is.\n` +
+    `    • If the older build is deliberate, pass --allow-downgrade (or set ATLAS_ALLOW_DOWNGRADE=1) and it ` +
+    `will rewrite the directory in ${current.version}'s layout.` };
+}
 
 /**
  * The claim a build stakes on its output directory **before** it writes anything into it, and removes once
@@ -167,6 +232,21 @@ function isAlive(pid) {
 function prepareOutputDir(root, cfg) {
   const outDir = confine(root, cfg.output, 'output', cfg.__configPath);
 
+  // **Before anything is deleted, and before the provenance guard.** The two ask different questions — that
+  // one asks whether this tool wrote the directory at all, this one asks *which build of it did* — and this
+  // one has to run first, because the answer it can give is "leave the directory exactly as it is".
+  const previous = readBuildInfo(outDir);
+  const conflict = buildConflict(previous, cfg.__build);
+  let notice = conflict;
+  if (conflict?.level === 'refuse') {
+    if (!cfg.__build?.allowDowngrade) throw new Error(conflict.text);
+    // An override that says nothing is an override nobody remembers using. It is still the older build
+    // writing over the newer one's layout; the only thing --allow-downgrade changes is who decided.
+    notice = { level: 'warn', text:
+      `project-atlas: rewriting output built by ${previous.version} with ${cfg.__build.version}, which is ` +
+      `older — allowed by --allow-downgrade. The site is now in ${cfg.__build.version}'s layout.` };
+  }
+
   if (fs.existsSync(outDir)) {
     const stat = fs.lstatSync(outDir);
     if (!stat.isDirectory()) throw new Error(`output resolves to ${outDir}, which is not a directory.`);
@@ -207,7 +287,25 @@ function prepareOutputDir(root, cfg) {
     note: 'A build is writing this directory, or died writing it. Everything here is derived and safe to delete.',
   }, null, 2) + '\n', 'utf8');
 
-  return outDir;
+  return { outDir, notice };
+}
+
+/**
+ * The provenance of the build that last **finished** here, or `null`. (A-66)
+ *
+ * Read through `readRegularFile` for the same reason the claim is: this decides whether a directory is
+ * cleared, so a symlink pointing somewhere else must not be able to answer for it. Anything unparseable, or
+ * not written by this tool, is `null` — an unreadable provenance file means "not established", never "no
+ * conflict", and the caller's rule for an unknown previous version is to proceed.
+ */
+export function readBuildInfo(outDir) {
+  try {
+    const raw = readRegularFile(path.join(outDir, BUILD_INFO));
+    if (raw === null) return null;
+    const info = JSON.parse(raw);
+    if (info?.tool !== 'project-atlas' || typeof info.version !== 'string') return null;
+    return info;
+  } catch { return null; }
 }
 
 /**
@@ -258,7 +356,7 @@ export function renderSite(index, health, cfg, root) {
   // Declared once, at the top, so every reader reached from here — the homepage's own `readInflight` call and
   // every panel that resolves the working tree through `ctx.cfg` — is looking at the same boundary.
   cfg = { ...cfg, __generated: generatedPaths(cfg) };
-  const outDir = prepareOutputDir(root, cfg);
+  const { outDir, notice } = prepareOutputDir(root, cfg);
   const pagesDir = path.join(outDir, 'pages');
   fs.mkdirSync(pagesDir, { recursive: true });
 
@@ -398,6 +496,13 @@ export function renderSite(index, health, cfg, root) {
   fs.writeFileSync(path.join(outDir, 'atlas.css'), CSS, 'utf8');
   fs.writeFileSync(path.join(outDir, '.gitattributes'), '* linguist-generated=true\n', 'utf8');
   fs.writeFileSync(path.join(outDir, 'README.md'), derivedReadme(cfg), 'utf8');
+  // Written with the markers, not instead of them: the markers say a build finished here, this says which
+  // build it was. Only when the caller identified itself — a version invented for an anonymous caller is
+  // exactly the confident wrong answer the next build would refuse on. (A-66)
+  if (cfg.__build?.version) {
+    fs.writeFileSync(path.join(outDir, BUILD_INFO),
+      JSON.stringify({ tool: 'project-atlas', version: cfg.__build.version }, null, 2) + '\n', 'utf8');
+  }
 
   // **The same derived facts again, as markdown, for the reader who has no browser.**
   //
@@ -427,7 +532,7 @@ export function renderSite(index, health, cfg, root) {
   // next build has to be able to recognise as its own. (A-34)
   releaseOutputDir(outDir);
 
-  return { outDir, pages: written.size, truncated, plan, deck, collisions, kb };
+  return { outDir, pages: written.size, truncated, plan, deck, collisions, kb, notice };
 }
 
 /**

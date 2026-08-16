@@ -53,7 +53,8 @@ measured against the code — the same distinction the tool preserves everywhere
 | I-4 | 100 | S-8 | 100 | A-58 | 100 |
 | A-59 | 100 | A-60 | 100 | A-61 | 100 |
 | A-62 | 100 | A-63 | 100 | A-64 | 100 |
-| A-65 | 100 |
+| A-65 | 100 | A-66 | 100 | A-67 | 100 |
+| A-68 | 100 |
 
 ---
 
@@ -493,7 +494,7 @@ there is no transcript to read, which is the rule A-29 was filed for.
 of the eight `runHealth(` call sites passed a fourth argument, so `opts.sessions` was `undefined` everywhere
 and every report on every machine printed *"H17 — (not evaluated)"*. The design was right and nobody had
 plugged it in, which is the failure mode a percentage in the table above cannot see. `healthOpts`
-(`scripts/atlas.mjs:254`) now supplies the aggregate at the six call sites that show a report to somebody, and
+(`scripts/atlas.mjs:255`) now supplies the aggregate at the six call sites that show a report to somebody, and
 `scripts/lib/parallelism.mjs` derives it. **The commit gate is deliberately excluded**: it reads
 `blockingCount` alone, H17 can never block, and a streaming pass over the local transcript store on every
 commit is how a guard becomes something people switch off — taking the five blocking corpus signals with it.
@@ -537,7 +538,7 @@ answer. And the counting loop belongs in `tokens.mjs`, which owns the transcript
 
 *`viewPage` reads the working tree with `readInflight(cfg.__root || process.cwd(), …)`
 (`scripts/lib/dashboard.mjs:134`), and `__root` is attached in exactly one place — `renderSite`
-(`scripts/lib/render.mjs:200`).* Any other caller falls through to `process.cwd()`, so the in-flight card
+(`scripts/lib/render.mjs:280`).* Any other caller falls through to `process.cwd()`, so the in-flight card
 describes **whatever repository the process happens to be standing in** rather than the one being rendered.
 The same fallback is on three more lines of the same file.
 
@@ -1900,7 +1901,7 @@ the file is long enough. `CAPABILITIES.md` had never heard of `pause`, `resume`,
 files; and it told readers `atlas ask <question>` **does not work**, two days after it was fixed. `FAQ.md` said
 the same thing about `/atlas:ask` and linked to a `FEATURES.md` anchor renamed in the fix, so the link had been
 dead ever since — invisible to H1, which resolves the file and never the fragment. Eleven citations across the
-two pages were written as **reversed ranges** (`scripts/atlas.mjs:1007-971`).
+two pages were written as **reversed ranges** (`scripts/atlas.mjs:1008-972`).
 
 *Stamps replaced by derivation, not by fresher stamps.* Every "last verified" line is gone. The command
 citations in `FEATURES.md` §1 and `CAPABILITIES.md` are now the line each `if (cmd === …)` sits on, re-derived
@@ -2518,3 +2519,85 @@ sides at once.
 
 The shell already separates the two: `atlas ask` passes no arguments, `atlas ask "$EMPTY"` passes one that is
 empty. Nothing is inferred from shape or intent.
+
+**A-66 · An out-of-date session restructured the site a current build had just written** — **P1 · High**
+
+Measured by hand in a 411-document repository. The session had loaded **0.1.67**; the installed plugin and
+its `watch --serve --detached` daemon were **0.1.76**, and the two emit different layouts — 0.1.76 does not
+produce the per-document `kb/nodes/**` tree 0.1.67 does. Both wrote `docs/_wiki`, so consecutive builds
+alternated between two structures, and two attempted commits of the site captured mid-wipe states, one of
+them showing **449 files deleted and 203,276 lines removed**. That diff looks exactly like data loss and is
+not, which is the worst shape a diff can have.
+
+Claude Code reads plugin code once at session start, so an update never reaches a running session; the plugin
+already says so on start-up and that notice is the right one. What nothing did was stop the older CLI writing
+the same output directory as the newer daemon. The output now records which build wrote it, in
+`.atlas-build.json` beside the pages, and `prepareOutputDir` compares before it deletes anything.
+
+**The direction is the whole rule.** Newer over older is an upgrade and is never refused — that is what every
+`/plugin update` looks like from the next build's point of view, and blocking it would leave the tool
+unbuildable until somebody ran `rm -rf` by hand. Older over newer refuses, and names both versions, the
+restart that fixes it, and `--allow-downgrade` for whoever means it. An unknown previous version proceeds:
+"some earlier version" is not a direction, and every repository upgrading into this release has a directory
+with no provenance file in it.
+
+**What it cannot do until both halves ship it.** A build that predates this release writes no provenance file
+and deletes the one it finds, so a 0.1.76 watcher against a 0.1.77 session still takes turns silently — the
+guard is only enforceable once the *older* side is also new enough to leave a mark. That case keeps the
+warning it already had: `lock.mjs` records which build last held the lock, and a different one says so. Both
+were firing on this repository while this was being written, which is how it was checked.
+
+*The obvious place for this was `build-stamp.txt`, which is already written and already read back. It is not
+there because that file is a parsed contract in three places — the footer wire, the live-reload poll and the
+single-file export — and each of them would read a version on the line as part of a time and report the site
+as unstamped. Provenance got a file of its own; the stamp stayed a stamp.*
+
+**A-67 · The rebuild after every markdown write cost 36.8 seconds and said nothing** — **P1 · High**
+
+`hooks/on-write.sh` used to price its own cost in its opening comment: *"roughly half a second on a
+27-document corpus."* Measured on 2026-08-16 against 411 documents, 76,853 lines, 458 links and 2,045 citations, one
+rebuild takes **36.8 seconds**, and one runs after every markdown write. The hook was behaving exactly as
+designed. The defect is that a corpus-size assumption was baked into a default and nothing checked it,
+restated it, or measured it as the corpus grew — so the cost was invisible right up to the point where it
+was a complaint.
+
+A tool that measures a repository's health should measure its own. Every build is now timed and says so on
+its summary line; the automatic one says what it cost on stderr, where it reaches the session, above a
+five-second threshold and at most once every thirty minutes per repository. `on-write.sh` was collecting
+that output and discarding it on the successful path — which is every path that matters — and now forwards
+anything the tool addressed to the session by name.
+
+**Nothing turns itself off.** `automation.buildOnWriteMaxSeconds` exists for a repository that decides the
+trade is no longer worth paying on every edit; it is unset by default, it never applies to a build somebody
+typed, and when it does skip one it says the site is now older than the markdown. A derived surface that
+quietly stopped refreshing is the failure this tool exists to detect — not one it gets to introduce, however
+expensive the alternative.
+
+**A-68 · The output is committed and the corpus is what git tracks — nobody said so** — **P2 · Medium**
+
+With `output: "docs/_wiki"` committed and `trackedOnly: true`, this tool's own output sits inside the set
+that *defines* its input. A rebuild rewrote 851 tracked files; committing them changed the tracked set; the
+tracked set is what a watcher watches. `exclude` holding `**/_wiki/**` keeps the output's *content* out of
+the index and does nothing about this — the git index is the input here, and a commit necessarily modifies
+it. The symptom is a session that cannot get the directory to hold still, because its own commits keep
+re-triggering the rebuild it is waiting on. Roughly ten minutes of one twenty-minute instruction went on
+exactly that.
+
+It is **named, not forbidden**: committing a generated wiki is how the site gets published from the
+repository, and the tool has no business overruling it. The health report grew a **Setup** section — below
+"Not checked", because these are not gaps but properties of the setup — and states the loop once, from what
+git actually tracks rather than from the config alone.
+
+*The report that prompted this also asked whether the watcher rebuilds on index-only changes. It does not,
+and the question is now settled by a test rather than by inspection: under `trackedOnly` the corpus is
+`git ls-files`, staging an edit to an already-tracked document moves neither the tracked set nor the file's
+mtime, and staging a file that was never tracked genuinely enlarges the corpus — a build the watcher owes
+the user. So "ignore index-only changes" would have been the wrong fix for a problem that is not there.*
+
+*Two things in that report are deliberately not implemented here. **Other plugins' hooks are not atlas's
+business** — three plugins register on the same events, one of them registers its `PostToolUse Bash` hook
+twice, and nothing in atlas can see, order, deduplicate or disable another plugin's registrations. That is
+the host's job, and a tool that started inspecting its neighbours would be wrong in a way that is hard to
+undo. And **`buildOnWrite` keeps its default**: it exists so a derived site is never something a person has
+to remember to regenerate, and thirty-seven seconds of correctness is not obviously worse than an instant
+edit and a site that is quietly three days stale.*
