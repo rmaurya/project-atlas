@@ -86,3 +86,7 @@
 {"at":"2026-08-13T21:17:51.280Z","agent":"main","kind":"progress","text":"work landed on main — now at a2431c2","refs":["main@a2431c2"]}
 {"at":"2026-08-13T21:17:53.879Z","agent":"subagent","kind":"progress","text":"a subagent finished on main at a2431c2","refs":["main@a2431c2"]}
 {"at":"2026-08-14T06:05:10.695Z","agent":"main","kind":"progress","text":"work landed on main — now at af97d24","refs":["main@af97d24"]}
+{"at":"2026-08-14T06:08:57.747Z","agent":"main","kind":"progress","text":"work landed on main — now at 18c6718","refs":["main@18c6718"]}
+{"at":"2026-08-14T06:09:00.237Z","agent":"subagent","kind":"progress","text":"a subagent finished on main at 18c6718","refs":["main@18c6718"]}
+{"at":"2026-08-14T06:14:01.225Z","agent":"subagent","kind":"progress","text":"a subagent finished on main at 18c6718","refs":["main@18c6718"]}
+{"at":"2026-08-16T10:18:52.100Z","agent":"subagent","kind":"progress","text":"a subagent finished on fix/builds-fight-over-one-output-directory at 18c6718","refs":["fix/builds-fight-over-one-output-directory@18c6718"]}

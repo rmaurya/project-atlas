@@ -53,6 +53,41 @@ versions follow [Semantic Versioning](https://semver.org/).
 - `atlas plan` — propose the git route for the working tree and wait for approval, rather than only refusing a
   commit once it is attempted.
 
+## [0.1.77] — 2026-08-16
+
+### Fixed
+- **An out-of-date session restructured the site a current build had just written** (A-66). A session that
+  loaded 0.1.67 kept building with 0.1.67 while the installed plugin and its detached watcher were 0.1.76 —
+  Claude Code reads plugin code once at session start — and the two emit different layouts. Both wrote
+  `docs/_wiki`, so consecutive builds alternated between two structures and one attempted commit captured a
+  mid-wipe state showing **449 files deleted and 203,276 lines removed**, a diff that looks exactly like data
+  loss and is not. The output now records the build that wrote it in `.atlas-build.json`, and a build compares
+  before it deletes anything: **older over newer refuses**, naming both versions, the restart that fixes it
+  and `--allow-downgrade` for whoever means it; **newer over older is an upgrade and is never refused**; an
+  output directory built before this existed is not a conflict, because "some earlier version" is not a
+  direction. Not put on the `build-stamp.txt` line, where it would have been cheapest: that file is a parsed
+  contract in three places and each would have read the version as part of a time.
+- **The automatic rebuild after every markdown write said nothing about costing 36.8 seconds** (A-67). The
+  hook's own comment prices it at *"roughly half a second on a 27-document corpus"*; measured against 411
+  documents it is 36.8 seconds, once per markdown write, and nothing anywhere restated the assumption as the
+  corpus grew. Every build is now timed and says so on its summary line; the automatic one says what it cost
+  on stderr, above five seconds and at most once every thirty minutes per repository. `hooks/on-write.sh` was
+  capturing that output and discarding it on the successful path — every path that matters — and now forwards
+  anything the tool addressed to the session by name.
+- **The loop between committed output and a git-defined corpus was left for each user to rediscover** (A-68).
+  With the output committed and `trackedOnly` on, a rebuild rewrites tracked files, committing them changes
+  the tracked set, and the tracked set is what the watcher watches — so a session that is committing cannot
+  get the directory to hold still. `exclude` does not close it: the git index is the input, and a commit
+  necessarily modifies it. `atlas health` grew a **Setup** section that names the property once, from what git
+  actually tracks. Named, not forbidden — committing a generated wiki is how the site gets published.
+
+### Added
+- **`automation.buildOnWriteMaxSeconds`** (A-67) — skip the automatic rebuild once the last build here cost
+  more than this many seconds. Unset by default, never applied to a build somebody typed, and it says the site
+  is now older than the markdown every time it skips one. `buildOnWrite` keeps its default: a derived site
+  nobody has to remember to regenerate is worth what it costs, and the choice is the user's to make with a
+  number in front of them.
+
 ## [0.1.65] — 2026-08-11
 
 ### Fixed

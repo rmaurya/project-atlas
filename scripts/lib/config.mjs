@@ -313,6 +313,11 @@ export const DEFAULT_CONFIG = {
     healthOnCommit: true,    // refuse a commit that introduces a blocking signal
     specOnCommit: true,      // refuse a shipped change that names no roadmap item
     planOnBranch: true,      // mark an item in progress when a branch is created for it
+    // The one setting here that is not a switch, and it is **unset**, not zero. (A-67) `buildOnWrite` is
+    // right at 27 documents and expensive at 411, where one rebuild was measured at 36.8 seconds; this is
+    // for whoever decides that trade is not worth paying on every edit. Skipping says so every time — a
+    // derived surface that quietly stopped refreshing is the failure this tool exists to detect.
+    buildOnWriteMaxSeconds: null,
   },
 };
 
@@ -432,6 +437,18 @@ export const AUTOMATION_KEYS = {
   planOnBranch: 'mark a plan item in progress when a branch names it',
 };
 
+/**
+ * The settings under `automation` that carry a number rather than a switch. (A-67)
+ *
+ * Held apart from `AUTOMATION_KEYS` rather than mixed into it, because the boolean rule there is load-bearing
+ * in two places: validation refuses a non-boolean, since `"false"` is truthy and a misspelled switch that
+ * fails open is a setting the user believes they turned off; and the master switch is asserted over every key
+ * in that list. A number belongs to neither rule, and folding it in would weaken both for every switch.
+ */
+export const AUTOMATION_NUMBERS = {
+  buildOnWriteMaxSeconds: 'skip the automatic rebuild, loudly, once the last build here cost more than this',
+};
+
 const KNOWN_TONES = new Set(['none', 'mid', 'high', 'done', 'unknown']);
 
 function validate(cfg, configPath = null) {
@@ -508,8 +525,16 @@ function validate(cfg, configPath = null) {
   // So an unknown key is refused, and a non-boolean is refused rather than coerced: `"false"` is truthy.
   if (T.object(cfg.automation)) {
     for (const [k, v] of Object.entries(cfg.automation)) {
-      if (!(k in AUTOMATION_KEYS)) {
-        problems.push(`unknown key ${JSON.stringify(`automation.${k}`)}${at} — known switches: ${Object.keys(AUTOMATION_KEYS).join(', ')}`);
+      if (k in AUTOMATION_NUMBERS) {
+        // Null is the default and means "no budget". A negative or non-numeric budget is refused rather than
+        // clamped: a build budget of "10" would compare a string against milliseconds and never fire, which
+        // is a setting that silently does nothing — the same failure the switches above are guarded against.
+        if (v !== null && !T.nonNegativeNumber(v)) {
+          problems.push(`automation.${k} is ${show(v)}${at} — it must be a number of seconds, or null for no budget.`);
+        }
+      } else if (!(k in AUTOMATION_KEYS)) {
+        problems.push(`unknown key ${JSON.stringify(`automation.${k}`)}${at} — known switches: ${Object.keys(AUTOMATION_KEYS).join(', ')}` +
+          `; known settings: ${Object.keys(AUTOMATION_NUMBERS).join(', ')}`);
       } else if (typeof v !== 'boolean') {
         problems.push(`automation.${k} is ${show(v)}${at} — it must be true or false. A string is always truthy, so "false" would leave it on.`);
       }

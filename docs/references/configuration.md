@@ -306,6 +306,7 @@ produced 3.3 MB. Documents past the limit are **counted and reported**, never si
 | `automation.healthOnCommit` | `true` | Refuse a commit that would land a **blocking** signal |
 | `automation.specOnCommit` | `true` | Ask a shipped change to name the plan item it advances — **warns**, never refuses |
 | `automation.planOnBranch` | `true` | Mark a plan item in progress when a branch or a commit names it |
+| `automation.buildOnWriteMaxSeconds` | `null` | Skip the automatic rebuild — loudly — once the last build here cost more than this |
 
 **Only one of these refuses.** A blocking signal is a claim that the repository is wrong — a dead link, two
 documents claiming one title, a file with no `# ` heading — and there is no legitimate exception to weigh. The
@@ -330,6 +331,26 @@ safety check you never mentioned.
 
 **A misspelled switch is refused, not ignored**, and so is a non-boolean. `"false"` is a truthy string, and a
 switch that fails open is worse than no switch — you believe you turned it off and it is still running.
+`buildOnWriteMaxSeconds` is the one setting here that carries a number rather than a switch, and it is checked
+as one: a budget of `"10"` would compare a string against milliseconds and never fire, which is the same
+failure written a different way.
+
+### What the rebuild costs, and the number you need to decide
+
+`buildOnWrite` is right at 27 documents and expensive at 411. Measured on 2026-08-16 against a corpus of 411
+documents, 76,853 lines, 458 links and 2,045 citations, **one rebuild took 36.8 seconds** — and one runs after
+every markdown write. So every build now prints how long it took, and the automatic one repeats that on stderr
+when it is above five seconds, at most once every thirty minutes per repository. The number is the argument;
+this file will not make the trade for you.
+
+```json
+{ "automation": { "buildOnWriteMaxSeconds": 10 } }
+```
+
+A skipped rebuild **says so, every time, and says the site is now older than the markdown**. Nothing here ever
+turns itself off quietly: a derived surface that stopped refreshing without saying anything is the exact
+failure this tool exists to detect. A build you typed is never skipped — you have already decided to wait for
+it. And with nothing measured yet, nothing is skipped: "not measured" is not "expensive".
 
 Both are inert in a repository with no config file at all. The plugin is installed for your user, not for one
 project; without that rule, editing any markdown anywhere would generate a `docs/_wiki` nobody asked for, and

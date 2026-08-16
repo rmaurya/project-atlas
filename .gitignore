@@ -30,5 +30,9 @@ docs/_wiki/
 # machine, so committing it would put someone else's checkout location in everybody's diff.
 .atlas/build.owner.json
 
+# What the last build cost, so the automatic one can say so before it becomes a complaint. A measurement of
+# one machine on one afternoon — churn, not record, and a number that would differ in every clone.
+.atlas/build.cost.json
+
 # Session state for `atlas pause`/`resume` — carries agent labels, never prompts. Machine-local.
 .atlas/parked.json

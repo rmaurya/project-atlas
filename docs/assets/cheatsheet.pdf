@@ -13,7 +13,7 @@ endobj
 << /Type /Page /Parent 2 0 R /MediaBox [0 0 842 595] /Resources << /Font << /F1 7 0 R /F2 8 0 R /F3 9 0 R >> >> /Contents 6 0 R >>
 endobj
 5 0 obj
-<< /Length 11000 >>
+<< /Length 11406 >>
 stream
 1.0000 1.0000 1.0000 rg 0 0 842 595 re f
 q
@@ -164,21 +164,24 @@ BT 0.1098 0.2275 0.2431 rg /F2 7.4 Tf 1 0 0 1 22 138.63 Tm (Aliases) Tj ET
 BT 0.4314 0.4824 0.4745 rg /F3 7.4 Tf 1 0 0 1 56.91 138.63 Tm (capabilities = caps \267 git-insight = git-insights) Tj ET
 BT 0.1098 0.2275 0.2431 rg /F2 7.4 Tf 1 0 0 1 22 121.29 Tm (Flags, on every command) Tj ET
 BT 0.0627 0.0784 0.0745 rg /F3 7.4 Tf 1 0 0 1 22 105.99 Tm (--root <dir>) Tj ET
-BT 0.4314 0.4824 0.4745 rg /F1 7.4 Tf 1 0 0 1 101.2 105.99 Tm (repository root \(default: git toplevel, else cwd\)) Tj ET
+BT 0.4314 0.4824 0.4745 rg /F1 7.4 Tf 1 0 0 1 110.08 105.99 Tm (repository root \(default: git toplevel, else cwd\)) Tj ET
 BT 0.0627 0.0784 0.0745 rg /F3 7.4 Tf 1 0 0 1 22 95.79 Tm (--config <path>) Tj ET
-BT 0.4314 0.4824 0.4745 rg /F1 7.4 Tf 1 0 0 1 101.2 95.79 Tm (config file \(default: <root>/project-atlas.config.json\)) Tj ET
+BT 0.4314 0.4824 0.4745 rg /F1 7.4 Tf 1 0 0 1 110.08 95.79 Tm (config file \(default: <root>/project-atlas.config.json\)) Tj ET
 BT 0.0627 0.0784 0.0745 rg /F3 7.4 Tf 1 0 0 1 22 85.59 Tm (--verbose[=all]) Tj ET
-BT 0.4314 0.4824 0.4745 rg /F1 7.4 Tf 1 0 0 1 101.2 85.59 Tm (list findings, not just counts) Tj ET
+BT 0.4314 0.4824 0.4745 rg /F1 7.4 Tf 1 0 0 1 110.08 85.59 Tm (list findings, not just counts) Tj ET
 BT 0.0627 0.0784 0.0745 rg /F3 7.4 Tf 1 0 0 1 22 75.39 Tm (--json) Tj ET
-BT 0.4314 0.4824 0.4745 rg /F1 7.4 Tf 1 0 0 1 101.2 75.39 Tm (machine-readable output) Tj ET
-BT 0.0627 0.0784 0.0745 rg /F3 7.4 Tf 1 0 0 1 421 105.99 Tm (--no-git) Tj ET
-BT 0.4314 0.4824 0.4745 rg /F1 7.4 Tf 1 0 0 1 500.2 105.99 Tm (skip git metadata; staleness is reported as unchecked rather than guessed) Tj ET
-BT 0.0627 0.0784 0.0745 rg /F3 7.4 Tf 1 0 0 1 421 95.79 Tm (--offline) Tj ET
-BT 0.4314 0.4824 0.4745 rg /F1 7.4 Tf 1 0 0 1 500.2 95.79 Tm (skip the capability probe; assume features exist and say so) Tj ET
-BT 0.0627 0.0784 0.0745 rg /F3 7.4 Tf 1 0 0 1 421 85.59 Tm (--quiet) Tj ET
-BT 0.4314 0.4824 0.4745 rg /F1 7.4 Tf 1 0 0 1 500.2 85.59 Tm (suppress progress output) Tj ET
-BT 0.0627 0.0784 0.0745 rg /F3 7.4 Tf 1 0 0 1 421 75.39 Tm (--force) Tj ET
-BT 0.4314 0.4824 0.4745 rg /F1 7.4 Tf 1 0 0 1 500.2 75.39 Tm (\(init\) overwrite an existing config) Tj ET
+BT 0.4314 0.4824 0.4745 rg /F1 7.4 Tf 1 0 0 1 110.08 75.39 Tm (machine-readable output) Tj ET
+BT 0.0627 0.0784 0.0745 rg /F3 7.4 Tf 1 0 0 1 22 65.19 Tm (--no-git) Tj ET
+BT 0.4314 0.4824 0.4745 rg /F1 7.4 Tf 1 0 0 1 110.08 65.19 Tm (skip git metadata; staleness is reported as unchecked rather than guessed) Tj ET
+BT 0.0627 0.0784 0.0745 rg /F3 7.4 Tf 1 0 0 1 421 105.99 Tm (--offline) Tj ET
+BT 0.4314 0.4824 0.4745 rg /F1 7.4 Tf 1 0 0 1 509.08 105.99 Tm (skip the capability probe; assume features exist and say so) Tj ET
+BT 0.0627 0.0784 0.0745 rg /F3 7.4 Tf 1 0 0 1 421 95.79 Tm (--quiet) Tj ET
+BT 0.4314 0.4824 0.4745 rg /F1 7.4 Tf 1 0 0 1 509.08 95.79 Tm (suppress progress output) Tj ET
+BT 0.0627 0.0784 0.0745 rg /F3 7.4 Tf 1 0 0 1 421 85.59 Tm (--force) Tj ET
+BT 0.4314 0.4824 0.4745 rg /F1 7.4 Tf 1 0 0 1 509.08 85.59 Tm (\(init\) overwrite an existing config) Tj ET
+BT 0.0627 0.0784 0.0745 rg /F3 7.4 Tf 1 0 0 1 421 75.39 Tm (--allow-downgrade) Tj ET
+BT 0.4314 0.4824 0.4745 rg /F1 7.4 Tf 1 0 0 1 509.08 75.39 Tm (\(build\) rewrite output that a NEWER build wrote \227 refused by default, because an older) Tj ET
+BT 0.4314 0.4824 0.4745 rg /F1 7.4 Tf 1 0 0 1 509.08 65.19 Tm (build restructures the site into its own layout and the diff looks like data loss) Tj ET
 endstream
 endobj
 6 0 obj
@@ -428,12 +431,12 @@ xref
 0000000127 00000 n 
 0000000273 00000 n 
 0000000419 00000 n 
-0000011472 00000 n 
-0000029516 00000 n 
-0000029613 00000 n 
-0000029715 00000 n 
+0000011878 00000 n 
+0000029922 00000 n 
+0000030019 00000 n 
+0000030121 00000 n 
 trailer
 << /Size 10 /Root 1 0 R >>
 startxref
-29810
+30216
 %%EOF

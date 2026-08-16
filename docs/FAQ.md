@@ -126,7 +126,7 @@ reason in front of the model.
 commit past because it failed to evaluate is the failure this project exists to detect.
 
 Turn the health half off with `automation.healthOnCommit: false`; the full switch list is
-`scripts/lib/config.mjs:392-398`. Every hook is inert in a repository with no config file.
+`scripts/lib/config.mjs:397-403`. Every hook is inert in a repository with no config file.
 
 ### Something started a web server I did not ask for. What is it?
 
@@ -281,8 +281,8 @@ MIT governs where the two appear to conflict ([`LICENSE`](../LICENSE)).
 
 One line: `"automation": { "enabled": false }` — the master switch, because a feature that can only be
 disabled key by key is a feature nobody disables. The individual switches are `buildOnWrite`,
-`healthOnCommit`, `specOnCommit` and `planOnBranch` (`scripts/lib/config.mjs:392-398`), and a misspelled key
-is **refused rather than ignored** (`scripts/lib/config.mjs:472-479`), because a typo that fails open leaves
+`healthOnCommit`, `specOnCommit` and `planOnBranch` (`scripts/lib/config.mjs:397-403`), and a misspelled key
+is **refused rather than ignored** (`scripts/lib/config.mjs:489-496`), because a typo that fails open leaves
 you believing you turned something off. The two environment switches are `ATLAS_SERVE=0` and
 `ATLAS_UPDATE_CHECK=0`.
 

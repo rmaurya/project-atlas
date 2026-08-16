@@ -10,7 +10,7 @@ node tests/run.mjs               # the whole suite
 node tests/run.mjs --filter H6   # a subset, matched against test names
 ```
 
-76 integration tests. They build real git repositories in a temp directory and run the real pipeline — there
+628 integration tests. They build real git repositories in a temp directory and run the real pipeline — there
 are **no mocks**, because the bugs this tool has actually shipped were all in the seams between the code and
 git, and a mock would have hidden every one of them.
 

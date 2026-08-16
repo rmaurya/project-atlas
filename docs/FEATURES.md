@@ -65,51 +65,51 @@ while this page said thirty-two commands, and nothing noticed.
 
 | Command | What it does | Dispatch | Slash | Status |
 |---|---|---|---|---|
-| `atlas help` | Print the command list. Also the default when no command is given. | `scripts/atlas.mjs:340` | `/atlas:help` | shipped |
-| `atlas version` | Which build is executing, where it lives, what is registered, whether it is behind. | `scripts/atlas.mjs:343` | `/atlas:version` | shipped |
-| `atlas version --notice` | One line for a `SessionStart` hook, silent when current. | `scripts/atlas.mjs:343`, the `flag('notice')` branch | — | shipped |
-| `atlas init` | Write `project-atlas.config.json` from a probe of the repository's layout. | `scripts/atlas.mjs:376` | — | shipped |
-| `atlas scan` | Build the corpus index and summarise it. `--json` emits the model without document bodies. | `scripts/atlas.mjs:462` | `/atlas:status` | shipped |
-| `atlas tasks [filter]` | The planning document as progress bars, grouped by track. | `scripts/atlas.mjs:476` | `/atlas:tasks` | shipped |
-| `atlas branch [type slug]` | Report branch safety, or create `type/short-slug` carrying uncommitted work. | `scripts/atlas.mjs:493` | `/atlas:branch`, `/atlas:git-branch`, `/atlas:git-status` | shipped |
-| `atlas contention [branch…]` | What a fan-out will collide on: files more than one branch touches, plan-item ids more than one branch defines, and the next free id. `--base REF`. Exit 1 on a duplicate id only. | `scripts/atlas.mjs:541` | — | shipped |
-| `atlas caps` (alias `capabilities`) | Probe which host features are on. Makes a network request, and says so. | `scripts/atlas.mjs:557` | `/atlas:caps` | shipped |
-| `atlas community [--write]` | Generate issue/PR/Discussions scaffolding for the features the host supports. | `scripts/atlas.mjs:565` | `/atlas:community` | shipped |
-| `atlas note <kind> "<text>"` | Append one record to the continuity journal. **The only writing slash command.** | `scripts/atlas.mjs:599` | `/atlas:note` | shipped |
-| `atlas state` | What a resuming session reads first: branch, uncommitted work, journal. | `scripts/atlas.mjs:630` | `/atlas:state` | shipped |
-| `atlas design [--scaffold]` | The design record's state; `--scaffold` writes question stubs, never answers. | `scripts/atlas.mjs:659` | `/atlas:design` | shipped |
-| `atlas ask <task>` | One structured JSON answer with a meaningful exit code. Takes a **task id**. | `scripts/atlas.mjs:716` | `/atlas:ask` | shipped |
-| `atlas ask <question>` | The documents worth reading, for a person. Anything that is not a task id takes this path. | `scripts/atlas.mjs:716`, `scripts/atlas.mjs:827` | `/atlas:ask` | shipped |
-| `atlas mcp` | Serve the corpus over MCP on stdio. `--status` reports what a client would connect to. | `scripts/atlas.mjs:774` | `/atlas:mcp` | shipped |
-| `atlas handoff` | The derived half of a handoff, printed as a prompt. Writes no file. | `scripts/atlas.mjs:786` | `/atlas:handoff` | shipped |
-| `atlas changes` | Uncommitted work, branch-local work, and the documents that cite the files touched. | `scripts/atlas.mjs:802` | `/atlas:changes`, `/atlas:review`, `/atlas:git-status` | shipped |
-| `atlas config` | The merged configuration — user overrides shown against the defaults. | `scripts/atlas.mjs:814` | `/atlas:config` | shipped |
-| `atlas plan [slug]` | Propose the git route for work in progress. `--apply` creates the branch and nothing else. | `scripts/atlas.mjs:874` | `/atlas:plan` | shipped |
-| `atlas surviving` | Surviving lines per file, by author. | `scripts/atlas.mjs:909` | `/atlas:surviving` | shipped |
-| `atlas ownership` | Areas by author, and where the bus factor is one. | `scripts/atlas.mjs:916` | `/atlas:ownership`, `/atlas:git-hotspots` | shipped |
-| `atlas worklog` | Write the day's log to `worklog/`. `--stdout` prints instead. | `scripts/atlas.mjs:933` | `/atlas:worklog` (via `--stdout`) | shipped |
-| `atlas diff [file]` | One file's diff; with no path, lists what there is to ask about. | `scripts/atlas.mjs:951` | `/atlas:diff`, `/atlas:git-diff` | shipped |
-| `atlas tokens` | Token accounting from local session transcripts. | `scripts/atlas.mjs:986` | `/atlas:tokens` | shipped |
-| `atlas sessions` | Session outcomes — turns, interruptions, compactions, tool friction, rework. | `scripts/atlas.mjs:1030` | `/atlas:sessions` | shipped |
-| `atlas prompt` | A system prompt assembled from this repository's own config, plan and corpus. | `scripts/atlas.mjs:1046` | `/atlas:prompt` | shipped |
-| `atlas contrib` | Contribution analysis from `git log` alone. | `scripts/atlas.mjs:1066` | `/atlas:contrib` | shipped |
-| `atlas git-insights [section]` (alias `git-insight`) | What git history says that nothing else here reads: hotspots, coupling, branches, cadence, hygiene, change. Read-only. | `scripts/atlas.mjs:1092` | `/atlas:git-insights`, `/atlas:git-hotspots`, `/atlas:git-history`, `/atlas:git-branch`, `/atlas:git-diff`, `/atlas:git-status` | shipped |
-| `atlas git-tree` | Branch topology: what was cut from what, where each split off, what has gone back. Every origin is inferred from the commit graph and marked as such — git records no parent for a branch. Read-only. | `scripts/atlas.mjs:1129` | `/atlas:git-tree` | shipped |
-| `atlas spec --gate` | Commit gate: refuse a staged change whose message names no plan item. | `scripts/atlas.mjs:1146` | — | shipped |
-| `atlas health --gate` | Commit gate: refuse a commit that would land a blocking signal. | `scripts/atlas.mjs:1176` | — | shipped |
-| `atlas health` | The rot report. Exit 1 when any blocking signal fires. | `scripts/atlas.mjs:1176` | `/atlas:health` | shipped |
-| `atlas build` | Generate the static site. `--verify` audits what was just written. | `scripts/atlas.mjs:1206` | `/atlas:build` | shipped |
-| `atlas all` | `scan` + `health` + `build`; exit 1 if blocking. | `scripts/atlas.mjs:1206`, `scripts/atlas.mjs:1206` | — | shipped |
-| `atlas publish --target wiki\|pages\|export` | Stage a publish target. Nothing pushes without `--push`. | `scripts/atlas.mjs:1225` | `/atlas:publish` | shipped |
-| `atlas pause [--dry-run]` | Checkpoint every agent worktree to a `wip/agent-*` ref and record the session. | `scripts/atlas.mjs:1322`, `scripts/atlas.mjs:1322` | `/atlas:pause` | shipped |
-| `atlas resume` | The re-spawn plan for a paused session — branch, worktree, checkpoint. Writes nothing. | `scripts/atlas.mjs:1322`, `scripts/atlas.mjs:1322` | `/atlas:resume` | shipped |
-| `atlas stop [--force]` | Clear session state and agent worktrees; every branch and checkpoint survives. | `scripts/atlas.mjs:1322` | `/atlas:stop` | shipped |
-| `atlas serve` | Start (or adopt) the live dashboard server and open it. | `scripts/atlas.mjs:1371` | `/atlas:dashboard` | shipped |
-| `atlas serve --stop \| --status \| --list \| --launcher` | Stop it, report it, list every dashboard on the machine, or write a launcher page. | `scripts/atlas.mjs:1371`, then `--stop`, `--status`, `--list`, `--launcher` | `/atlas:dashboard` (`--list`) | shipped |
-| `atlas product [--product DIR] [--deep]` | One page across sibling repositories under a directory that is **not** a repository. Members discovered, unadopted ones stated; written outside every checkout so it can never be committed. | `scripts/atlas.mjs:388` | `/atlas:product` | shipped |
-| `atlas watch [--serve]` | Rebuild on change; `--serve` hosts the output on loopback. | `scripts/atlas.mjs:1705` | — | shipped |
+| `atlas help` | Print the command list. Also the default when no command is given. | `scripts/atlas.mjs:341` | `/atlas:help` | shipped |
+| `atlas version` | Which build is executing, where it lives, what is registered, whether it is behind. | `scripts/atlas.mjs:344` | `/atlas:version` | shipped |
+| `atlas version --notice` | One line for a `SessionStart` hook, silent when current. | `scripts/atlas.mjs:344`, the `flag('notice')` branch | — | shipped |
+| `atlas init` | Write `project-atlas.config.json` from a probe of the repository's layout. | `scripts/atlas.mjs:377` | — | shipped |
+| `atlas scan` | Build the corpus index and summarise it. `--json` emits the model without document bodies. | `scripts/atlas.mjs:463` | `/atlas:status` | shipped |
+| `atlas tasks [filter]` | The planning document as progress bars, grouped by track. | `scripts/atlas.mjs:477` | `/atlas:tasks` | shipped |
+| `atlas branch [type slug]` | Report branch safety, or create `type/short-slug` carrying uncommitted work. | `scripts/atlas.mjs:494` | `/atlas:branch`, `/atlas:git-branch`, `/atlas:git-status` | shipped |
+| `atlas contention [branch…]` | What a fan-out will collide on: files more than one branch touches, plan-item ids more than one branch defines, and the next free id. `--base REF`. Exit 1 on a duplicate id only. | `scripts/atlas.mjs:542` | — | shipped |
+| `atlas caps` (alias `capabilities`) | Probe which host features are on. Makes a network request, and says so. | `scripts/atlas.mjs:558` | `/atlas:caps` | shipped |
+| `atlas community [--write]` | Generate issue/PR/Discussions scaffolding for the features the host supports. | `scripts/atlas.mjs:566` | `/atlas:community` | shipped |
+| `atlas note <kind> "<text>"` | Append one record to the continuity journal. **The only writing slash command.** | `scripts/atlas.mjs:600` | `/atlas:note` | shipped |
+| `atlas state` | What a resuming session reads first: branch, uncommitted work, journal. | `scripts/atlas.mjs:631` | `/atlas:state` | shipped |
+| `atlas design [--scaffold]` | The design record's state; `--scaffold` writes question stubs, never answers. | `scripts/atlas.mjs:660` | `/atlas:design` | shipped |
+| `atlas ask <task>` | One structured JSON answer with a meaningful exit code. Takes a **task id**. | `scripts/atlas.mjs:717` | `/atlas:ask` | shipped |
+| `atlas ask <question>` | The documents worth reading, for a person. Anything that is not a task id takes this path. | `scripts/atlas.mjs:717`, `scripts/atlas.mjs:720` | `/atlas:ask` | shipped |
+| `atlas mcp` | Serve the corpus over MCP on stdio. `--status` reports what a client would connect to. | `scripts/atlas.mjs:775` | `/atlas:mcp` | shipped |
+| `atlas handoff` | The derived half of a handoff, printed as a prompt. Writes no file. | `scripts/atlas.mjs:787` | `/atlas:handoff` | shipped |
+| `atlas changes` | Uncommitted work, branch-local work, and the documents that cite the files touched. | `scripts/atlas.mjs:803` | `/atlas:changes`, `/atlas:review`, `/atlas:git-status` | shipped |
+| `atlas config` | The merged configuration — user overrides shown against the defaults. | `scripts/atlas.mjs:815` | `/atlas:config` | shipped |
+| `atlas plan [slug]` | Propose the git route for work in progress. `--apply` creates the branch and nothing else. | `scripts/atlas.mjs:875` | `/atlas:plan` | shipped |
+| `atlas surviving` | Surviving lines per file, by author. | `scripts/atlas.mjs:910` | `/atlas:surviving` | shipped |
+| `atlas ownership` | Areas by author, and where the bus factor is one. | `scripts/atlas.mjs:917` | `/atlas:ownership`, `/atlas:git-hotspots` | shipped |
+| `atlas worklog` | Write the day's log to `worklog/`. `--stdout` prints instead. | `scripts/atlas.mjs:934` | `/atlas:worklog` (via `--stdout`) | shipped |
+| `atlas diff [file]` | One file's diff; with no path, lists what there is to ask about. | `scripts/atlas.mjs:952` | `/atlas:diff`, `/atlas:git-diff` | shipped |
+| `atlas tokens` | Token accounting from local session transcripts. | `scripts/atlas.mjs:987` | `/atlas:tokens` | shipped |
+| `atlas sessions` | Session outcomes — turns, interruptions, compactions, tool friction, rework. | `scripts/atlas.mjs:1031` | `/atlas:sessions` | shipped |
+| `atlas prompt` | A system prompt assembled from this repository's own config, plan and corpus. | `scripts/atlas.mjs:1047` | `/atlas:prompt` | shipped |
+| `atlas contrib` | Contribution analysis from `git log` alone. | `scripts/atlas.mjs:1067` | `/atlas:contrib` | shipped |
+| `atlas git-insights [section]` (alias `git-insight`) | What git history says that nothing else here reads: hotspots, coupling, branches, cadence, hygiene, change. Read-only. | `scripts/atlas.mjs:1093` | `/atlas:git-insights`, `/atlas:git-hotspots`, `/atlas:git-history`, `/atlas:git-branch`, `/atlas:git-diff`, `/atlas:git-status` | shipped |
+| `atlas git-tree` | Branch topology: what was cut from what, where each split off, what has gone back. Every origin is inferred from the commit graph and marked as such — git records no parent for a branch. Read-only. | `scripts/atlas.mjs:1130` | `/atlas:git-tree` | shipped |
+| `atlas spec --gate` | Commit gate: refuse a staged change whose message names no plan item. | `scripts/atlas.mjs:1147` | — | shipped |
+| `atlas health --gate` | Commit gate: refuse a commit that would land a blocking signal. | `scripts/atlas.mjs:1177` | — | shipped |
+| `atlas health` | The rot report. Exit 1 when any blocking signal fires. | `scripts/atlas.mjs:1177` | `/atlas:health` | shipped |
+| `atlas build` | Generate the static site. `--verify` audits what was just written. | `scripts/atlas.mjs:1207` | `/atlas:build` | shipped |
+| `atlas all` | `scan` + `health` + `build`; exit 1 if blocking. | `scripts/atlas.mjs:1207`, `scripts/atlas.mjs:1244` | — | shipped |
+| `atlas publish --target wiki\|pages\|export` | Stage a publish target. Nothing pushes without `--push`. | `scripts/atlas.mjs:1248` | `/atlas:publish` | shipped |
+| `atlas pause [--dry-run]` | Checkpoint every agent worktree to a `wip/agent-*` ref and record the session. | `scripts/atlas.mjs:1345`, `scripts/atlas.mjs:1347` | `/atlas:pause` | shipped |
+| `atlas resume` | The re-spawn plan for a paused session — branch, worktree, checkpoint. Writes nothing. | `scripts/atlas.mjs:1345`, `scripts/atlas.mjs:1359` | `/atlas:resume` | shipped |
+| `atlas stop [--force]` | Clear session state and agent worktrees; every branch and checkpoint survives. | `scripts/atlas.mjs:1345` | `/atlas:stop` | shipped |
+| `atlas serve` | Start (or adopt) the live dashboard server and open it. | `scripts/atlas.mjs:1394` | `/atlas:dashboard` | shipped |
+| `atlas serve --stop \| --status \| --list \| --launcher` | Stop it, report it, list every dashboard on the machine, or write a launcher page. | `scripts/atlas.mjs:1394`, then `--stop`, `--status`, `--list`, `--launcher` | `/atlas:dashboard` (`--list`) | shipped |
+| `atlas product [--product DIR] [--deep]` | One page across sibling repositories under a directory that is **not** a repository. Members discovered, unadopted ones stated; written outside every checkout so it can never be committed. | `scripts/atlas.mjs:389` | `/atlas:product` | shipped |
+| `atlas watch [--serve]` | Rebuild on change; `--serve` hosts the output on loopback. | `scripts/atlas.mjs:1728` | — | shipped |
 
-An unrecognised command prints the usage block and exits 2 (`scripts/atlas.mjs:1691`).
+An unrecognised command prints the usage block and exits 2 (`scripts/atlas.mjs:1714`).
 
 ### `usage()` is a complete inventory, and that is now enforced
 
@@ -117,7 +117,7 @@ This section used to say the opposite. It named nine commands — `tasks`, `conf
 `ownership`, `worklog`, `serve`, `capabilities` and `spec --gate` — as dispatching but missing from
 `usage()`, and told the reader not to trust the block `atlas help` prints. **A-35 closed that**, and
 `tests/run.mjs` now asserts it in both directions: every `if (cmd === …)` must appear in `usage()`
-(`scripts/atlas.mjs:2094`), and `usage()` may not name a command the CLI would answer with "Unknown
+(`scripts/atlas.mjs:2139`), and `usage()` may not name a command the CLI would answer with "Unknown
 command". Aliases are mentioned in an alias block rather than given a line of their own.
 
 Leaving the old paragraph up was the more expensive error of the two. A stale "this list is incomplete" tells
@@ -128,18 +128,19 @@ inside the page.
 
 | Flag | Effect | Where |
 |---|---|---|
-| `--root <dir>` | Repository root; default is the git toplevel, else `cwd`. | `scripts/atlas.mjs:113` |
-| `--config <path>` | Config file to read. | `scripts/atlas.mjs:374` |
-| `--json` | Machine-readable output, on the commands that support it. | e.g. `scripts/atlas.mjs:464` |
-| `--verbose[=all]` | List findings rather than counts. | `scripts/atlas.mjs:1160` |
-| `--no-git` | Skip git metadata; H6 is then reported as unevaluated, and H16 with it. | `scripts/atlas.mjs:460`, `scripts/lib/health.mjs:542` |
-| `--offline` | Skip the capability probe and say so. | `scripts/atlas.mjs:551` |
-| `--quiet` | Suppress progress output. | `scripts/atlas.mjs:108` |
-| `--no-color` | Disable ANSI colour. | `scripts/atlas.mjs:110` |
+| `--root <dir>` | Repository root; default is the git toplevel, else `cwd`. | `scripts/atlas.mjs:114` |
+| `--config <path>` | Config file to read. | `scripts/atlas.mjs:375` |
+| `--json` | Machine-readable output, on the commands that support it. | e.g. `scripts/atlas.mjs:465` |
+| `--verbose[=all]` | List findings rather than counts. | `scripts/atlas.mjs:1161` |
+| `--no-git` | Skip git metadata; H6 is then reported as unevaluated, and H16 with it. | `scripts/atlas.mjs:461`, `scripts/lib/health.mjs:542` |
+| `--offline` | Skip the capability probe and say so. | `scripts/atlas.mjs:552` |
+| `--quiet` | Suppress progress output. | `scripts/atlas.mjs:109` |
+| `--no-color` | Disable ANSI colour. | `scripts/atlas.mjs:111` |
+| `--allow-downgrade` | (build) Rewrite output a **newer** build wrote. Refused by default — an older build restructures the site into its own layout. | `scripts/atlas.mjs:2047`, `scripts/lib/render.mjs:242` |
 
 Flags written with a space consume the next argument only if they are in `VALUE_FLAGS`
-(`scripts/atlas.mjs:84`); everything else is boolean, so a positional after a boolean flag stays positional
-(`scripts/atlas.mjs:97`).
+(`scripts/atlas.mjs:85`); everything else is boolean, so a positional after a boolean flag stays positional
+(`scripts/atlas.mjs:98`).
 
 ---
 
@@ -188,12 +189,12 @@ either list is empty the report says so under *Not checked* rather than reportin
 
 **Signals that could not run are never reported as passing.** A signal whose configured regular expression was
 declined, or whose input could not be read, is added to `unevaluated` (`scripts/lib/health.mjs:392`) and
-rendered as `—` rather than green (`scripts/lib/health.mjs:629-631`). H16 declares itself unevaluated when
+rendered as `—` rather than green (`scripts/lib/health.mjs:673-675`). H16 declares itself unevaluated when
 `git ls-files` fails (`scripts/lib/health.mjs:542`), and H17 when there is no transcript to read
 (`scripts/lib/health.mjs:557`).
 
 **Suppressions carry a reason.** `suppressionFor` marks a finding suppressed rather than deleting it
-(`scripts/lib/health.mjs:295-296`), and the count is reported (`scripts/lib/health.mjs:642`).
+(`scripts/lib/health.mjs:295-296`), and the count is reported (`scripts/lib/health.mjs:686`).
 
 ---
 
@@ -303,7 +304,7 @@ other four doors and returning a document unchanged.
 This section used to read *"`/atlas:ask` is currently broken — defect"*, and it is not. M-2 gave two
 features one command name and the question path lost; the fix routes on the **argument** rather than on the
 handler order, and the test is exact rather than heuristic — a known task id is a program's call, anything
-else is a person's question (`scripts/atlas.mjs:621`).
+else is a person's question (`scripts/atlas.mjs:622`).
 
 ```
 $ ./bin/atlas ask "what is the taxonomy"
@@ -314,7 +315,7 @@ $ echo $?
 ```
 
 Run against this tree on 2026-08-13. `atlas ask atlas_health` still takes the structured path
-(`scripts/atlas.mjs:710`) and still carries the 0/1/2 exit codes. The README described the command **working**
+(`scripts/atlas.mjs:711`) and still carries the 0/1/2 exit codes. The README described the command **working**
 in its command table and **broken** in its install section, two hundred lines apart, and linked here for the
 detail — a document contradicting itself and citing this page as the authority for the wrong half. That is
 what made removing the claim the right move rather than merely dating it.
@@ -347,17 +348,24 @@ wired to eight entries across six events", and dates its own correction. Re-chec
 
 ### Automation switches
 
-Four switches, all defaulting to on, plus a master switch (`scripts/lib/config.mjs:269-281`), resolved
-through one function (`scripts/lib/config.mjs:385-389`) and validated against a known-key list so a
-misspelling is refused rather than failing open (`scripts/lib/config.mjs:392-398`, `scripts/lib/config.mjs:474-479`).
+Four switches, all defaulting to on, plus a master switch (`scripts/lib/config.mjs:304-321`), resolved
+through one function (`scripts/lib/config.mjs:425-429`) and validated against a known-key list so a
+misspelling is refused rather than failing open (`scripts/lib/config.mjs:432-438`, `scripts/lib/config.mjs:526-541`).
 
 | Key | Turns off | Read at |
 |---|---|---|
-| `automation.enabled` | every automatic action below | `scripts/lib/config.mjs:387` |
-| `automation.buildOnWrite` | the rebuild after a markdown write | `scripts/atlas.mjs:1172`, `scripts/atlas.mjs:1955` |
-| `automation.healthOnCommit` | the blocking-signal commit gate | `scripts/atlas.mjs:1140` |
-| `automation.specOnCommit` | the plan-item commit gate | `scripts/atlas.mjs:1107` |
-| `automation.planOnBranch` | marking a plan item in progress at branch creation | `scripts/atlas.mjs:549`, `scripts/atlas.mjs:1124` |
+| `automation.enabled` | every automatic action below | `scripts/lib/config.mjs:427` |
+| `automation.buildOnWrite` | the rebuild after a markdown write | `scripts/atlas.mjs:1212`, `scripts/atlas.mjs:2088` |
+| `automation.healthOnCommit` | the blocking-signal commit gate | `scripts/atlas.mjs:1180` |
+| `automation.specOnCommit` | the plan-item commit gate | `scripts/atlas.mjs:1148` |
+| `automation.planOnBranch` | marking a plan item in progress at branch creation | `scripts/atlas.mjs:512`, `scripts/atlas.mjs:1164` |
+
+One setting there is not a switch. `automation.buildOnWriteMaxSeconds` is unset by default and skips the
+*automatic* rebuild once the last build in this repository cost more than that many seconds — never a build
+somebody typed, and never silently: it says so, and says the site is now older than the markdown
+(`scripts/lib/cost.mjs:97`, `scripts/atlas.mjs:1224`). It is held apart from the switch list rather than mixed
+into it (`scripts/lib/config.mjs:448`), because the boolean rule there is load-bearing twice: validation
+refuses a non-boolean, and the master switch is asserted over every key in that list.
 
 ---
 
@@ -400,10 +408,10 @@ Written by `renderSite` into `output` (default `docs/_wiki`, `scripts/lib/config
 
 **The output directory is cleared and repopulated on every build — but only after the build proves the
 directory is its own to clear.** This page said the first half of that sentence and stopped, which reads as
-an unconditional `rm -rf` and is not what happens. `prepareOutputDir` (`scripts/lib/render.mjs:166`) runs two
-guards before the `rmSync` at `scripts/lib/render.mjs:190`: **containment**, resolved through `realpath` on
+an unconditional `rm -rf` and is not what happens. `prepareOutputDir` (`scripts/lib/render.mjs:231`) runs two
+guards before the `rmSync` at `scripts/lib/render.mjs:270`: **containment**, resolved through `realpath` on
 both sides so a symlinked `output` cannot aim the deletion elsewhere, and **provenance** — a directory
-holding files but none of `BUILD_MARKERS` (`scripts/lib/render.mjs:36`) is refused with a message naming the
+holding files but none of `BUILD_MARKERS` (`scripts/lib/render.mjs:37`) is refused with a message naming the
 config key to change and the exact `rm -rf` to run by hand. `{"output":"."}` removed a repository including
 its `.git` before those existed.
 
@@ -411,15 +419,15 @@ its `.git` before those existed.
 finish here*; nothing answered *did a build start here*, and the gap between the two is the whole duration of
 a build — so a build killed mid-write left the directory populated and unmarked, indistinguishable from
 somebody else's data, and the guard correctly refused forever. A build now stakes `.atlas-build-claim.json`
-(`scripts/lib/render.mjs:58`) into the directory *before* the first generated byte and releases it once the
-markers are down (`scripts/lib/render.mjs:217`). The claim is checked rather than counted: it must name this
-tool and record the output path relative to the repository root (`scripts/lib/render.mjs:95-104`).
+(`scripts/lib/render.mjs:123`) into the directory *before* the first generated byte and releases it once the
+markers are down (`scripts/lib/render.mjs:315`). The claim is checked rather than counted: it must name this
+tool and record the output path relative to the repository root (`scripts/lib/render.mjs:160-169`).
 
 **One build at a time, and the lock is documented nowhere else.** `.atlas/build.lock`
 (`scripts/lib/lock.mjs:37`) serialises builds, because `atlas watch` made overlapping builds the normal case
 and the guard above cannot tell a half-written build from someone's real files. A lock is honoured only while
 its owner is alive and its age is plausible — past sixty seconds (`scripts/lib/lock.mjs:47`) or a dead pid it
-is **stolen, and said to have been stolen** (`scripts/atlas.mjs:1834`), because a lock that can only wedge is
+is **stolen, and said to have been stolen** (`scripts/atlas.mjs:1857`), because a lock that can only wedge is
 the worse failure when the thing it protects is regenerable. A waiter gives up after ten seconds
 (`scripts/lib/lock.mjs:50`). Each acquisition also records *which build* took it, in `.atlas/build.owner.json`
 (`scripts/lib/lock.mjs:44`), which is kept after release: two **different** builds — an installed plugin's
@@ -429,25 +437,26 @@ user's call.
 
 | File | Contents | Written at |
 |---|---|---|
-| `pages/<name>.html` | One page per source document: rendered markdown, table of contents, backlinks, its own findings. | `scripts/lib/render.mjs:186` |
-| `index.html` | Home — corpus figures, health headline, clusters, optional hand-written analysis. | `scripts/lib/render.mjs:258` |
-| `wiki.html` | Every document, grouped by cluster. | `scripts/lib/render.mjs:259` |
+| `pages/<name>.html` | One page per source document: rendered markdown, table of contents, backlinks, its own findings. | `scripts/lib/render.mjs:266` |
+| `index.html` | Home — corpus figures, health headline, clusters, optional hand-written analysis. | `scripts/lib/render.mjs:356` |
+| `wiki.html` | Every document, grouped by cluster. | `scripts/lib/render.mjs:357` |
 | `health.html` | Every signal, blocking and advisory. | `scripts/lib/render.mjs:261` |
-| `dashboard.html` and `view-*.html` | One file per configured view. | `scripts/lib/render.mjs:283`, `scripts/lib/views.mjs:296` |
-| `deck.html` | A browser slide deck, only when a deck source exists. | `scripts/lib/render.mjs:285` |
-| `search-index.js` | The client-side full-text index. | `scripts/lib/render.mjs:250` |
-| `sources.json` | The allowlist `atlas serve` answers source links from — paths only, no content. | `scripts/lib/render.mjs:256` |
-| `atlas.css` | The stylesheet. | `scripts/lib/render.mjs:286` |
-| `.gitattributes` | Marks the tree `linguist-generated`. | `scripts/lib/render.mjs:287` |
-| `README.md` | A note that this directory is derived. | `scripts/lib/render.mjs:288` |
-| `kb/` | The same derived facts as markdown, for an agent with only `Read` and `Grep`. | `scripts/lib/render.mjs:302`, `scripts/lib/kb.mjs:298` |
-| `build-stamp.txt` | Written only with `--stamp` or under `watch`; the page polls it to patch itself, and the footer reads it to say when the site was last built. Absent on a plain `atlas build`, and the footer then says "not recorded" rather than guessing. | `scripts/lib/render.mjs:399`, `scripts/lib/render.mjs:663` |
-| `.atlas-build-claim.json` | Present only while a build is running here, or died here. Deleted on success. | `scripts/lib/render.mjs:128`, `scripts/lib/render.mjs:145` |
-| `all.standalone.html` | The whole site as one file, refreshed after an automated build. | `scripts/atlas.mjs:1957` |
+| `dashboard.html` and `view-*.html` | One file per configured view. | `scripts/lib/render.mjs:381`, `scripts/lib/views.mjs:296` |
+| `deck.html` | A browser slide deck, only when a deck source exists. | `scripts/lib/render.mjs:383` |
+| `search-index.js` | The client-side full-text index. | `scripts/lib/render.mjs:348` |
+| `sources.json` | The allowlist `atlas serve` answers source links from — paths only, no content. | `scripts/lib/render.mjs:354` |
+| `atlas.css` | The stylesheet. | `scripts/lib/render.mjs:384` |
+| `.gitattributes` | Marks the tree `linguist-generated`. | `scripts/lib/render.mjs:385` |
+| `README.md` | A note that this directory is derived. | `scripts/lib/render.mjs:386` |
+| `kb/` | The same derived facts as markdown, for an agent with only `Read` and `Grep`. | `scripts/lib/render.mjs:400`, `scripts/lib/kb.mjs:298` |
+| `build-stamp.txt` | Written only with `--stamp` or under `watch`; the page polls it to patch itself, and the footer reads it to say when the site was last built. Absent on a plain `atlas build`, and the footer then says "not recorded" rather than guessing. | `scripts/lib/render.mjs:497`, `scripts/lib/render.mjs:768` |
+| `.atlas-build-claim.json` | Present only while a build is running here, or died here. Deleted on success. | `scripts/lib/render.mjs:193`, `scripts/lib/render.mjs:210` |
+| `.atlas-build.json` | Which version of this tool wrote the directory. Read before the next build clears it: an **older** build refuses to restructure what a newer one wrote. Two fields, both stable, because this tree is compared byte-for-byte and published as-is. | `scripts/lib/render.mjs:60`, `scripts/lib/render.mjs:502` |
+| `all.standalone.html` | The whole site as one file, refreshed after an automated build. | `scripts/atlas.mjs:1980` |
 
 **The page count a build prints is document pages only.** `pages` is the size of the set of files written in
-the per-document loop (`scripts/lib/render.mjs:180`, `scripts/lib/render.mjs:187`,
-`scripts/lib/render.mjs:319`) — the index, wiki, health, views, deck,
+the per-document loop (`scripts/lib/render.mjs:260`, `scripts/lib/render.mjs:267`,
+`scripts/lib/render.mjs:417`) — the index, wiki, health, views, deck,
 stylesheet and knowledgebase are written but not counted, so the reported figure is always lower than the
 number of files in the directory. No count is quoted here on purpose: the output directory is git-ignored
 (`.gitignore:4`) and rewritten by any session that edits markdown.
@@ -473,7 +482,7 @@ Both figures and both name lists are checked by `tests/run.mjs` against `DEFAULT
 | `export` | One self-contained HTML file; `--page all` bundles every generated page plus the document pages. | `scripts/lib/publish.mjs:957`, `scripts/lib/publish.mjs:561` |
 
 On GitLab, `--target pages --push` refuses and `--ci` writes the `pages` job instead
-(`scripts/atlas.mjs:1238`, `scripts/lib/publish.mjs:436`).
+(`scripts/atlas.mjs:1261`, `scripts/lib/publish.mjs:436`).
 
 ---
 
@@ -488,7 +497,7 @@ here"*, and `docs/ROADMAP.md` carries M-3 at 40%. No orchestrator, session drive
 exists in `scripts/`. `scripts/lib/mcp.mjs:31-34` states the read-only boundary as a construction rather than
 a promise, and `scripts/lib/task.mjs:15-20` states that driving a session is out of scope.
 
-**M-3 is not the only item below 100%.** The plan holds **119 items** at a mean completion of **96.9%**, and
+**M-3 is not the only item below 100%.** The plan holds **122 items** at a mean completion of **97%**, and
 **seven** of them are not at 100% — of which **zero** carry no figure at all and are reported as unknown rather
 than as zero. This paragraph twice claimed a smaller number than was true, most recently *"reports six … mean
 completion 94.4%"* while the real figures were eight and 96.2%, so all four are now read out of this sentence
@@ -518,7 +527,7 @@ rewrote would point at whatever moved into its place, which is the failure this 
 | `README.md`, *Token accounting* (before this change) | *"The only command that reads session transcripts"*. | Same. Fixed in this change. |
 | **`docs/ROADMAP.md:449-451`** | *"`atlas tokens` is the only thing that opens them — rule 1 of `scripts/lib/tokens.mjs`"*, in the H17 entry. | Same retired rule, fourth copy. **Not fixed — `docs/ROADMAP.md` is not owned by this change**, and it is reported here rather than edited. The claim it supports is still true: H17 opens nothing itself and is handed an aggregate. Only *"the only thing"* is not. |
 | `docs/FEATURES.md` §1 and `skills/help/SKILL.md` (before this change) | `usage()` is not a complete inventory; nine named commands dispatch and are missing from it. | A-35 listed all of them and `tests/run.mjs` enforces it in both directions. Telling a reader to distrust correct output is a defect in its own right, and neither page could refute itself. Fixed in this change. |
-| `README.md` and `docs/FEATURES.md` §3 (before this change) | *"`/atlas:ask` is broken"*. | Fixed by M-2's follow-up (`scripts/atlas.mjs:708`). The README said both things in one file. Fixed in this change. |
+| `README.md` and `docs/FEATURES.md` §3 (before this change) | *"`/atlas:ask` is broken"*. | Fixed by M-2's follow-up (`scripts/atlas.mjs:709`). The README said both things in one file. Fixed in this change. |
 | `docs/CAPABILITIES.md`, *Where it stops*, and `docs/FAQ.md`, *Can a program query it* (before A-50) | *"`atlas ask <question>` does not work"* and *"the `/atlas:ask` slash command is currently broken"*, the latter linking to a `FEATURES.md` anchor renamed by the fix. | Both were false when written and stayed up for two more releases. The FAQ's link had been **dead** the whole time, and no signal sees it: H1 resolves the file, never the fragment. Fixed in A-50, and `tests/run.mjs` now fails on any sentence that names a command and calls it broken. |
 | `README.md` and `docs/references/health-signals.md` (before this change) | Nine / sixteen rot signals; three blocking. | Seventeen signals, sixteen of them about the corpus; **five** block (`scripts/lib/config.mjs:245`). Fixed in this change, and now asserted by `tests/run.mjs`. |
 | `README.md`, *Install* (before this change) | `install.sh` *"is 40 lines"*. | 120 lines — and the gap is exactly the part a reader about to pipe it into `sh` would want to have read. Fixed in this change, and asserted. |
@@ -539,7 +548,7 @@ is the only copy of that claim a **user sees at runtime**; it is correct.
 - **The Codex and Antigravity installs were not exercised.** Only the manifests were read.
 - **`atlas tokens` and `atlas sessions` produce machine-local figures.** Both were run against this tree, but
   what they report is one machine's transcripts and proves nothing about another. The dispatch
-  (`scripts/atlas.mjs:869`, `scripts/atlas.mjs:911`) and the refusal to write into the published output
-  directory (`scripts/atlas.mjs:950`, `scripts/atlas.mjs:950`) were read as well as exercised.
+  (`scripts/atlas.mjs:870`, `scripts/atlas.mjs:912`) and the refusal to write into the published output
+  directory (`scripts/atlas.mjs:951`, `scripts/atlas.mjs:951`) were read as well as exercised.
 - **`scripts/lib/kb.mjs` is now tracked**, so the note that used to sit here — a citation resolving against
   the working tree but not `git ls-files` — no longer applies. Confirmed with `git ls-files` on 2026-08-13.
