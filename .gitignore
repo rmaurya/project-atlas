@@ -36,3 +36,10 @@ docs/_wiki/
 
 # Session state for `atlas pause`/`resume` — carries agent labels, never prompts. Machine-local.
 .atlas/parked.json
+
+# Social drafts and their rendered banners — copy written to be pasted into somebody else's editor, plus
+# megabytes of PNG regenerated from the .svg beside each one. Not documentation of the tool, not read by the
+# build, and a second copy of facts that live in README.md and docs/ — so it is kept out of the corpus rather
+# than indexed, suppressed and explained. Re-render with rsvg-convert; the sources live on the machine that
+# drafted them.
+assets/social/
