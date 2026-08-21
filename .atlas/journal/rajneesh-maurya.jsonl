@@ -90,3 +90,6 @@
 {"at":"2026-08-14T06:09:00.237Z","agent":"subagent","kind":"progress","text":"a subagent finished on main at 18c6718","refs":["main@18c6718"]}
 {"at":"2026-08-14T06:14:01.225Z","agent":"subagent","kind":"progress","text":"a subagent finished on main at 18c6718","refs":["main@18c6718"]}
 {"at":"2026-08-16T10:18:52.100Z","agent":"subagent","kind":"progress","text":"a subagent finished on fix/builds-fight-over-one-output-directory at 18c6718","refs":["fix/builds-fight-over-one-output-directory@18c6718"]}
+{"at":"2026-08-16T10:27:18.224Z","agent":"main","kind":"progress","text":"work landed on main — now at 8472eea","refs":["main@8472eea"]}
+{"at":"2026-08-16T10:27:20.840Z","agent":"subagent","kind":"progress","text":"a subagent finished on main at 8472eea","refs":["main@8472eea"]}
+{"at":"2026-08-21T20:13:06.260Z","agent":"subagent","kind":"progress","text":"a subagent finished on main at 8472eea","refs":["main@8472eea"]}
